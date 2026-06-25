@@ -1,0 +1,5 @@
+$kind: http-request
+name: 新建对话
+method: POST
+url: 'http://localhost:8080/api/conversation/create'
+order: 2000

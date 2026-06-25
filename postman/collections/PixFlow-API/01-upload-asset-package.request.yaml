@@ -1,0 +1,11 @@
+$kind: http-request
+name: 上传素材包
+method: POST
+url: 'http://localhost:8080/api/asset/package/upload'
+order: 1000
+body:
+  type: formdata
+  content:
+    - key: zip_file
+      type: file
+      src: 'D:/study/PixFlow/assets/batch_003.zip'

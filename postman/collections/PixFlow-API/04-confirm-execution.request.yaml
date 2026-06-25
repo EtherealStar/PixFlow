@@ -1,0 +1,12 @@
+$kind: http-request
+name: 确认执行
+method: POST
+url: 'http://localhost:8080/api/conversation/{{conversationId}}/confirm'
+order: 4000
+body:
+  type: json
+  content: |-
+    {
+        "packageId": {{packageId}},
+        "dagJson": "{\"nodes\": [{\"id\":\"n1\", \"type\":\"gray\"}]}"
+    }

@@ -1,0 +1,12 @@
+$kind: http-request
+name: '发送消息 (触发 AI 分析)'
+method: POST
+url: 'http://localhost:8080/api/conversation/{{conversationId}}/send'
+order: 3000
+body:
+  type: json
+  content: |-
+    {
+        "content": "请把上传的图片转换成黑白，然后调整尺寸为 800x600",
+        "packageId": {{packageId}}
+    }

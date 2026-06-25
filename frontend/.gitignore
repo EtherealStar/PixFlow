@@ -1,0 +1,13 @@
+node_modules
+dist
+dist-ssr
+*.local
+.vite
+# 忽略所有以 . 开头的文件和文件夹
+.*
+# 但保留 .gitignore 本身 (非常重要)
+!/.gitignore
+
+# 忽略文档
+docs/
+*.md

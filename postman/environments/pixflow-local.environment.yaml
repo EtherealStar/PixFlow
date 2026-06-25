@@ -1,0 +1,10 @@
+name: PixFlow Local
+values:
+  - key: conversationId
+    value: ''
+    enabled: true
+    type: default
+  - key: packageId
+    value: ''
+    enabled: true
+    type: default
