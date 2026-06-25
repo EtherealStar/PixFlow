@@ -23,11 +23,8 @@
 hs_err_pid*
 replay_pid*
 
-# 忽略所有以 . 开头的文件和文件夹
 .*
-# 但保留 .gitignore 本身 (非常重要)
+# 保留 .gitignore 本身 
 !/.gitignore
 
-# 忽略文档
-docs/
-*.md
+
