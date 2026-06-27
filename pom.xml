@@ -25,6 +25,7 @@
         <module>pixflow-infra-mq</module>
         <module>pixflow-infra-ai</module>
         <module>pixflow-infra-image</module>
+        <module>pixflow-infra-thirdparty</module>
         <module>pixflow-app</module>
     </modules>
 
@@ -81,6 +82,11 @@
             <dependency>
                 <groupId>com.pixflow</groupId>
                 <artifactId>pixflow-infra-image</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.pixflow</groupId>
+                <artifactId>pixflow-infra-thirdparty</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
