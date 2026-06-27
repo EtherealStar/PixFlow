@@ -177,8 +177,8 @@ common → permission → tools → loop → agent
 ## 五、任务清单（按波次）
 
 ### Wave 0 — 地基
-- [ ] `common`：统一错误处理、分页、通用响应体、基础工具类
-- [ ] `permission`：权限评估引擎（deny-first）、确认令牌签发与校验、超阈值二次确认规则
+- [x] `common`：统一错误处理、分页、通用响应体、基础工具类
+- [x] `permission`：权限评估引擎（deny-first）、确认令牌签发与校验、超阈值二次确认规则
 
 ### Wave 1 — 基础设施
 - [ ] `infra/storage`：MinIO 抽象（原图/结果/生图/大 tool-result 外置）、桶与路径约定
