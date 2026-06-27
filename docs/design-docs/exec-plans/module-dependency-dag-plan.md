@@ -22,7 +22,7 @@
 
 依赖来源分三类：
 
-1. **分层依赖**：`infra → harness → module → agent`（上层使用下层，反向不成立）。
+1. **分层依赖**：`{common, contracts} → infra/harness → module → agent`（上层使用下层，反向不成立）。`common` 与 `contracts` 同为零依赖地基、彼此独立：`common` 是人人依赖的横切能力，`contracts` 是零依赖叶子（仅 JDK），只为打破 `permission ↔ infra/cache` 的环而存在（见 `module/contracts.md`）。
 2. **横切注入**：harness 六件套被 Execution Loop 编排、被各业务 module 调用。
 3. **功能调用**：Agent 级动作映射到具体业务模块（`recall_memory→memory`、`query_commerce_data→commerce`、`compile_dag→dag`、`submit_dag→task`、`run_vision_subagent→vision`、`run_imagegen_subagent→imagegen`）。
 
@@ -36,6 +36,7 @@
 graph TD
     %% ===== 地基 =====
     common[common 通用]
+    contracts[contracts 共享契约]
     permission[permission 权限硬deny]
 
     %% ===== infra 基础设施 =====
@@ -78,6 +79,8 @@ graph TD
     common --> ai
     common --> image
     common --> permission
+    contracts --> permission
+    contracts --> cache
 
     %% ---- infra 内部 ----
     ai --> thirdparty
@@ -144,8 +147,8 @@ graph TD
 
 | 波次 | 模块 | 依赖说明 |
 |---|---|---|
-| **Wave 0 地基** | `common`、`permission` | permission 仅依赖 common，是硬约束安全边界，越早钉死越好 |
-| **Wave 1 基础设施** | `infra/storage`、`infra/cache`、`infra/mq`、`infra/vector`、`infra/ai`、`infra/image`；随后 `infra/thirdparty` | 多数互相独立可并行；thirdparty 依赖 ai + cache |
+| **Wave 0 地基** | `common`、`contracts` | common 先定错误/响应/脱敏，contracts 先定跨模块纯契约 |
+| **Wave 1 安全边界 + 基础设施** | `permission`、`infra/storage`、`infra/cache`、`infra/mq`、`infra/vector`、`infra/ai`、`infra/image`；随后 `infra/thirdparty` | permission 依赖 common + contracts；多数 infra 模块可并行；thirdparty 依赖 ai + cache |
 | **Wave 2 harness基础 + 基础数据** | `state`、`context`、`hooks`、`eval`；`file`、`commerce`、`memory` | harness 基础件 + 仅依赖 infra 的数据模块，可并行 |
 | **Wave 3 横切组合 + 确定性核心 + 子能力** | `tools`、`session`、`dag`、`vision`、`imagegen` | tools 依赖 permission+hooks+storage+thirdparty；dag 依赖 image+ai+cache+storage |
 | **Wave 4 主循环 + 编排模块** | `loop`、`conversation`、`task` | loop 依赖 tools+hooks+context+permission+eval；task 依赖 mq+cache+dag+storage+state |
@@ -160,17 +163,18 @@ graph TD
 
 ```
 common → infra/ai → dag → task → agent
-common → permission → tools → loop → agent
+contracts → permission → tools → loop → agent
 ```
 
 排序关键决策：
 
-1. **`permission` 前置到 Wave 0**。设计原则三：安全边界是硬约束不是 Prompt 约束；`submit_dag`/生图/重跑的确认令牌靠它硬 deny。仅依赖 common，提前钉死可避免 tools/loop/task 返工。
-2. **`dag` 早于 `task`**。task 是 dag 的异步执行外壳（校验通过才入队、worker 才 fan-out），确定性引擎须先稳定。
-3. **`tools` 早于 `loop`**。loop 单轮流程依赖 Tool Registry 执行管线，否则无可编排。
-4. **`memory`/`commerce` 与 harness 并行（Wave 2）**。它们只依赖 infra，不依赖 harness，可提前为 agent 的 `recall_memory`/`query_commerce_data` 备好。
-5. **`rubrics` 放最后**。它是完全独立的离线阶段，消费 eval trace，不阻塞主链路。
-6. **`vision`/`imagegen` 在 Wave 3 就绪**，但真正被接成 Agent 动作是在 Wave 5；模块本身只要 infra/ai 到位即可独立开发联调。
+1. **`contracts` 前置到 Wave 0**。确认令牌的 token / claims / store SPI 是 `permission` 与 `infra/cache` 的共同契约，必须先稳定，避免二者互相依赖。`contracts` 是零依赖叶子（不依赖 `common`），与 `common` 并列为关键路径的两个起点之一。
+2. **`permission` 前置到 tools/loop 之前**。设计原则三：安全边界是硬约束不是 Prompt 约束；`submit_dag`/生图/重跑的确认令牌靠它硬 deny。
+3. **`dag` 早于 `task`**。task 是 dag 的异步执行外壳（校验通过才入队、worker 才 fan-out），确定性引擎须先稳定。
+4. **`tools` 早于 `loop`**。loop 单轮流程依赖 Tool Registry 执行管线，否则无可编排。
+5. **`memory`/`commerce` 与 harness 并行（Wave 2）**。它们只依赖 infra，不依赖 harness，可提前为 agent 的 `recall_memory`/`query_commerce_data` 备好。
+6. **`rubrics` 放最后**。它是完全独立的离线阶段，消费 eval trace，不阻塞主链路。
+7. **`vision`/`imagegen` 在 Wave 3 就绪**，但真正被接成 Agent 动作是在 Wave 5；模块本身只要 infra/ai 到位即可独立开发联调。
 
 ---
 
@@ -178,14 +182,15 @@ common → permission → tools → loop → agent
 
 ### Wave 0 — 地基
 - [x] `common`：统一错误处理、分页、通用响应体、基础工具类
-- [x] `permission`：权限评估引擎（deny-first）、确认令牌签发与校验、超阈值二次确认规则
+- [x] `contracts`：确认令牌相关纯契约（token/claims/store/enum）
 
-### Wave 1 — 基础设施
-- [ ] `infra/storage`：MinIO 抽象（原图/结果/生图/大 tool-result 外置）、桶与路径约定
-- [ ] `infra/cache`：Redis/Redisson 封装（分布式锁/看门狗、进度计数、信号量、断点缓存键）
-- [ ] `infra/mq`：RabbitMQ 封装（任务队列、DLQ、重试、prefetch）
+### Wave 1 — 安全边界 + 基础设施
+- [x] `permission`：权限评估引擎（deny-first）、确认令牌签发与校验、超阈值二次确认规则
+- [x] `infra/storage`：MinIO 抽象（原图/结果/生图/大 tool-result 外置）、桶与路径约定
+- [x] `infra/cache`：Redis/Redisson 封装（分布式锁/看门狗、进度计数、信号量、断点缓存键、确认令牌 Redis 实现）
+- [x] `infra/mq`：RabbitMQ 封装（任务队列、DLQ、重试、prefetch）
 - [ ] `infra/vector`：Qdrant 封装（collection `analysis_insight`、读写检索）
-- [ ] `infra/ai`：Spring AI + Alibaba 封装（文本/多模态 Qwen-VL/生图 通义万相/嵌入）
+- [x] `infra/ai`：Spring AI + Alibaba 封装（文本/多模态 Qwen-VL/生图 通义万相/嵌入）
 - [ ] `infra/image`：TwelveMonkeys + Thumbnailator + scrimage(WebP)；像素工具执行器骨架
 - [ ] `infra/thirdparty`：抠图 API 客户端 + Resilience4j（重试/熔断/限流/舱壁）
 
@@ -223,8 +228,8 @@ common → permission → tools → loop → agent
 ## 六、一句话顺序总结
 
 ```
-common+permission
-  → infra(storage/cache/mq/vector/ai/image)+thirdparty
+common+contracts
+  → permission + infra(storage/cache/mq/vector/ai/image)+thirdparty
   → (state/context/hooks/eval) + (file/commerce/memory)
   → (tools/session/dag/vision/imagegen)
   → (loop/conversation/task)
