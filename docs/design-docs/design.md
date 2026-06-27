@@ -260,11 +260,17 @@ Prompt 缓存 = 动态组装 + section 级缓存（**不依赖服务商 context 
 |---|---|---|---|
 | **用户偏好画像** | MySQL | 每次对话开始全量召回,置于 Prompt 静态前缀 | 偏好底色、常用水印位置、文案风格、历史确认/拒绝行为 |
 | **SKU 处理历史** | MySQL | 按 SKU_ID 精确召回 | 处理时间、参数、前后电商数据对比、Rubrics 评分变化 |
-| **分析结论记忆** | **Qdrant**(向量) | 语义相似度召回 | 类目级洞察(如「夏季连衣裙白底图转化率高于场景图 30%」),标注来源与置信度 |
+| **分析结论记忆** | **Qdrant(向量) + MySQL(镜像)** | **混合检索 + RRF 融合**（见下） | 类目级洞察(如「夏季连衣裙白底图转化率高于场景图 30%」),标注来源与置信度 |
 
 - 统一检索接口对上层屏蔽底层差异（`recall_memory` 工具按类型路由到 MySQL 或 Qdrant）。
 - 嵌入由 Spring AI EmbeddingModel 生成后写入 Qdrant（embedding 模型由配置定）。
 - Rubrics 评估结果写回各记忆，与对应 SKU 处理历史 / 分析结论绑定。
+
+**分析结论记忆采用 mem0 v3 简化算法**（参考 mem0 v3，取精华、避难点；详见 `module/memory.md` 与 `module/vector.md`）：
+
+- **写入：ADD-only 单次抽取**。turn 结束后**异步**（挂 `AssistantMessageCompleted` Hook）从本轮上下文单次 LLM 抽取原子结论；先取 top-N 近邻当去重上下文 + MD5 精确去重，再批量 embed，**双写** MySQL 镜像（事实源，兼关键词检索源）与 Qdrant 向量（point id = MySQL 行 id）。**不做 UPDATE/DELETE 巩固、不做实体/图记忆**，记忆累积，旧结论过时由召回期 recency tie-break 处理。
+- **召回：向量 + 关键词混合 + RRF**。稠密向量召回（Qdrant，`infra/vector`）∥ 关键词召回（MySQL `analysis_insight.text` 的 FULLTEXT）两路独立召回，按排名做 **RRF 融合**（`k`/topN/threshold 可配），再 recency tie-break 取 topN。**不使用 BM25 稀疏向量**（Java 侧无 fastembed 等价物，规避难点）。
+- 仅「分析结论记忆」走此管线；偏好画像与 SKU 历史维持 MySQL 简单读写。
 
 ---
 
@@ -452,13 +458,15 @@ graph TD
 | `process_result_member` | id, result_id, image_id, view_id | 组支路结果的成员明细(N 张源图),普通支路无此记录 |
 | `user_preference` | id, key, value, updated_at | 用户偏好画像 |
 | `sku_history` | id, sku_id, task_id, params_json, metrics_before, metrics_after, rubrics_score, created_at | SKU 处理历史 |
+| `analysis_insight` | id, text, category, source, confidence, related_sku, content_hash, created_at | 分析结论镜像;`id`=Qdrant point id;`content_hash`=MD5 去重;`text` 建 FULLTEXT 索引供关键词召回 |
 | `commerce_data` | id, sku_id, impressions, ctr, add_cart_rate, purchase_rate, period, created_at | 电商数据 |
 | `rubrics_score` | id, result_id, image_score, copy_score, decision_score, alert, created_at | 评分 |
 | `agent_trace` | id, conversation_id, turn_no, input_json, tool_calls_json, recall_json, prune_log_json, created_at | Evaluation IF |
 
 ### 13.2 Qdrant（向量）
 
-- collection `analysis_insight`：向量 = 结论文本 embedding；payload = {结论文本, 类目, 来源, 置信度, 关联SKU, created_at}。
+- collection `analysis_insight`：向量 = 结论文本 embedding；payload = {结论文本, 类目, 来源, 置信度, 关联SKU, created_at}，与 MySQL `analysis_insight` 镜像表按 `id`（=point id）对齐。
+- 仅承载稠密向量召回这一路；关键词召回走 MySQL `analysis_insight.text` 的 FULLTEXT，RRF 融合在 `module/memory` 应用层完成（不引入 sparse/BM25 向量与实体集合）。
 
 ### 13.3 Redis（键约定）
 

@@ -20,7 +20,8 @@
 - [x] (2026-06-27) 实现消费侧 `ManagedMessageListener`、`ConsumerErrorHandler`、`RetryDecision` 和 retry/DLQ 路由机制；转发成功后才 ack 原消息的顺序已写入实现注释。
 - [x] (2026-06-27) 实现 traceId 发布注入和消费重建，当前实现基于 MDC 的 `traceId`，后续可替换或扩展 Micrometer Tracing span。
 - [x] (2026-06-27) 实现 MQ 指标与错误码，并用单元测试覆盖错误码分类、指标计数、重试 header、拓扑 builder 和 MDC trace 透传。
-- [ ] 使用 Testcontainers RabbitMQ 覆盖拓扑声明、可靠发布、ack-then-process、retry queue、DLQ、trace header 和未知 schemaVersion 行为。
+- [x] (2026-06-27) 新增 Testcontainers RabbitMQ 集成测试入口，覆盖拓扑声明幂等、可靠发布 confirmed/returned、ack-then-process、retry queue TTL 回流、DLQ、trace header 和未知 schemaVersion 行为。
+- [ ] 在 Docker 可用环境实际执行 `RabbitMqIntegrationTest`，确认真实 RabbitMQ broker 行为通过；当前环境没有有效 Docker daemon，测试按 `@Testcontainers(disabledWithoutDocker = true)` 跳过。
 
 ## Surprises & Discoveries
 
@@ -34,6 +35,10 @@
   证据：`mvn test` 输出中 `MinioObjectStorageIntegrationTest` skipped 2，新增 MQ 单元测试和已有测试共 41 个运行、0 失败、2 跳过。
 - 观察：Spring AMQP 的 confirm 与 mandatory return API 能在当前 Spring Boot 3.3.0 依赖下编译通过，但单元测试无法证明 broker 实际 confirm/return 顺序。  
   证据：`mvn -q -DskipTests compile` 与 `mvn test` 均成功；Testcontainers RabbitMQ 验收项仍保持未完成。
+- 观察：当前文档目录已从计划初稿中的 `docs/design-docs/module/mq.md` 与 `docs/design-docs/module/common.md` 迁移到 `docs/design-docs/infra/mq.md` 与 `docs/design-docs/base/common.md`。  
+  证据：`rg --files docs` 显示实际文件位于 `infra/` 和 `base/` 目录；按 AGENTS.md 要求，本次实现读取了迁移后的实际文档。
+- 观察：当前执行环境没有有效 Docker daemon，RabbitMQ Testcontainers 集成测试无法启动真实 broker，但按 JUnit/Testcontainers 条件跳过而非失败。  
+  证据：两次运行 `mvn -pl pixflow-infra-mq -am test` 均 `BUILD SUCCESS`，输出 `RabbitMqIntegrationTest Tests run: 4, Failures: 0, Errors: 0, Skipped: 4`，并报告 `Could not find a valid Docker environment`；第二次已用提升权限重跑，结果一致。
 
 ## Decision Log
 
@@ -64,6 +69,8 @@
 本计划完成后，`infra/mq` 应当成为后续异步能力的稳定边界。`module/task` 只需要声明自己的队列拓扑、发布一个包含 `taskId` 的小消息、实现接管 handler 和错误判定 SPI，就能得到可靠发布、手动 ack、延迟重试、DLQ、traceId 和指标。
 
 2026-06-27 / Codex: 已完成 `com.pixflow.infra.mq` 的核心代码骨架和不依赖外部 broker 的单元契约验证。新增能力包括领域无关发布 API、消息信封、拓扑 builder/registrar、MDC trace header 透传、retry header 集中读写、手动 ack listener 包装、retry/DLQ 转发路径、配置属性、自动装配、MQ 错误码和 Micrometer 指标封装。已运行 `mvn test`，结果为 41 tests run、0 failures、0 errors、2 skipped；跳过项为既有 MinIO 集成测试。仍未完成 Testcontainers RabbitMQ 集成测试，因此真实 broker 的 exchange/queue 声明、publisher confirm/return、TTL 回流、DLQ 入队和未知 schemaVersion 进 DLQ 仍需后续验收。
+
+2026-06-27 / Codex: 已补齐 MQ 真实 broker 验收测试代码与转发确认收紧。`RabbitMqIntegrationTest` 使用 `rabbitmq:3.13-management-alpine` 和 `@Testcontainers(disabledWithoutDocker = true)`，覆盖拓扑幂等声明、publisher confirm/mandatory return、handler 接管后 ack、MDC traceId 跨 MQ 边界恢复、retry queue per-message TTL 回流、DLQ 和未知 schemaVersion 进入 DLQ。`MqAutoConfiguration` 现在显式开启 `CachingConnectionFactory` 的 correlated publisher confirms 与 returns；`ManagedMessageListener` 在 retry/DLQ 转发时等待 broker confirm 成功后才 ack 原消息，并把未知 schemaVersion / 反序列化失败写入准确的 MQ 错误码 header。已运行 `mvn -pl pixflow-infra-mq -am test`，结果为 28 个测试运行、0 失败、0 错误、4 个 RabbitMQ 集成测试因当前 Docker 环境不可用跳过；提升权限重跑结果一致。因此代码入口已具备，真实 RabbitMQ 行为仍需在 Docker 可用环境重新执行该命令确认。
 
 ## Context and Orientation
 

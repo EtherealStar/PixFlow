@@ -18,7 +18,7 @@
 
 ## 一、依赖建模说明
 
-把每个模块当作 DAG 的一个节点，有向边 `A → B` 表示 **「A 依赖 B，B 必须先于 A 设计完成」**。
+把每个模块当作 DAG 的一个节点，有向边 `A → B` 表示 **「B 依赖 A，A 必须先于 B 设计完成」**。在这份文档里，箭头从前置依赖指向后续依赖。
 
 依赖来源分三类：
 
@@ -46,7 +46,7 @@ graph TD
     vector[infra/vector Qdrant]
     ai[infra/ai Spring AI]
     image[infra/image 编解码+像素执行器]
-    thirdparty[infra/thirdparty 抠图API+Resilience4j]
+    thirdparty[infra/thirdparty 非模型第三方集成层]
 
     %% ===== harness 横切层 =====
     state[harness/state 状态存储]
@@ -83,7 +83,6 @@ graph TD
     contracts --> cache
 
     %% ---- infra 内部 ----
-    ai --> thirdparty
     cache --> thirdparty
 
     %% ---- harness 依赖 ----
@@ -95,7 +94,6 @@ graph TD
     permission --> tools
     hooks --> tools
     storage --> tools
-    thirdparty --> tools
     tools --> loop
     hooks --> loop
     context --> loop
@@ -110,6 +108,7 @@ graph TD
     ai --> dag
     cache --> dag
     storage --> dag
+    thirdparty --> dag
     ai --> vision
     tools --> vision
     ai --> imagegen
@@ -148,9 +147,9 @@ graph TD
 | 波次 | 模块 | 依赖说明 |
 |---|---|---|
 | **Wave 0 地基** | `common`、`contracts` | common 先定错误/响应/脱敏，contracts 先定跨模块纯契约 |
-| **Wave 1 安全边界 + 基础设施** | `permission`、`infra/storage`、`infra/cache`、`infra/mq`、`infra/vector`、`infra/ai`、`infra/image`；随后 `infra/thirdparty` | permission 依赖 common + contracts；多数 infra 模块可并行；thirdparty 依赖 ai + cache |
+| **Wave 1 安全边界 + 基础设施** | `permission`、`infra/storage`、`infra/cache`、`infra/mq`、`infra/vector`、`infra/ai`、`infra/image`、`infra/thirdparty` | permission 依赖 common + contracts；多数 infra 模块可并行；thirdparty 依赖 cache，因此要排在 cache 之后实现 |
 | **Wave 2 harness基础 + 基础数据** | `state`、`context`、`hooks`、`eval`；`file`、`commerce`、`memory` | harness 基础件 + 仅依赖 infra 的数据模块，可并行 |
-| **Wave 3 横切组合 + 确定性核心 + 子能力** | `tools`、`session`、`dag`、`vision`、`imagegen` | tools 依赖 permission+hooks+storage+thirdparty；dag 依赖 image+ai+cache+storage |
+| **Wave 3 横切组合 + 确定性核心 + 子能力** | `tools`、`session`、`dag`、`vision`、`imagegen` | tools 依赖 permission+hooks+storage；dag 依赖 image+ai+cache+storage+thirdparty |
 | **Wave 4 主循环 + 编排模块** | `loop`、`conversation`、`task` | loop 依赖 tools+hooks+context+permission+eval；task 依赖 mq+cache+dag+storage+state |
 | **Wave 5 Agent 决策层** | `agent` | 把所有能力接成 Agent 级动作 + Prompt 组装 + 子 Agent runner |
 | **Wave 6 离线闭环 + 端到端** | `rubrics`、前端联调/集成 | rubrics 与主循环解耦，消费 eval trace，可最后做 |
@@ -191,8 +190,8 @@ contracts → permission → tools → loop → agent
 - [x] `infra/mq`：RabbitMQ 封装（任务队列、DLQ、重试、prefetch）
 - [ ] `infra/vector`：Qdrant 封装（collection `analysis_insight`、读写检索）
 - [x] `infra/ai`：Spring AI + Alibaba 封装（文本/多模态 Qwen-VL/生图 通义万相/嵌入）
-- [ ] `infra/image`：TwelveMonkeys + Thumbnailator + scrimage(WebP)；像素工具执行器骨架
-- [ ] `infra/thirdparty`：抠图 API 客户端 + Resilience4j（重试/熔断/限流/舱壁）
+- [x] `infra/image`：TwelveMonkeys + Thumbnailator + scrimage(WebP)；像素工具执行器骨架
+- [x] `infra/thirdparty`：非模型第三方集成层（背景去除能力接口、provider adapter、通用 HTTP 内核、Resilience4j、分布式信号量）
 
 ### Wave 2 — harness 基础 + 基础数据
 - [ ] `harness/state`：MySQL/Redis/MinIO 状态聚合；状态查询接口（轮询/WS 数据源）
@@ -229,10 +228,16 @@ contracts → permission → tools → loop → agent
 
 ```
 common+contracts
-  → permission + infra(storage/cache/mq/vector/ai/image)+thirdparty
+  → permission + infra(storage/cache/mq/vector/ai/image/thirdparty)
   → (state/context/hooks/eval) + (file/commerce/memory)
   → (tools/session/dag/vision/imagegen)
   → (loop/conversation/task)
   → agent
   → rubrics + 前端集成
 ```
+
+## Revision Notes
+
+2026-06-27 / Codex: 统一 `module-dependency-dag-plan.md` 中 thirdparty 的正确说法，修正箭头含义为“前置依赖指向后续依赖”，将 `infra/thirdparty` 的描述从“抠图 API 客户端”改为“非模型第三方集成层”，并同步更新波次表与一句话顺序总结。
+
+2026-06-27 / Codex: 完成 `infra/thirdparty` 模块实现并将 Wave 1 任务清单中的该项标记为完成；验证命令为 `mvn -pl pixflow-infra-thirdparty -am test`。
