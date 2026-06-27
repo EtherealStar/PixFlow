@@ -1,6 +1,6 @@
-# permission —— 确认令牌与硬安全边界（Wave 0 地基）
+# permission —— 确认令牌与硬安全边界（Wave 1 安全边界）
 
-> 本文是 PixFlow 完整重写阶段 `permission` 模块的设计文档，对应 `design.md` 第五章 5.5「Lifecycle Hooks」拦截点表、第六章 6.3「HITL 确认」、设计原则三「安全边界是硬约束，不是 Prompt 约束」，以及 `module-dependency-dag-plan.md` 的 **Wave 0 地基**。
+> 本文是 PixFlow 完整重写阶段 `permission` 模块的设计文档，对应 `design.md` 第五章 5.5「Lifecycle Hooks」拦截点表、第六章 6.3「HITL 确认」、设计原则三「安全边界是硬约束，不是 Prompt 约束」，以及 `module-dependency-dag-plan.md` 的 **Wave 1 安全边界**。
 > 范围：deny-first 权限决策、确认令牌签发与校验、子 Agent 硬约束、工具可见性。本文不涉及 MVP 既有实现（MVP 无鉴权），从新架构需求重新推导。
 > 思路参考 `docs/references/permission-architecture.md`（Python/OneCode），但**仅借鉴 deny-first 骨架与「代码边界不靠 prompt」理念，业务内核完全不同**，全部以 Java 17 + Spring Boot 3 重新设计。
 
@@ -34,7 +34,7 @@
 3. **令牌与 LLM 物理隔离**。确认令牌只在服务端可信上下文中流转，**永不进入** prompt、消息 transcript、工具 schema 或 LLM 可见的 `tool_input`。Agent 看不到、填不了、复读不了令牌。
 4. **Hook allow 不能覆盖权限 deny**。Hook 可观察/改写/软阻断，但其 allow 永远不能翻转权限层的 deny（`hook-architecture.md` 一致约束）。
 5. **三态决策**。区分「正常 HITL 等待确认」与「违规硬拒绝」：前者是 happy path 的暂停（`CONFIRM_REQUIRED`），后者才是错误（`DENY`）。
-6. **契约 Wave 0 定稿，实现可延迟注入**。令牌存储等需要 infra 能力的部分以 SPI 接口暴露，permission 只依赖接口，Redis 实现由 `infra/cache`（Wave 1）注入，保持 permission 的 Wave 0 纯净（依赖倒置，沿用 `common` 的 `ErrorRecorder` 手法）。
+6. **契约独立、实现倒置**。确认令牌相关的跨模块契约放入独立 `contracts` Maven 模块，permission 只依赖 `common + contracts`；Redis 实现由 `infra/cache` 注入，保持权限逻辑与存储实现解耦。
 
 ---
 
@@ -82,12 +82,7 @@ harness/permission/
 ├── PermissionAction.java          # ALLOW / DENY / CONFIRM_REQUIRED
 ├── PermissionSource.java          # 决策来源枚举（用于 trace/审计）
 ├── token/
-│   ├── ConfirmationToken.java     # 不透明令牌句柄（仅 tokenId，对 LLM 不可见）
-│   ├── TokenClaims.java           # action / payloadHash / level / expectedCount / conversationId / exp / nonce
-│   ├── ConfirmationAction.java    # SUBMIT_DAG / IMAGEGEN
-│   ├── ConfirmationLevel.java     # NORMAL / BULK
-│   ├── ConfirmationTokenService.java   # issue() / verifyAndConsume()
-│   └── ConfirmationTokenStore.java     # SPI 接口（save/consume 原子）；Redis 实现由 infra/cache 注入
+│   └── ConfirmationTokenService.java   # issue() / verifyAndConsume()
 ├── subagent/
 │   └── SubagentConstraint.java    # read-only / scoped-tools 硬约束描述
 └── PermissionErrorCode.java       # enum implements common.ErrorCode（PERMISSION 类）
@@ -97,16 +92,17 @@ harness/permission/
 
 ```
 permission ──► common（ErrorCode / PixFlowException / Sanitizer）
-permission ──► (SPI) ConfirmationTokenStore   ← infra/cache 提供 Redis 实现（Wave 1 注入）
+permission ──► contracts（ConfirmationToken* 令牌契约与 SPI）
+infra/cache ──► contracts（Redis 实现注入）
 harness/tools ──► permission（执行管线调 evaluate）
 harness/hooks ──► permission（hook allow 不覆盖 deny）
 harness/loop  ──► permission（CONFIRM_REQUIRED 转 needConfirm）
 module/imagegen ──► permission（令牌校验）
 ```
 
-permission **不依赖任何上层模块，也不直接依赖 infra**——令牌存储经 `ConfirmationTokenStore` SPI 倒置。
+permission **不依赖任何上层业务模块，也不直接依赖 infra**——令牌契约经 `contracts` 倒置，存储实现由 `infra/cache` 注入。
 
-> **Wave 0 接口约束**：permission 不能在 Java 类型层面引用 `harness/tools` 的 `ToolDescriptor`、`ToolCallClassification` 或任何上层模块类型。上层工具执行管线后续负责把自身的 descriptor/classification 适配成 permission 自己定义的 `PermissionSubject`。这样才能保证 `module-dependency-dag-plan.md` 中的 `common → permission → tools` 依赖方向不倒挂。
+> **接口约束**：permission 不能在 Java 类型层面引用 `harness/tools` 的 `ToolDescriptor`、`ToolCallClassification` 或任何上层模块类型。上层工具执行管线后续负责把自身的 descriptor/classification 适配成 permission 自己定义的 `PermissionSubject`。这样才能保证 `module-dependency-dag-plan.md` 中的 `contracts → permission → tools` 依赖方向不倒挂。
 
 ---
 
@@ -291,20 +287,18 @@ public record TokenClaims(
 
 普通 `NORMAL` 令牌用于未超阈值的提交。
 
-### 5.6 SPI：ConfirmationTokenStore（依赖倒置）
+### 5.6 令牌契约来自 `contracts`
 
-为保持 permission 的 Wave 0 纯净（不依赖 infra），令牌存储以 SPI 接口暴露：
+确认令牌相关的跨模块类型统一放在独立 `contracts` Maven 模块中：
 
-```java
-public interface ConfirmationTokenStore {
-    void save(String tokenId, TokenClaims claims, Duration ttl);
-    Optional<TokenClaims> consume(String tokenId);   // 原子 读取+删除，实现单次使用
-}
-```
+- 模块路径建议：`contracts/confirmation/`
+- `ConfirmationToken`
+- `TokenClaims`
+- `ConfirmationAction`
+- `ConfirmationLevel`
+- `ConfirmationTokenStore`
 
-- permission 模块只依赖此接口与一个测试用 `InMemoryConfirmationTokenStore`（单测不起 Redis）。
-- `infra/cache`（Wave 1）提供 `RedisConfirmationTokenStore implements ConfirmationTokenStore`（Lua 原子 GET+DEL），由 Spring 注入。
-- 手法与 `common` 的 `ErrorRecorder` SPI 一致，避免 `permission → infra` 的顺序倒挂。
+permission 只依赖这些契约与一个测试用的内存实现；Redis 版本由 `infra/cache` 提供并注入。这样可把“契约”和“实现”分开，避免 `permission → infra` 的顺序倒挂。
 
 ---
 
