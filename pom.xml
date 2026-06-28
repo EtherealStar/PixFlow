@@ -25,6 +25,8 @@
         <module>pixflow-state</module>
         <module>pixflow-eval</module>
         <module>pixflow-module-file</module>
+        <module>pixflow-module-memory</module>
+        <module>pixflow-module-commerce</module>
         <module>pixflow-infra-storage</module>
         <module>pixflow-infra-cache</module>
         <module>pixflow-infra-mq</module>
@@ -99,6 +101,16 @@
             <dependency>
                 <groupId>com.pixflow</groupId>
                 <artifactId>pixflow-module-file</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.pixflow</groupId>
+                <artifactId>pixflow-module-memory</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.pixflow</groupId>
+                <artifactId>pixflow-module-commerce</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
