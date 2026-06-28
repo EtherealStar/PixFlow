@@ -21,6 +21,8 @@
         <module>pixflow-common</module>
         <module>pixflow-permission</module>
         <module>pixflow-hooks</module>
+        <module>pixflow-context</module>
+        <module>pixflow-state</module>
         <module>pixflow-infra-storage</module>
         <module>pixflow-infra-cache</module>
         <module>pixflow-infra-mq</module>
@@ -73,6 +75,16 @@
             <dependency>
                 <groupId>com.pixflow</groupId>
                 <artifactId>pixflow-hooks</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.pixflow</groupId>
+                <artifactId>pixflow-context</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.pixflow</groupId>
+                <artifactId>pixflow-state</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
