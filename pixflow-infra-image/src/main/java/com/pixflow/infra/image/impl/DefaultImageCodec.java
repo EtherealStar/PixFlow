@@ -58,7 +58,9 @@ public class DefaultImageCodec implements ImageCodec {
                 int width = reader.getWidth(0);
                 int height = reader.getHeight(0);
                 boolean alpha = hasAlpha(reader);
-                return new ImageProbe(format, width, height, alpha);
+                ImageProbe probe = new ImageProbe(format, width, height, alpha);
+                guardSize(probe);
+                return probe;
             } finally {
                 reader.dispose();
             }

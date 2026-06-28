@@ -45,7 +45,7 @@ public enum ImageFormat {
         if (raw == null || raw.isBlank()) {
             return Optional.empty();
         }
-        String normalized = raw.toLowerCase(Locale.ROOT);
+        String normalized = raw.trim().toLowerCase(Locale.ROOT);
         for (ImageFormat format : values()) {
             if (format.writerName.equals(normalized) || format.name().toLowerCase(Locale.ROOT).equals(normalized)) {
                 return Optional.of(format);

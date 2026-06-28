@@ -61,10 +61,50 @@ class DefaultImageCodecTest {
         ImageCodec codec = new DefaultImageCodec(properties);
         byte[] bytes = png(sample(4, 4, Color.BLUE, false));
 
+        assertThatThrownBy(() -> codec.probe(new ByteArrayInputStream(bytes)))
+                .isInstanceOf(ImageProcessingException.class)
+                .extracting("reason")
+                .isEqualTo(ImageProcessingException.Reason.SOURCE_TOO_LARGE);
+
         assertThatThrownBy(() -> codec.decode(new ByteArrayInputStream(bytes)))
                 .isInstanceOf(ImageProcessingException.class)
                 .extracting("reason")
                 .isEqualTo(ImageProcessingException.Reason.SOURCE_TOO_LARGE);
+    }
+
+    @Test
+    void rasterImageDefensivelyCopiesBuffers() {
+        BufferedImage original = sample(2, 2, Color.RED, false);
+        RasterImage raster = RasterImage.of(original, ImageFormat.PNG);
+
+        original.setRGB(0, 0, Color.BLUE.getRGB());
+        assertThat(raster.buffer().getRGB(0, 0)).isEqualTo(Color.RED.getRGB());
+
+        BufferedImage exposed = raster.buffer();
+        exposed.setRGB(0, 0, Color.GREEN.getRGB());
+        assertThat(raster.buffer().getRGB(0, 0)).isEqualTo(Color.RED.getRGB());
+    }
+
+    @Test
+    void encodeSpecRejectsConflictingAndUnboundedTargetSize() {
+        assertThatThrownBy(() -> new EncodeSpec(ImageFormat.JPEG, 80, 1024L, null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("mutually exclusive");
+        assertThatThrownBy(() -> new EncodeSpec(ImageFormat.JPEG, null, (long) Integer.MAX_VALUE + 1, null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("targetBytes");
+    }
+
+    @Test
+    void imagePropertiesValidateBoundsAndColor() {
+        ImageProperties properties = new ImageProperties();
+
+        assertThatThrownBy(() -> properties.setMaxSourcePixels(0))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> properties.setMaxDimension(0))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> properties.setFlattenBackground("not-a-color"))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test

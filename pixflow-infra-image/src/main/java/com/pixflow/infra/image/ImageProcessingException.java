@@ -1,6 +1,8 @@
 package com.pixflow.infra.image;
 
 public class ImageProcessingException extends RuntimeException {
+    private static final long serialVersionUID = 1L;
+
     public enum Reason {
         DECODE_FAILED,
         ENCODE_FAILED,
@@ -28,7 +30,7 @@ public class ImageProcessingException extends RuntimeException {
             String message,
             Throwable cause) {
         super(message, cause);
-        this.reason = reason;
+        this.reason = java.util.Objects.requireNonNull(reason, "reason must not be null");
         this.format = format;
         this.width = width;
         this.height = height;
