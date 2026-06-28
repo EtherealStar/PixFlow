@@ -47,6 +47,7 @@ graph TD
     ai[infra/ai Spring AI]
     image[infra/image 编解码+像素执行器]
     thirdparty[infra/thirdparty 非模型第三方集成层]
+    testsupport[infra/test-support Windows docker strategy  test-only]
 
     %% ===== harness 横切层 =====
     state[harness/state 状态存储]
@@ -84,6 +85,12 @@ graph TD
 
     %% ---- infra 内部 ----
     cache --> thirdparty
+
+    %% ---- infra 内部(test-only) ----
+    testsupport -.test-scope.-> cache
+    testsupport -.test-scope.-> mq
+    testsupport -.test-scope.-> vector
+    testsupport -.test-scope.-> storage
 
     %% ---- harness 依赖 ----
     cache --> state
@@ -188,7 +195,7 @@ contracts → permission → tools → loop → agent
 - [x] `infra/storage`：MinIO 抽象（原图/结果/生图/大 tool-result 外置）、桶与路径约定
 - [x] `infra/cache`：Redis/Redisson 封装（分布式锁/看门狗、进度计数、信号量、断点缓存键、确认令牌 Redis 实现）
 - [x] `infra/mq`：RabbitMQ 封装（任务队列、DLQ、重试、prefetch）
-- [ ] `infra/vector`：Qdrant 封装（collection `analysis_insight`、读写检索）
+- [x] `infra/vector`：Qdrant 封装（collection `analysis_insight`、读写检索）
 - [x] `infra/ai`：Spring AI + Alibaba 封装（文本/多模态 Qwen-VL/生图 通义万相/嵌入）
 - [x] `infra/image`：TwelveMonkeys + Thumbnailator + scrimage(WebP)；像素工具执行器骨架
 - [x] `infra/thirdparty`：非模型第三方集成层（背景去除能力接口、provider adapter、通用 HTTP 内核、Resilience4j、分布式信号量）
@@ -241,3 +248,5 @@ common+contracts
 2026-06-27 / Codex: 统一 `module-dependency-dag-plan.md` 中 thirdparty 的正确说法，修正箭头含义为“前置依赖指向后续依赖”，将 `infra/thirdparty` 的描述从“抠图 API 客户端”改为“非模型第三方集成层”，并同步更新波次表与一句话顺序总结。
 
 2026-06-27 / Codex: 完成 `infra/thirdparty` 模块实现并将 Wave 1 任务清单中的该项标记为完成；验证命令为 `mvn -pl pixflow-infra-thirdparty -am test`。
+
+2026-06-28 / Codex: 调整 Windows 下 Testcontainers 的接入方式，改为通过环境变量和 Maven profile 直接选择可用的 Docker 入口，不再保留独立的 test-only 模块。该能力不入任何 Wave 的任务清单——它是测试启动配置，不在产品运行时路径上。
