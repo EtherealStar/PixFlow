@@ -96,6 +96,7 @@ graph TD
     cache --> state
     storage --> state
     storage --> context
+    storage --> eval
     permission --> hooks
     context --> session
     permission --> tools
@@ -201,10 +202,10 @@ contracts → permission → tools → loop → agent
 - [x] `infra/thirdparty`：非模型第三方集成层（背景去除能力接口、provider adapter、通用 HTTP 内核、Resilience4j、分布式信号量）
 
 ### Wave 2 — harness 基础 + 基础数据
-- [ ] `harness/state`：MySQL/Redis/MinIO 状态聚合；状态查询接口（轮询/WS 数据源）
-- [ ] `harness/context`：消息 append-only 存储、投影滑窗、jtokkit 预算裁剪、microcompact
+- [x] `harness/state`：MySQL/Redis/MinIO 状态聚合；状态查询接口（轮询/WS 数据源）
+- [x] `harness/context`：消息 append-only 存储、投影滑窗、jtokkit 预算裁剪、microcompact
 - [x] `harness/hooks`：生命周期事件总线（UserPromptSubmit/PreToolUse/... ），可改写/软阻断
-- [ ] `harness/eval`：trace 表（JSON 列）写入与回放接口、Micrometer 指标
+- [x] `harness/eval`：trace 表（JSON 列）写入与回放接口、Micrometer 指标
 - [ ] `module/file`：上传/解压、文件名驱动 SKU/分组绑定、结果管理
 - [ ] `module/commerce`：本地 CSV/Excel 导入（POI+commons-csv）、`query_commerce_data` 查询；预留 API 适配器
 - [ ] `module/memory`：用户偏好(MySQL)/SKU 历史(MySQL)/分析结论(Qdrant) 三类存储 + 统一 `recall_memory` 路由
@@ -250,3 +251,5 @@ common+contracts
 2026-06-27 / Codex: 完成 `infra/thirdparty` 模块实现并将 Wave 1 任务清单中的该项标记为完成；验证命令为 `mvn -pl pixflow-infra-thirdparty -am test`。
 
 2026-06-28 / Codex: 调整 Windows 下 Testcontainers 的接入方式，改为通过环境变量和 Maven profile 直接选择可用的 Docker 入口，不再保留独立的 test-only 模块。该能力不入任何 Wave 的任务清单——它是测试启动配置，不在产品运行时路径上。
+
+2026-06-28 / Codex: 补充 `storage --> eval` 依赖边，并将 Wave 2 的 `harness/eval` 标记为完成。原因是 eval 模块已实现 trace 写入、查询回放、外置 payload 适配和 Micrometer 指标，且实现依赖 `pixflow-infra-storage` 的对象存储原语。

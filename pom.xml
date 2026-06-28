@@ -23,6 +23,8 @@
         <module>pixflow-hooks</module>
         <module>pixflow-context</module>
         <module>pixflow-state</module>
+        <module>pixflow-eval</module>
+        <module>pixflow-module-file</module>
         <module>pixflow-infra-storage</module>
         <module>pixflow-infra-cache</module>
         <module>pixflow-infra-mq</module>
@@ -53,6 +55,8 @@
             环境变量直接走 npipe 或 TCP 策略。
         -->
         <docker-java.version>3.5.0</docker-java.version>
+        <commons-csv.version>1.11.0</commons-csv.version>
+        <poi.version>5.3.0</poi.version>
     </properties>
 
     <dependencyManagement>
@@ -85,6 +89,16 @@
             <dependency>
                 <groupId>com.pixflow</groupId>
                 <artifactId>pixflow-state</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.pixflow</groupId>
+                <artifactId>pixflow-eval</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.pixflow</groupId>
+                <artifactId>pixflow-module-file</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
