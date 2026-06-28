@@ -1,0 +1,186 @@
+package com.pixflow.module.commerce.config;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.pixflow.infra.mq.MessagePublisher;
+import com.pixflow.infra.mq.consumer.ManagedListenerContainerFactory;
+import com.pixflow.infra.mq.topology.TopologyRegistrar;
+import com.pixflow.module.commerce.CommerceService;
+import com.pixflow.module.commerce.DefaultCommerceService;
+import com.pixflow.module.commerce.importer.CommerceFileParser;
+import com.pixflow.module.commerce.importer.CommerceImportService;
+import com.pixflow.module.commerce.importer.CsvCommerceParser;
+import com.pixflow.module.commerce.importer.ExcelCommerceParser;
+import com.pixflow.module.commerce.importer.RowValidator;
+import com.pixflow.module.commerce.importjob.CommerceApiImportConsumer;
+import com.pixflow.module.commerce.importjob.CommerceApiImportMessage;
+import com.pixflow.module.commerce.importjob.CommerceApiImportPublisher;
+import com.pixflow.module.commerce.importjob.CommerceImportErrorHandler;
+import com.pixflow.module.commerce.importjob.CommerceImportJobService;
+import com.pixflow.module.commerce.importjob.CommerceImportTopology;
+import com.pixflow.module.commerce.query.BenchmarkCalculator;
+import com.pixflow.module.commerce.query.CommerceQueryService;
+import com.pixflow.module.commerce.source.CommerceDataSource;
+import com.pixflow.module.commerce.source.ExternalPlatformSource;
+import com.pixflow.module.commerce.source.FakePlatformApiClient;
+import com.pixflow.module.commerce.source.FreshnessPolicy;
+import com.pixflow.module.commerce.source.PlatformApiClient;
+import com.pixflow.module.commerce.store.CommerceDataMapper;
+import com.pixflow.module.commerce.store.CommerceImportJobMapper;
+import java.time.Clock;
+import java.util.List;
+import org.mybatis.spring.annotation.MapperScan;
+import org.springframework.amqp.rabbit.listener.MessageListenerContainer;
+import org.springframework.boot.autoconfigure.AutoConfiguration;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.context.annotation.Bean;
+
+@AutoConfiguration
+@EnableConfigurationProperties(CommerceProperties.class)
+@MapperScan("com.pixflow.module.commerce")
+public class CommerceAutoConfiguration {
+    @Bean
+    @ConditionalOnMissingBean
+    public Clock commerceClock() {
+        return Clock.systemUTC();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public CsvCommerceParser csvCommerceParser() {
+        return new CsvCommerceParser();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public ExcelCommerceParser excelCommerceParser() {
+        return new ExcelCommerceParser();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public RowValidator commerceRowValidator(Clock commerceClock) {
+        return new RowValidator(commerceClock);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public PlatformApiClient platformApiClient() {
+        return new FakePlatformApiClient();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public CommerceDataSource externalPlatformSource(
+            PlatformApiClient platformApiClient,
+            CommerceProperties properties,
+            Clock commerceClock) {
+        return new ExternalPlatformSource(platformApiClient, properties, commerceClock);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public FreshnessPolicy freshnessPolicy(CommerceProperties properties, Clock commerceClock) {
+        return new FreshnessPolicy(properties, commerceClock);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public BenchmarkCalculator benchmarkCalculator() {
+        return new BenchmarkCalculator();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnBean(CommerceDataMapper.class)
+    public CommerceImportService commerceImportService(
+            CommerceDataMapper mapper,
+            CsvCommerceParser csvParser,
+            ExcelCommerceParser excelParser,
+            RowValidator rowValidator,
+            CommerceProperties properties) {
+        List<CommerceFileParser> parsers = List.of(csvParser, excelParser);
+        return new CommerceImportService(mapper, parsers, csvParser, excelParser, rowValidator, properties);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnBean(MessagePublisher.class)
+    public CommerceApiImportPublisher commerceApiImportPublisher(MessagePublisher publisher) {
+        return new CommerceApiImportPublisher(publisher);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnBean({CommerceImportJobMapper.class, CommerceApiImportPublisher.class, CommerceImportService.class})
+    public CommerceImportJobService commerceImportJobService(
+            CommerceImportJobMapper mapper,
+            CommerceApiImportPublisher publisher,
+            CommerceDataSource externalSource,
+            CommerceImportService importService,
+            ObjectMapper objectMapper,
+            CommerceProperties properties,
+            Clock commerceClock) {
+        return new CommerceImportJobService(mapper, publisher, externalSource, importService, objectMapper, properties, commerceClock);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnBean({CommerceDataMapper.class, CommerceImportService.class})
+    public CommerceQueryService commerceQueryService(
+            CommerceDataMapper mapper,
+            CommerceDataSource externalSource,
+            CommerceImportService importService,
+            FreshnessPolicy freshnessPolicy,
+            BenchmarkCalculator benchmarkCalculator,
+            CommerceProperties properties,
+            Clock commerceClock) {
+        return new CommerceQueryService(mapper, externalSource, importService, freshnessPolicy, benchmarkCalculator, properties, commerceClock);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnBean({CommerceImportService.class, CommerceImportJobService.class, CommerceQueryService.class})
+    public CommerceService commerceService(
+            CommerceImportService importService,
+            CommerceImportJobService jobService,
+            CommerceQueryService queryService) {
+        return new DefaultCommerceService(importService, jobService, queryService);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnBean(CommerceImportJobService.class)
+    public CommerceApiImportConsumer commerceApiImportConsumer(CommerceImportJobService jobService) {
+        return new CommerceApiImportConsumer(jobService);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public CommerceImportErrorHandler commerceImportErrorHandler() {
+        return new CommerceImportErrorHandler();
+    }
+
+    @Bean
+    @ConditionalOnBean(TopologyRegistrar.class)
+    public Object commerceImportTopologyRegistration(TopologyRegistrar registrar) {
+        registrar.register(CommerceImportTopology.topology());
+        return new Object();
+    }
+
+    @Bean
+    @ConditionalOnBean({ManagedListenerContainerFactory.class, CommerceApiImportConsumer.class, CommerceImportErrorHandler.class})
+    public MessageListenerContainer commerceImportListenerContainer(
+            ManagedListenerContainerFactory factory,
+            CommerceApiImportConsumer consumer,
+            CommerceImportErrorHandler errorHandler) {
+        MessageListenerContainer container = factory.create(
+                CommerceImportTopology.topology(),
+                CommerceApiImportMessage.class,
+                consumer,
+                errorHandler);
+        container.start();
+        return container;
+    }
+}
