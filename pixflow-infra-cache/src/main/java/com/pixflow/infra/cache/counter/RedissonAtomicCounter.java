@@ -7,6 +7,7 @@ import java.time.Duration;
 import java.util.List;
 import org.redisson.api.RScript;
 import org.redisson.api.RedissonClient;
+import org.redisson.client.codec.StringCodec;
 
 public class RedissonAtomicCounter implements AtomicCounter {
     private static final String INCREMENT_WITH_INITIAL_TTL = """
@@ -28,13 +29,13 @@ public class RedissonAtomicCounter implements AtomicCounter {
         try {
             Duration effectiveTtl = effectiveTtl(key, ttl);
             // 只在首次创建计数器时设置 TTL，避免频繁进度更新把 key 无限续命。
-            Number value = redissonClient.getScript().eval(
+            Number value = redissonClient.getScript(StringCodec.INSTANCE).eval(
                     RScript.Mode.READ_WRITE,
                     INCREMENT_WITH_INITIAL_TTL,
                     RScript.ReturnType.INTEGER,
                     List.of(key.value()),
-                    delta,
-                    effectiveTtl.toMillis());
+                    Long.toString(delta),
+                    Long.toString(effectiveTtl.toMillis()));
             return value.longValue();
         } catch (RuntimeException ex) {
             throw new CacheException(CacheErrorCode.CACHE_COUNTER_FAILED, "increment", key.namespace(), "Redis 计数器自增失败", ex);

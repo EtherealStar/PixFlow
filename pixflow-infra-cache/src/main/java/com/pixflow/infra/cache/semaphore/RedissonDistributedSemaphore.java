@@ -46,6 +46,7 @@ public class RedissonDistributedSemaphore implements DistributedSemaphore {
                     apiConfig.getLeaseTime().toMillis(),
                     TimeUnit.MILLISECONDS);
             if (permitIds == null || permitIds.size() != permits) {
+                releasePartial(semaphore, permitIds, api);
                 metrics.recordSemaphore(api, "timeout");
                 throw new CacheException(CacheErrorCode.CACHE_SEMAPHORE_TIMEOUT, "acquire", key.namespace(), "获取 Redis 信号量超时");
             }
@@ -66,6 +67,19 @@ public class RedissonDistributedSemaphore implements DistributedSemaphore {
         String value = key.value();
         int index = value.lastIndexOf(':');
         return index >= 0 ? value.substring(index + 1) : key.namespace();
+    }
+
+    private void releasePartial(RPermitExpirableSemaphore semaphore, List<String> permitIds, String api) {
+        if (permitIds == null || permitIds.isEmpty()) {
+            return;
+        }
+        try {
+            semaphore.release(permitIds);
+            metrics.recordSemaphore(api, "partial_released");
+        } catch (RuntimeException ex) {
+            log.warn("redis semaphore partial release failed, api={}", api, ex);
+            metrics.recordSemaphore(api, "partial_release_error");
+        }
     }
 
     private static final class RedissonPermit implements Permit {
