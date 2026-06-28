@@ -92,6 +92,9 @@ module/file/
 ├── image/
 │   ├── AssetImage.java               # 实体（唯一约束 package_id + original_path）
 │   └── AssetImageMapper.java
+├── error/
+│   ├── AssetIngestError.java         # 逐图/文档解析失败明细，供包详情与排障查询
+│   └── AssetIngestErrorMapper.java
 ├── web/
 │   └── FileController.java           # 上传 / 包详情(轮询进度) / 列表 / 删除
 └── config/
@@ -115,17 +118,19 @@ module/file ──► MySQL / MyBatis-Plus + POI + commons-csv
 
 ### 4.1 MySQL
 
-沿用 `design.md §13.1` 的三张表，并对 `asset_package` 补充**状态枚举**与**进度列**（细化见 [§十五](#十五对-designmd-的细化)）：
+沿用 `design.md §13.1` 的三张核心表，并对 `asset_package` 补充**状态枚举**、**进度列**与软删除列，同时新增一张轻量失败明细表 `asset_ingest_error`（细化见 [§十五](#十五对-designmd-的细化)）：
 
 | 表 | 关键字段 | 说明 |
 |---|---|---|
-| `asset_package` | id, name, minio_zip_key, doc_key, **status**, **image_count**, **extracted_count**, error_summary, created_at, updated_at | 素材包；`image_count`=中央目录预扫得到的有效图总数；`extracted_count`=已入库进度 |
-| `asset_image` | id, package_id, sku_id, group_key, view_id, minio_key, original_path, created_at | 单图；**唯一约束 `(package_id, original_path)`** 保证重投幂等；`group_key` 非空=分组成员 |
-| `asset_copy` | id, package_id, sku_id, product_name, keywords, description | 文案条目；一文档多行，按 `sku_id` 关联 |
+| `asset_package` | **id BIGINT**, name, minio_zip_key, doc_key, **status**, **image_count**, **extracted_count**, error_summary, **deleted_at**, created_at, updated_at | 素材包；`id` 与现有 `StorageKeys.package*(long packageId)` 保持一致；`image_count`=中央目录预扫得到的有效图总数；`extracted_count`=已入库进度；`deleted_at` 用于被历史任务/对话引用后的软删除 |
+| `asset_image` | **id BIGINT**, package_id, sku_id, group_key, view_id, minio_key, original_path, created_at | 单图；**唯一约束 `(package_id, original_path)`** 保证重投幂等；`group_key` 非空=分组成员 |
+| `asset_copy` | **id BIGINT**, package_id, sku_id, product_name, keywords, description | 文案条目；一文档多行，按 `sku_id` 关联 |
+| `asset_ingest_error` | **id BIGINT**, package_id, original_path, stage, code, message, created_at | 解压/准入/上传/命名/文档解析的失败明细；`error_summary` 只存摘要，详情由此表分页查询 |
 
 - `minio_zip_key` = `StorageKeys.packageSource(packageId)`；`doc_key` = `StorageKeys.packageDoc(packageId, fileName)`（可空）。
 - `asset_image.minio_key` = `StorageKeys.packageImage(packageId, relPath)`；`original_path` = zip 内相对路径（=`relPath`）。
-- `error_summary`：解压终态为 `FAILED`/`PARTIAL` 时的脱敏摘要（`Sanitizer` 截断 ≤1000 字）。
+- `error_summary`：解压终态为 `FAILED`/`PARTIAL` 时的脱敏摘要（`Sanitizer` 截断 ≤1000 字），只保留分类统计与前 N 条样例；完整逐项失败进入 `asset_ingest_error`。
+- `asset_package.id` 统一用 `BIGINT`（MySQL 自增或雪花 ID 均可），不使用 UUID 字符串。原因是 `infra/storage` 已落地的 `StorageKeys.packageSource(long packageId)`、`packageImage(long packageId, ...)`、`packageDoc(long packageId, ...)` 均以 `long` 为契约，file 模块继续沿用可避免额外映射与跨模块 API 返工。
 
 ### 4.2 素材包状态机
 
@@ -194,7 +199,7 @@ ExtractionConsumer.onMessage(ExtractionMessage{packageId})   // 未 ack
 ```
 
 - **为何取回临时文件而非纯流式**：读 **zip 中央目录**可一次性拿到 entry 总数与各 entry 声明大小——既给出准确的进度分母（`image_count`），又能在解压前做**声明大小级别的 bomb 预检**（更安全）。临时文件大小受上传上限约束、用完即删。这细化了 `storage.md`「不落盘」原则——其本意是「不把整个对象缓冲进堆」，而非禁止受限临时工作文件（见 [§十五](#十五对-designmd-的细化)）。跨节点消费本就要求 worker 从 MinIO 取回 zip，临时文件是其自然落点。
-- **包内并发**：基于临时文件的随机访问可对多个 entry 并发上传 MinIO（有界线程池，提吞吐）；`consumer-concurrency` 控制同时解压的包数，配低 `prefetch` 避免单 worker 囤积。
+- **包内并发**：基于临时文件的随机访问可对多个 entry 并发上传 MinIO，但必须是有界并发而非无限 fan-out。`consumer-concurrency` 控制同时解压的包数，默认 1～2；`intra-package-parallelism` 控制单包内 entry 准入/上传/入库并发，默认 4。中央目录预扫保持单线程；入库阶段按批次提交，并通过 `(package_id, original_path)` 唯一约束消化重投重复。这个默认值偏保守，目的是保护 MinIO、MySQL 与 zip 随机读取吞吐，避免一个大包抢占整机资源。
 - **consumer_timeout**：process-then-ack 下整包解压须在 RabbitMQ `consumer_timeout`（默认 30min）内 ack；为 `pixflow.file.q` 单独调大该超时或约束单包规模（本期数据集规模足够），作为部署配置记录。
 
 ---
@@ -263,7 +268,7 @@ public interface ProgressNotifier {
 - **轮询兜底 + 单一事实源**：进度真值是 `asset_package`（`status` + `extracted_count` + `image_count`）。WS 推送是 **best-effort 实时层**；`GET /api/files/packages/{id}` 返回同一行供前端轮询兜底（`design.md §4`「轮询兜底」）。二者一致，因为都源自同一 DB 行。
 - **traceId**：WS 帧内携带 `traceId`（`common.md §9.2` 约定的长连接透传边界）。
 
-> 这是对架构的跨切细化：把「WebSocket 推送传输」从 task/conversation **专属**提升为 **app 级共享 + `ProgressNotifier` 解耦**，task/conversation 将来同样经此 SPI 推送，state 仍只提供数据源、不持连接。需同步回 `common.md` 与 `state.md`（见 [§十五](#十五对-designmd-的细化)）。
+> 这是对架构的跨切细化：把「WebSocket 推送传输」从 task/conversation **专属**提升为 **app 级共享 + `ProgressNotifier` 解耦**，task/conversation 将来同样经此 SPI 推送，state 仍只提供数据源、不持连接。该口径已同步回 `common.md` 与 `state.md`（见 [§十五](#十五对-designmd-的细化)）。
 
 ---
 
@@ -277,9 +282,17 @@ public interface ProgressNotifier {
 
 ### 10.2 失败隔离与终态
 
-- **逐图失败隔离**：单张图准入失败 / MinIO 上传失败 / 解析异常 → 记入该包跳过清单，**不中断整包**，其余图继续。
+- **逐图失败隔离**：单张图准入失败 / MinIO 上传失败 / 解析异常 → 写入 `asset_ingest_error`，并汇总进 `error_summary`，**不中断整包**，其余图继续。失败明细的 `stage` 建议取 `ZIP_SCAN`、`IMAGE_ADMISSION`、`STORAGE_UPLOAD`、`NAMING_PARSE`、`COPYDOC_PARSE` 等稳定枚举值，便于包详情页筛选与测试断言。
 - **终态判定**：至少一张成功 → `READY`（无失败）或 `PARTIAL`（有失败，`error_summary` 记跳过数与原因）；无任何有效图或 zip 不可解 → `FAILED`。
 - **毒包**：反复让解析器失败的损坏 zip，经 `ExtractionErrorHandler` 判 `DeadLetter` 进 `pixflow.file.dlq`，DLQ 深度告警人工介入（`infra/mq.md §十`），不无限重投。
+
+### 10.3 素材包删除语义
+
+删除采用「软删优先、物理删除受限」：
+
+- 未被后续任务、对话或其他业务记录引用的素材包，可以执行物理删除：删除 `asset_package` / `asset_image` / `asset_copy` / `asset_ingest_error` 行，并调用 `ObjectStorage.deleteByPrefix(BucketType.PACKAGES, "{packageId}/")` 清理 MinIO 包前缀。
+- 已被引用的素材包，不物理删除，只写 `asset_package.deleted_at`。列表接口默认过滤 `deleted_at is not null`，历史任务、历史对话和回放仍可通过显式 ID 读取到必要元数据，避免任务输入事实源丢失。
+- Wave 2 中如果 `task` / `conversation` 尚未落表，删除服务仍应预留 `PackageReferenceChecker` 接口或等价内部检查点；当前实现可提供默认「无引用」实现，后续由 `module/task` / `module/conversation` 接入真实引用检查，避免删除语义写死。
 
 ---
 
@@ -297,6 +310,7 @@ file 自有错误码 `FileErrorCode implements common.ErrorCode`（`common.md §
 | `UNSUPPORTED_IMAGE_FORMAT` | VALIDATION | SKIP | 单图扩展名/magic bytes 不在白名单（逐图跳过） |
 | `COPY_DOC_PARSE_FAILED` | VALIDATION | SKIP | 文案文档解析失败（不阻断图片） |
 | `UPLOAD_TOO_LARGE` | VALIDATION | TERMINATE | 超上传上限（亦由 `MaxUploadSizeExceeded` 归一化） |
+| `PACKAGE_ALREADY_REFERENCED` | BUSINESS_RULE | TERMINATE | 被任务/对话引用的素材包不允许物理删除，只能软删 |
 
 `ExtractionErrorHandler`（实现 `infra/mq.ConsumerErrorHandler`）按归一化模型的 `recovery` 给 `RetryDecision`（`common.md §6.4` 映射）：
 
@@ -355,12 +369,12 @@ pixflow:
 
 | 模块 | 契约 |
 |---|---|
-| `infra/storage` | 用 `StorageKeys.package*` 写 zip/原图/文档；解压期 `getStream` 取回 zip、`put` 流式上传图；删包用 `deleteByPrefix(PACKAGES, "{packageId}/")` |
+| `infra/storage` | 用 `StorageKeys.package*` 写 zip/原图/文档；解压期 `getStream` 取回 zip、`put` 流式上传图；仅在素材包未被引用且执行物理删除时用 `deleteByPrefix(PACKAGES, "{packageId}/")` |
 | `infra/mq` | `ExtractionTopology` 声明 `pixflow.file` 队列组；`ExtractionPublisher` 经 `MessagePublisher` 发布并据 `PublishResult` 补偿；`ExtractionConsumer` process-then-ack；`ExtractionErrorHandler` 实现 `ConsumerErrorHandler` |
 | `common` | 错误归一化 / `Sanitizer` / `ApiResponse`；实现侧消费 `ProgressNotifier` SPI（接口在 common，STOMP 实现在 app 级） |
 | `module/dag` | 读 `asset_image` 的 `sku_id`/`group_key`/`view_id` 做 `BranchExpander` 分组展开与 `compose_group` 成员归组 |
-| `module/task` | 任务按 `package_id` 加载图片；下载/预览经 `storage.presignGet`（出口侧，后续波次） |
-| `module/conversation` | `message.attached_package_id` 关联素材包；只读查询包详情 |
+| `module/conversation` | `message.attached_package_id` 关联素材包；只读查询包详情；后续为 `PackageReferenceChecker` 提供引用检查，防止已被对话引用的包被物理删除 |
+| `module/task` | 任务按 `package_id` 加载图片；下载/预览经 `storage.presignGet`（出口侧，后续波次）；后续为 `PackageReferenceChecker` 提供引用检查，防止已被任务引用的包被物理删除 |
 | `agent` | `query_commerce_data` / 处理建议依赖已绑定的 `sku_id`；file 保证绑定在解压期完成 |
 | `pixflow-app` | 提供 STOMP broker 配置 + `StompProgressNotifier` Bean；装配 file 的 controller / consumer |
 
@@ -374,6 +388,8 @@ pixflow:
 - **`SkuExtractor` 单测**：兜底提取规则；接口可替换性（fake 实现不影响 parser 契约）。
 - **`ImageAdmission` 单测**：magic bytes 命中/伪装扩展名拦截、大小上限、白名单内外。
 - **`ZipExtractor` 安全单测**：slip（`../`、绝对路径、盘符）拦截；bomb（超大小/比率/entry 数）中止；中央目录预扫得到正确总数。
+- **`AssetIngestError` 明细测试**：逐图跳过、命名解析失败、文档行缺 `sku_id` 时写入稳定 `stage/code/message`；`error_summary` 只保留脱敏摘要且不超过 1000 字。
+- **删除语义测试**：未引用包物理删除会清理 DB 与 MinIO 前缀；模拟已引用包时只写 `deleted_at`，列表默认不可见，按 ID 查询仍可用于历史回放。
 - **解压管线集成测试（Testcontainers：MinIO + RabbitMQ）**：上传→发消息→消费→流式上传→批量入库→终态全链路；`READY`/`PARTIAL`/`FAILED` 三态。
 - **幂等/重投测试**：消费中途模拟崩溃 → 重投后跳过已入库图、`extracted_count` 不重复计、最终一致。
 - **`ConsumerErrorHandler` 测试**：MinIO 抖动→`Retry`；损坏 zip→`DeadLetter`；逐图 SKIP 不影响整包 ack 为 `PARTIAL`。
@@ -388,11 +404,11 @@ pixflow:
 
 本模块对 `design.md` 及相邻设计文档做如下**细化（非冲突）**，需同步记录：
 
-1. **`asset_package` 状态枚举与进度列**：`design.md §13.1` 的 `status` 落为 `PackageStatus{UPLOADED/EXTRACTING/READY/PARTIAL/FAILED}`，新增 `extracted_count`、`error_summary`，支撑进度推送与失败隔离。
+1. **`asset_package` 主键、状态枚举、进度列与软删除列**：`design.md §13.1` 的 `id` 在 file 模块落为 `BIGINT`，与现有 `StorageKeys.package*(long packageId)` 契约一致；`status` 落为 `PackageStatus{UPLOADED/EXTRACTING/READY/PARTIAL/FAILED}`，新增 `extracted_count`、`error_summary`、`deleted_at`，支撑进度推送、失败隔离与被引用后的软删除。
 2. **解压异步化走 RabbitMQ**：新增依赖边 `mq → file`（mq 在 Wave 1、file 在 Wave 2，无环），复用 `infra/mq.md §二` 预留的「批量导入」场景；file 自声明 `pixflow.file` 队列组。
 3. **解压用 process-then-ack（区别于 task 的 ack-then-process）**：解压是天然幂等的整包工作单元，恢复靠 MQ 原生重投 + `(package_id, original_path)` 幂等续跑，**不引入 `@Scheduled` 解压恢复扫描与分布式锁**；仅保留覆盖「投递缺口」的 `UPLOADED` 重扫（对齐 `mq.md §5.2`）。
-4. **跨切 `ProgressNotifier` SPI + WebSocket 传输上移到 app 级共享**：把 WS 推送从 task/conversation **专属**细化为 **app 级共享传输 + `common.ProgressNotifier` 解耦**，使 Wave 2 的 file 可复用同一 WS 通道而不反向依赖 Wave 4 模块。需同步 `common.md`（新增 `ProgressNotifier` SPI，同 `ErrorRecorder` 模式）与 `state.md`（其「推送在 task/conversation」细化为「推送传输 app 级共享、各模块经 `ProgressNotifier` 发布，state 仍只供数据源」）。
-5. **`asset_image` 唯一约束**：`(package_id, original_path)` 唯一，保证重投/重跑幂等。
+4. **跨切 `ProgressNotifier` SPI + WebSocket 传输上移到 app 级共享**：把 WS 推送从 task/conversation **专属**细化为 **app 级共享传输 + `common.ProgressNotifier` 解耦**，使 Wave 2 的 file 可复用同一 WS 通道而不反向依赖 Wave 4 模块。`common.md` 已新增 `ProgressNotifier` SPI（同 `ErrorRecorder` 模式），`state.md` 已把「推送在 task/conversation」细化为「推送传输 app 级共享、各模块经 `ProgressNotifier` 发布，state 仍只供数据源」。
+5. **`asset_image` 唯一约束 + `asset_ingest_error` 失败明细**：`(package_id, original_path)` 唯一，保证重投/重跑幂等；新增 `asset_ingest_error` 存逐图/文档解析失败明细，`error_summary` 只保留脱敏摘要。
 6. **临时工作文件的边界澄清**：解压期允许「将 zip 取回受限临时文件」以读取中央目录（准确进度分母 + 声明大小级 bomb 预检），细化 `storage.md`「不落盘」=「不把整个对象缓冲进堆」，非禁止受限临时文件。
 7. **职责切分**：file 本期只做入口侧；`design.md §12` 所列「结果管理 / 评分展示」属出口侧，待 `task`/`rubrics` 就绪后实现（见 [§二](#二职责边界入口侧-vs-出口侧)）。
 
@@ -409,3 +425,7 @@ pixflow:
 - **组内参数联合推导**（如取组内最大尺寸回填各图）：`design.md §9.5` 本期不做。
 - **多语言文案文档 analyzer / 复杂表结构解析**：本期按约定列映射解析 CSV/XLSX。
 - **素材包版本管理 / 去重**：同一素材重复上传按新包处理，不做内容级去重。
+
+## Revision Notes
+
+2026-06-28 / Codex: 根据实现前决策讨论，固化 file 模块的生产级落地口径：`asset_package.id` 统一为 `BIGINT` 以匹配 `StorageKeys.package*(long)`；删除采用软删优先、物理删除受限；新增 `asset_ingest_error` 保存逐图/文档解析失败明细；包内并发采用 `consumer-concurrency` 与 `intra-package-parallelism` 两级有界并发且默认保守；`ProgressNotifier` 作为 common SPI，app 级实现 WebSocket/STOMP 传输，state 只提供数据源不持连接。

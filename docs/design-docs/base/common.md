@@ -18,10 +18,11 @@
 - [八、各出口错误流时序](#八各出口错误流时序)
 - [九、可观测性、脱敏与 traceId](#九可观测性脱敏与-traceid)
 - [十、infra 异常收口策略](#十infra-异常收口策略)
-- [十一、错误码目录约定](#十一错误码目录约定)
-- [十二、对其他模块的契约](#十二对其他模块的契约)
-- [十三、测试策略](#十三测试策略)
-- [十四、暂不考虑](#十四暂不考虑)
+- [十一、跨切进度通知 SPI](#十一跨切进度通知-spi)
+- [十二、错误码目录约定](#十二错误码目录约定)
+- [十三、对其他模块的契约](#十三对其他模块的契约)
+- [十四、测试策略](#十四测试策略)
+- [十五、暂不考虑](#十五暂不考虑)
 
 ---
 
@@ -51,7 +52,7 @@
 | 上下文压缩器 | `harness/context` | CONTEXT_LIMIT → 触发 reactive 压缩后再战 |
 | FailureIsolator | `module/dag` | 支路工作单元失败 → 隔离该支路，其余继续 |
 | MQ worker | `module/task` | ack / 重投 / 进 DLQ |
-| SSE / WebSocket | `module/conversation` `module/task` | 流式中途出错 → 推 error 帧 |
+| SSE / WebSocket | app 级传输实现，各模块经 SPI 发布 | 流式中途出错 → 推 error 帧；进度事件 → 推 progress 帧 |
 | HTTP 控制器 | 各 controller | 同步请求 → HTTP 状态码 + 响应体 |
 | 可观测 | `harness/eval` | 打点、落错误日志、回放 |
 
@@ -84,11 +85,13 @@ common/
 │   ├── ErrorPayload.java         # 失败时的 code/message/details
 │   ├── Pagination.java           # 入参校验
 │   └── PageResponse.java         # 分页出参（嵌于 ApiResponse.data）
-└── observability/
-    └── ErrorRecorder.java        # SPI 接口；落盘/trace 由 harness/eval 实现
+├── observability/
+│   └── ErrorRecorder.java        # SPI 接口；落盘/trace 由 harness/eval 实现
+└── progress/
+    └── ProgressNotifier.java     # SPI 接口；进度推送传输由 pixflow-app 实现
 ```
 
-依赖方向：`common` 不依赖任何上层；`observability/ErrorRecorder` 仅是接口，实现由 `harness/eval` 注入（依赖倒置，避免 common → eval 反向依赖）。
+依赖方向：`common` 不依赖任何上层；`observability/ErrorRecorder` 与 `progress/ProgressNotifier` 仅是接口，实现分别由 `harness/eval` 与 `pixflow-app` 注入（依赖倒置，避免 common → eval/app 反向依赖）。
 
 ---
 
@@ -402,7 +405,29 @@ flowchart TD
 
 ---
 
-## 十一、错误码目录约定
+## 十一、跨切进度通知 SPI
+
+`ProgressNotifier` 是跨模块发布进度事件的最小接口。它解决的问题是：底层或业务模块需要告诉前端「某个长任务进度更新了」，但这些模块不应该直接依赖 WebSocket、STOMP、SSE 或 `SimpMessagingTemplate` 等传输实现。接口放在 `common`，实现放在上层应用装配处，保持依赖方向单向。
+
+接口形态：
+
+```java
+public interface ProgressNotifier {
+    void publish(String channel, Object event);
+}
+```
+
+- `channel` 是逻辑频道键，不包含传输前缀。例如 file 模块发布素材包解压进度时使用 `packages/{packageId}/progress`。
+- `event` 是可序列化事件对象，由发布模块定义。事件内应携带业务 id、当前进度、总数、状态与 traceId。
+- `common` 不引入 `spring-messaging`，也不拼 `/topic/`、`event:` 等传输细节。
+- `pixflow-app` 提供生产实现，例如 `StompProgressNotifier` 内部把 `channel` 映射为 `/topic/{channel}` 并调用 `SimpMessagingTemplate.convertAndSend(...)`。
+- 测试或无 WebSocket 环境可注入 no-op 实现。进度事实源仍必须落在对应业务表或状态读模型中；推送只是 best-effort 实时层，不能作为唯一事实源。
+
+该 SPI 与 `ErrorRecorder` 属于同一类依赖倒置接缝：接口在 `common`，实现由更高层模块注入。它允许 `module/file` 在 Wave 2 复用 app 级 WebSocket 通道，而不反向依赖 Wave 4 的 `module/task` / `module/conversation`。
+
+---
+
+## 十二、错误码目录约定
 
 码接口化、按模块自治，但需保证全局可审计：
 
@@ -415,7 +440,7 @@ flowchart TD
 
 ---
 
-## 十二、对其他模块的契约
+## 十三、对其他模块的契约
 
 | 模块 | 契约 |
 |---|---|
@@ -427,24 +452,31 @@ flowchart TD
 | `module/dag` | `DagValidator` 校验失败抛 VALIDATION 码；`FailureIsolator` 消费 `recovery` |
 | `module/task` | MQ 消费按 `recovery` 做 ack/重投/DLQ；`error_msg` 用 `Sanitizer` 截断 |
 | `harness/eval` | 实现 `ErrorRecorder` SPI，落 trace + 指标 |
+| `pixflow-app` | 实现 `ProgressNotifier` SPI，把逻辑频道映射到实际 WebSocket/STOMP/SSE 目的地；没有实时推送能力时提供 no-op 实现 |
+| `module/file` | 通过 `ProgressNotifier` 发布素材包解压进度，事实源仍是 `asset_package.status/image_count/extracted_count` |
 | 所有 controller | 仅返回 `ApiResponse<T>`；异常交给 `HttpErrorRenderer`，不自行拼错误体 |
 
 ---
 
-## 十三、测试策略
+## 十四、测试策略
 
 - **分类映射**：参数化测试覆盖每个 `ErrorCategory` → 默认 recovery / HTTP 状态。
 - **归一化**：对每类被 `ErrorNormalizer` 识别的异常断言映射结果（含 Spring 框架异常、infra 独立异常）。
 - **脱敏**：构造含 token / AK-SK / 绝对路径的样本，断言遮蔽与相对化、截断长度。
 - **渲染器**：HTTP（MockMvc 断言 status + body 同构）、tool error（断言无堆栈泄露）、流式 error 帧。
+- **`ProgressNotifier` SPI**：common 只验证接口可被 no-op/fake 实现消费；具体 STOMP 目的地映射由 `pixflow-app` 的测试覆盖。
 - **码目录一致性**：启动期聚合测试校验 code 唯一性 + i18n 文案齐全 + category 非空。
 - **MQ 投递判定**：用 recovery 三态驱动 ack/重投/DLQ 分支。
 
 ---
 
-## 十四、暂不考虑
+## 十五、暂不考虑
 
 - 多租户隔离的错误视图（本期单租户）。
 - 错误码的运行时热更新/远程配置。
 - 跨服务分布式事务补偿（本期单体 + 以 MySQL 为事实源 + 可重建侧存储）。
 - 面向终端用户的错误自助修复引导（前端层未来再做）。
+
+## Revision Notes
+
+2026-06-28 / Codex: 为 `module/file` 的生产级素材包解压进度推送新增 `ProgressNotifier` SPI 设计口径。接口放在 common，app 级实现具体 WebSocket/STOMP/SSE 传输，业务模块只发布逻辑进度事件；该调整保持 common 不依赖上层模块，也避免 Wave 2 的 file 反向依赖 Wave 4 的 task/conversation。
