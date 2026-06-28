@@ -68,6 +68,7 @@ public class RabbitMessagePublisher implements MessagePublisher {
             metrics.recordPublishConfirmed(request.exchange(), request.routingKey());
             return PublishResult.confirmed(request.exchange(), request.routingKey(), correlationId);
         } catch (TimeoutException ex) {
+            correlationData.getFuture().cancel(true);
             return failed(request, correlationId, new PublishFailure(
                     PublishFailureType.CONFIRM_TIMEOUT,
                     "publisher confirm timed out after " + request.confirmTimeout(),

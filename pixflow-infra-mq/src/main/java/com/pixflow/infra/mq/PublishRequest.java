@@ -1,6 +1,7 @@
 package com.pixflow.infra.mq;
 
 import java.time.Duration;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import org.springframework.util.Assert;
@@ -21,7 +22,7 @@ public record PublishRequest(
         if (schemaVersion <= 0) {
             throw new IllegalArgumentException("schemaVersion must be positive");
         }
-        headers = headers == null ? Map.of() : Map.copyOf(new LinkedHashMap<>(headers));
+        headers = immutableCopy(headers);
         confirmTimeout = confirmTimeout == null ? Duration.ofSeconds(5) : confirmTimeout;
     }
 
@@ -40,5 +41,12 @@ public record PublishRequest(
         Map<String, Object> copy = new LinkedHashMap<>(headers);
         copy.put(name, value);
         return new PublishRequest(exchange, routingKey, payload, copy, schemaVersion, confirmTimeout);
+    }
+
+    private static Map<String, Object> immutableCopy(Map<String, Object> source) {
+        if (source == null || source.isEmpty()) {
+            return Map.of();
+        }
+        return Collections.unmodifiableMap(new LinkedHashMap<>(source));
     }
 }

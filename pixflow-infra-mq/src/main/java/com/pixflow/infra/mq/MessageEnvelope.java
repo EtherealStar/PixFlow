@@ -1,5 +1,6 @@
 package com.pixflow.infra.mq;
 
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -28,6 +29,6 @@ public record MessageEnvelope<T>(
         if (source == null || source.isEmpty()) {
             return Map.of();
         }
-        return Map.copyOf(new LinkedHashMap<>(source));
+        return Collections.unmodifiableMap(new LinkedHashMap<>(source));
     }
 }

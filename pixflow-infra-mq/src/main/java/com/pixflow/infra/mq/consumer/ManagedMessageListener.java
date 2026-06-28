@@ -2,7 +2,6 @@ package com.pixflow.infra.mq.consumer;
 
 import com.fasterxml.jackson.databind.JavaType;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.pixflow.common.error.CommonErrorCode;
 import com.pixflow.common.error.ErrorNormalizer;
 import com.pixflow.common.error.PixFlowException;
 import com.pixflow.common.sanitize.Sanitizer;
@@ -19,10 +18,14 @@ import java.io.IOException;
 import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import org.springframework.amqp.AmqpException;
 import org.springframework.amqp.core.Message;
 import org.springframework.amqp.core.MessageDeliveryMode;
 import org.springframework.amqp.core.MessageProperties;
+import org.springframework.amqp.rabbit.connection.CorrelationData;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.amqp.rabbit.listener.api.ChannelAwareMessageListener;
 
@@ -69,7 +72,11 @@ public class ManagedMessageListener<T> implements ChannelAwareMessageListener {
             envelope = readEnvelope(message);
         } catch (Exception ex) {
             MessageEnvelope<Object> failed = unknownEnvelope(message, Map.of());
-            forwardToDeadLetter(failed, message, "message deserialization failed: " + Sanitizer.sanitizeMessage(ex.getMessage()));
+            forwardToDeadLetter(
+                    failed,
+                    message,
+                    MqErrorCode.MQ_MESSAGE_DESERIALIZATION_FAILED,
+                    "message deserialization failed: " + Sanitizer.sanitizeMessage(ex.getMessage()));
             channel.basicAck(deliveryTag, false);
             metrics.recordConsumeDeadLetter(topology.queue());
             return;
@@ -80,6 +87,7 @@ public class ManagedMessageListener<T> implements ChannelAwareMessageListener {
                 forwardToDeadLetter(
                         envelope,
                         message,
+                        MqErrorCode.MQ_MESSAGE_SCHEMA_UNSUPPORTED,
                         "unsupported schemaVersion: " + envelope.schemaVersion());
                 channel.basicAck(deliveryTag, false);
                 metrics.recordConsumeDeadLetter(topology.queue());
@@ -91,8 +99,10 @@ public class ManagedMessageListener<T> implements ChannelAwareMessageListener {
                 // handler 返回只代表“接管成功”；长任务失败由 task 模块后续扫描恢复，不再依赖 MQ 重投。
                 channel.basicAck(deliveryTag, false);
                 metrics.recordConsumeAck(topology.queue());
-            } catch (Throwable error) {
+            } catch (Exception error) {
                 handleFailure(envelope, message, channel, deliveryTag, error);
+            } catch (Error error) {
+                throw error;
             }
         }
     }
@@ -121,7 +131,7 @@ public class ManagedMessageListener<T> implements ChannelAwareMessageListener {
         String reason = decision instanceof RetryDecision.DeadLetter deadLetter
                 ? deadLetter.reason()
                 : normalized.getMessage();
-        forwardToDeadLetter(envelope, message, reason);
+        forwardToDeadLetter(envelope, message, MqErrorCode.MQ_DLQ_FORWARD_FAILED, reason);
         channel.basicAck(deliveryTag, false);
         metrics.recordConsumeDeadLetter(topology.queue());
     }
@@ -166,16 +176,34 @@ public class ManagedMessageListener<T> implements ChannelAwareMessageListener {
                 topology.exchange(),
                 topology.routingKey());
         MessageEnvelope<T> retryEnvelope = new MessageEnvelope<>(envelope.schemaVersion(), envelope.payload(), headers);
-        send(topology.deadLetterExchange(), topology.retryRoutingKey(), retryEnvelope, headers, original, retry.delay());
+        send(
+                topology.deadLetterExchange(),
+                topology.retryRoutingKey(),
+                retryEnvelope,
+                headers,
+                original,
+                retry.delay(),
+                MqErrorCode.MQ_RETRY_FORWARD_FAILED);
     }
 
-    private void forwardToDeadLetter(MessageEnvelope<?> envelope, Message original, String reason) {
+    private void forwardToDeadLetter(
+            MessageEnvelope<?> envelope,
+            Message original,
+            MqErrorCode reasonCode,
+            String reason) {
         Map<String, Object> headers = RetryHeaders.withOriginalRoute(
-                RetryHeaders.withFailure(envelope.headers(), MqErrorCode.MQ_DLQ_FORWARD_FAILED.code(), reason),
+                RetryHeaders.withFailure(envelope.headers(), reasonCode.code(), reason),
                 topology.exchange(),
                 topology.routingKey());
         MessageEnvelope<?> dlqEnvelope = new MessageEnvelope<>(envelope.schemaVersion(), envelope.payload(), headers);
-        send(topology.deadLetterExchange(), topology.deadLetterRoutingKey(), dlqEnvelope, headers, original, null);
+        send(
+                topology.deadLetterExchange(),
+                topology.deadLetterRoutingKey(),
+                dlqEnvelope,
+                headers,
+                original,
+                null,
+                MqErrorCode.MQ_DLQ_FORWARD_FAILED);
     }
 
     private void send(
@@ -184,7 +212,9 @@ public class ManagedMessageListener<T> implements ChannelAwareMessageListener {
             MessageEnvelope<?> envelope,
             Map<String, Object> headers,
             Message original,
-            Duration expiration) {
+            Duration expiration,
+            MqErrorCode forwardErrorCode) {
+        CorrelationData correlationData = new CorrelationData(UUID.randomUUID().toString());
         try {
             rabbitTemplate.convertAndSend(exchange, routingKey, envelope, message -> {
                 MessageProperties properties = message.getMessageProperties();
@@ -195,9 +225,41 @@ public class ManagedMessageListener<T> implements ChannelAwareMessageListener {
                     properties.setExpiration(String.valueOf(expiration.toMillis()));
                 }
                 return message;
-            });
+            }, correlationData);
+            CorrelationData.Confirm confirm = correlationData.getFuture()
+                    .get(this.properties.getPublishConfirmTimeout().toMillis(), TimeUnit.MILLISECONDS);
+            if (correlationData.getReturned() != null) {
+                var returned = correlationData.getReturned();
+                throw new PixFlowException(
+                        MqErrorCode.MQ_PUBLISH_RETURNED,
+                        "MQ forward was returned: " + returned.getReplyText(),
+                        null,
+                        Map.of(
+                                "exchange", returned.getExchange(),
+                                "routingKey", returned.getRoutingKey(),
+                                "replyCode", returned.getReplyCode(),
+                                "replyText", returned.getReplyText()));
+            }
+            if (confirm == null || !confirm.isAck()) {
+                String reason = confirm == null ? "publisher confirm returned null" : confirm.getReason();
+                throw new PixFlowException(
+                        MqErrorCode.MQ_PUBLISH_NACKED,
+                        "MQ forward was not confirmed: " + reason,
+                        null,
+                        Map.of("exchange", exchange, "routingKey", routingKey, "forwardErrorCode", forwardErrorCode.code()));
+            }
         } catch (AmqpException ex) {
-            throw new PixFlowException(CommonErrorCode.DEPENDENCY_UNAVAILABLE, "MQ forward failed", ex);
+            throw new PixFlowException(forwardErrorCode, "MQ forward failed", ex);
+        } catch (TimeoutException ex) {
+            throw new PixFlowException(
+                    MqErrorCode.MQ_CONFIRM_TIMEOUT,
+                    "MQ forward confirm timed out",
+                    ex,
+                    Map.of("exchange", exchange, "routingKey", routingKey, "forwardErrorCode", forwardErrorCode.code()));
+        } catch (PixFlowException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            throw new PixFlowException(forwardErrorCode, "MQ forward confirm failed", ex);
         }
     }
 

@@ -1,5 +1,6 @@
 package com.pixflow.infra.mq.topology;
 
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import org.springframework.util.Assert;
@@ -29,6 +30,13 @@ public record QueueTopology(
             Assert.hasText(retryQueue, "retryQueue must not be blank when retry is enabled");
             Assert.hasText(retryRoutingKey, "retryRoutingKey must not be blank when retry is enabled");
         }
-        queueArguments = queueArguments == null ? Map.of() : Map.copyOf(new LinkedHashMap<>(queueArguments));
+        queueArguments = immutableCopy(queueArguments);
+    }
+
+    private static Map<String, Object> immutableCopy(Map<String, Object> source) {
+        if (source == null || source.isEmpty()) {
+            return Map.of();
+        }
+        return Collections.unmodifiableMap(new LinkedHashMap<>(source));
     }
 }
