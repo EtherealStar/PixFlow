@@ -86,7 +86,7 @@ harness/eval/
 ├── model/
 │   ├── TraceInput.java             # system prompt 摘要 + 消息快照引用 + 可见工具 schema 视图
 │   ├── TraceToolCall.java          # name/input/result引用/classification/permission决策视图/耗时/error
-│   ├── TraceRecall.java            # recall_memory 召回内容（类型/命中/分值/RRF 融合）
+│   ├── TraceRecall.java            # 自动记忆召回内容（section/命中/分值/RRF/衰减）
 │   ├── TracePruneEntry.java        # cheap pipeline / compaction 裁剪日志条目
 │   ├── TurnTraceRecord.java        # 读面回放载体（一行 agent_trace 的解码视图）
 │   └── TurnStatus.java             # OPEN / COMMITTED / ABORTED
@@ -157,7 +157,7 @@ public interface TraceRecorder {
 public interface TurnTrace {
     void recordInput(TraceInput input);          // 一轮模型调用的输入：systemPrompt 摘要 + 消息快照引用 + 可见工具 schema 视图
     void recordToolCall(TraceToolCall call);     // 单次工具调用 span（tools 执行管线投递）
-    void recordRecall(TraceRecall recall);       // recall_memory 召回内容
+    void recordRecall(TraceRecall recall);       // 自动记忆召回内容
     void recordPrune(TracePruneEntry entry);     // cheap pipeline / destructive compaction 裁剪日志
     void commit();                               // 回合正常收尾：聚合一行 + 置 COMMITTED + 投递缓冲
     void abort(PixFlowException error);          // 回合异常终止：置 ABORTED + 投递（保留已收集分段）
@@ -178,7 +178,7 @@ flowchart TD
   Begin["loop: begin(conv, turn, traceId)"] --> Open["投递 OPEN 占位行"]
   Open --> Input["recordInput（每次模型调用前/后）"]
   Input --> Tool["tools 执行管线: recordToolCall（每次工具调用）"]
-  Tool --> Recall["recordRecall（recall_memory 命中）"]
+  Tool --> Recall["recordRecall（自动记忆召回命中）"]
   Recall --> Prune["context: recordPrune（cheap/compaction 裁剪）"]
   Prune --> More{"本回合还有动作?"}
   More -->|是| Input
@@ -291,7 +291,7 @@ public final class EvalErrorRecorder implements ErrorRecorder {
 | `runtime_scope` | VARCHAR | **新增**：MAIN / 子 Agent 类型，区分主/子 Agent 回合 |
 | `input_json` | JSON | 一轮/多轮模型调用输入数组：systemPrompt 摘要 + 消息快照引用 + 可见工具 schema 视图 |
 | `tool_calls_json` | JSON | 工具调用 span 数组：name/input/result引用/classification/permission决策视图/耗时/error |
-| `recall_json` | JSON | recall_memory 召回内容（类型/命中/分值/RRF 融合记录） |
+| `recall_json` | JSON | 自动记忆召回内容（section/命中/分值/RRF/衰减/降级记录） |
 | `prune_log_json` | JSON | cheap pipeline + destructive compaction 裁剪日志 |
 | `error_json` | JSON（可空） | **新增**：回合内归一化错误现场（脱敏） |
 | `created_at` | DATETIME | 回合首次落库时间；保留清理按此列（见 §11） |

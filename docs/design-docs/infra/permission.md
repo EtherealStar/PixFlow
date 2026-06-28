@@ -42,12 +42,12 @@
 
 参考实现 OneCode 是**编码 Agent**，其权限层 ~80% 围绕「文件系统/命令/目录访问控制」——deny-first 合并工具规则、`.onecode/settings.json` 项目持久规则、guard 路径分类、受保护目录、可疑 Windows 路径、session 目录授权、交互式 prompter。
 
-PixFlow **没有「Agent 自由读写文件系统」这个面**。它的工具集是固定的六个 Agent 级动作，受控点高度收敛。两者对照：
+PixFlow **没有「Agent 自由读写文件系统」这个面**。它的工具集是固定的少量 Agent 级动作，受控点高度收敛。两者对照：
 
 | 维度 | OneCode（参考） | PixFlow（本模块） |
 |---|---|---|
 | 内核 | 目录/路径/命令授权 | **确认令牌签发与校验** |
-| 工具空间 | 开放（含 bash 任意命令） | 固定六动作，仅 `submit_dag`/`run_imagegen_subagent` 受控 |
+| 工具空间 | 开放（含 bash 任意命令） | 固定少量动作，仅 `submit_dag`/`run_imagegen_subagent` 受控 |
 | 受保护资源 | `.git`/`.vscode`/`.onecode` 等目录 | 无（无文件系统面） |
 | 规则字符串 | `tool(content)` + fnmatch | 不需要（工具集小、单租户） |
 | 交互式 prompter | CLI 当场弹窗 / fail-closed | 跨回合走对话 UI（`CONFIRM_REQUIRED`） |
@@ -336,7 +336,7 @@ flowchart TD
 - 有令牌但校验失败 → `DENY`。
 - 校验通过 → `ALLOW`（消费令牌）。
 
-**阶段 C（普通动作）**：`recall_memory` / `query_commerce_data` / `compile_dag` / `run_vision_subagent` 默认 `ALLOW`；命中配置 ask 规则才 `CONFIRM_REQUIRED`。
+**阶段 C（普通动作）**：`query_commerce_data` / `compile_dag` / `run_vision_subagent` 默认 `ALLOW`；命中配置 ask 规则才 `CONFIRM_REQUIRED`。
 
 > PixFlow 工具集固定且小，阶段 C 远比 OneCode 轻——只读动作几乎全是默认放行，真正受控的就是阶段 B 两个副作用动作。
 

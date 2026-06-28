@@ -24,7 +24,7 @@
 
 1. **分层依赖**：`{common, contracts} → infra/harness → module → agent`（上层使用下层，反向不成立）。`common` 与 `contracts` 同为零依赖地基、彼此独立：`common` 是人人依赖的横切能力，`contracts` 是零依赖叶子（仅 JDK），只为打破 `permission ↔ infra/cache` 的环而存在（见 `module/contracts.md`）。
 2. **横切注入**：harness 六件套被 Execution Loop 编排、被各业务 module 调用。
-3. **功能调用**：Agent 级动作映射到具体业务模块（`recall_memory→memory`、`query_commerce_data→commerce`、`compile_dag→dag`、`submit_dag→task`、`run_vision_subagent→vision`、`run_imagegen_subagent→imagegen`）。
+3. **功能调用与 Prompt 注入**：Agent 级动作映射到具体业务模块（`query_commerce_data→commerce`、`compile_dag→dag`、`submit_dag→task`、`run_vision_subagent→vision`、`run_imagegen_subagent→imagegen`）。`module/memory` 不再作为 Agent 工具暴露，而是在 Agent Prompt 组装前由系统自动召回并注入。
 
 整图无环，可做拓扑排序。
 
@@ -61,7 +61,7 @@ graph TD
     %% ===== module 业务模块 =====
     file[module/file 素材管理]
     commerce[module/commerce 电商数据]
-    memory[module/memory RAG记忆]
+    memory[module/memory 自动记忆]
     dag[module/dag DAG引擎]
     vision[module/vision 视觉子Agent]
     imagegen[module/imagegen 生图子Agent]
@@ -179,7 +179,7 @@ contracts → permission → tools → loop → agent
 2. **`permission` 前置到 tools/loop 之前**。设计原则三：安全边界是硬约束不是 Prompt 约束；`submit_dag`/生图/重跑的确认令牌靠它硬 deny。
 3. **`dag` 早于 `task`**。task 是 dag 的异步执行外壳（校验通过才入队、worker 才 fan-out），确定性引擎须先稳定。
 4. **`tools` 早于 `loop`**。loop 单轮流程依赖 Tool Registry 执行管线，否则无可编排。
-5. **`memory`/`commerce` 与 harness 并行（Wave 2）**。它们只依赖 infra，不依赖 harness，可提前为 agent 的 `recall_memory`/`query_commerce_data` 备好。
+5. **`memory`/`commerce` 与 harness 并行（Wave 2）**。它们只依赖 infra，不依赖 harness，可提前为 agent 的自动记忆 Prompt 注入和 `query_commerce_data` 备好。
 6. **`rubrics` 放最后**。它是完全独立的离线阶段，消费 eval trace，不阻塞主链路。
 7. **`vision`/`imagegen` 在 Wave 3 就绪**，但真正被接成 Agent 动作是在 Wave 5；模块本身只要 infra/ai 到位即可独立开发联调。
 
@@ -206,9 +206,9 @@ contracts → permission → tools → loop → agent
 - [x] `harness/context`：消息 append-only 存储、投影滑窗、jtokkit 预算裁剪、microcompact
 - [x] `harness/hooks`：生命周期事件总线（UserPromptSubmit/PreToolUse/... ），可改写/软阻断
 - [x] `harness/eval`：trace 表（JSON 列）写入与回放接口、Micrometer 指标
-- [ ] `module/file`：上传/解压、文件名驱动 SKU/分组绑定、结果管理
+- [x] `module/file`：上传/解压、文件名驱动 SKU/分组绑定、结果管理
 - [ ] `module/commerce`：本地 CSV/Excel 导入（POI+commons-csv）、`query_commerce_data` 查询；预留 API 适配器
-- [ ] `module/memory`：用户偏好(MySQL)/SKU 历史(MySQL)/分析结论(Qdrant) 三类存储 + 统一 `recall_memory` 路由
+- [ ] `module/memory`：用户偏好(MySQL)/SKU 历史(MySQL)/分析结论(MySQL + Qdrant active 索引) 三类存储 + 自动召回、Prompt 注入、异步巩固、衰减遗忘
 
 ### Wave 3 — 横切组合 + 确定性核心 + 子能力
 - [ ] `harness/tools`：Tool Registry + 执行管线（schema→分类→权限→hook→handler→结果预算→trace）

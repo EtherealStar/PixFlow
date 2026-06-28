@@ -31,7 +31,7 @@
 
 ## 一、文档定位与设计原则
 
-`harness/state` 在依赖 DAG 中处于 `{infra/cache, infra/storage} → state → task` 的位置（Wave 2 harness 基础）。它是执行运行态的**聚合读模型 + 断点恢复协调权威**：把 MySQL（权威 checkpoint）、Redis（实时进度 / 取消 / 运行态引用）、MinIO（中间产物字节）三处事实融合成一份连贯视图，供任务调度查询、WebSocket 推送、worker 恢复跳过消费。
+`harness/state` 在依赖 DAG 中处于 `{infra/cache, infra/storage} → state → task` 的位置（Wave 2 harness 基础）。它是执行运行态的**聚合读模型 + 断点恢复协调权威**：把 MySQL（权威 checkpoint）、Redis（实时进度 / 取消 / 运行态引用）、MinIO（中间产物字节）三处事实融合成一份连贯视图，供任务调度查询、WebSocket 推送的数据源、worker 恢复跳过消费。state 不持有 WebSocket/SSE 连接，也不直接推帧；实时传输由 app 级 `ProgressNotifier` 实现承接，各业务模块只发布逻辑进度事件。
 
 `state` 专属设计原则：
 
@@ -81,7 +81,7 @@ infra/storage ┘        ▲
 | 模块 | 职责 | 与 state 的边界 |
 |---|---|---|
 | `harness/context` | 会话维度**消息链**运行期工作内存 | context 不持久化任务态；state 不碰消息链、不做语义召回。二者维度正交（会话 vs 任务） |
-| `module/memory` | 业务记忆（偏好 / SKU 历史 / 分析结论），`recall_memory` 召回 | state 不做语义召回；裁剪 / 召回不归它 |
+| `module/memory` | 业务记忆（偏好 / SKU 历史 / 分析结论），由 Prompt 组装层自动召回并注入 | state 不做语义召回；裁剪 / 召回不归它 |
 | `infra/cache` | Redis 原语（锁 / 计数 / 信号量 / KV），无业务词 | state **组合**它读运行态引用 / 进度；不重造原语、不定义键前缀 |
 | `infra/storage` | MinIO 纯 I/O | state **组合**它回读字节；不拥有 key 模板 |
 | `module/task` | 任务调度：MQ 消费、fan-out、**进度自增**、**加锁去重**、**设取消标志**、`process_*` 落库、断点恢复触发（`@Scheduled` 重扫）、下载 | task 是运行态**写侧**与恢复**执行方**；state 是**读侧聚合**与恢复**协调方**（算可跳过单元）。task 实现 `CheckpointReadPort` |
@@ -359,9 +359,9 @@ flowchart TD
   Asm --> Out["返回（轮询/WS 数据源）"]
 ```
 
-- **谁消费**：`module/task` 的状态查询 REST 端点、WebSocket 进度推送、`module/conversation` 的任务关联展示，都拿 `ExecutionStateSnapshot`，不各自拼三存储。
+- **谁消费**：`module/task` 的状态查询 REST 端点、WebSocket 进度推送事件构造、`module/conversation` 的任务关联展示，都拿 `ExecutionStateSnapshot`，不各自拼三存储。其他业务模块如 `module/file` 的素材包解压进度不经过 state，因为它的事实源是 `asset_package`；但它同样通过 `common.ProgressNotifier` 复用 app 级推送传输。
 - **权威与实时并存**：`status` 取 MySQL（权威），`progress` 优先 Redis（实时）、可回退 MySQL，`cancelRequested` 取 Redis（实时信号）。快照明示来源，消费方无需理解三存储细节。
-- **state 不推送**：WebSocket / SSE 的连接管理与帧推送在 `module/task` / `module/conversation`；state 只提供数据源，不持有连接。
+- **state 不推送**：WebSocket / SSE 的连接管理与帧推送在 app 级传输实现中完成，业务模块经 `common.ProgressNotifier` 发布逻辑事件；state 只提供任务状态数据源，不持有连接、不依赖 `SimpMessagingTemplate`、不直接推帧。
 
 ---
 
@@ -434,6 +434,7 @@ pixflow:
 | `module/task` | 实现 `CheckpointReadPort`（读 `process_result` / `process_task` 投影为 `UnitKey` / 计数 / 运行态）；消费 `RecoveryCoordinator.resolveSkippable` 做 worker 跳过；消费 `ExecutionStateService.snapshot` 做查询 / WS 数据源；**写侧**（进度自增、加锁、设取消、落 `process_*`、`@Scheduled` 重扫与重新入队）全在 task |
 | `module/dag` | 拥有 `branch:cache:*` / `group:cache:*` 键与生命周期；经 `RunStateRefStore` 读写 `ArtifactRef`；引用对象形状与 checkpoint 对账口径由 state 收敛 |
 | `module/conversation` | 任务关联展示消费 `ExecutionStateSnapshot`（只读），不直接拼三存储 |
+| `module/file` | 不依赖 state；素材包解压进度以 `asset_package` 为事实源，经 `common.ProgressNotifier` 发布实时事件，边界与 state 的「只供数据源、不持连接」原则一致 |
 | `infra/cache` | state 经 `CacheStore` 读引用 / 取消标志、`AtomicCounter` 读进度；降级分级遵从 `cache.md §八` |
 | `infra/storage` | state 经 `ObjectStorage` 按需回读中间产物字节；不拥有 `StorageKeys` |
 | `common` | state 业务失败抛 `PixFlowException`（`StateErrorCode`）；消费的 infra 异常已在边界归一化为 `DEPENDENCY` / `STORAGE`；文案经 `Sanitizer` |
@@ -477,3 +478,7 @@ pixflow:
 - **跨任务 / 全局运行态聚合视图**（如全系统在跑任务总览看板）：本期按单任务查询，全局看板待运维需求明确再加。
 - **运行态写入收编进 state**：进度自增 / 加锁 / 设取消 / 落 `process_*` 本期坚持留在 task/dag；若未来出现强一致需求再评估，但那会改动 `cache.md` 契约，属独立工作项。
 - **fencing token 强一致**：与 `cache.md` 一致，本期以 MySQL 事实源保证幂等，不引入。
+
+## Revision Notes
+
+2026-06-28 / Codex: 同步 `module/file` 的进度推送边界决策。state 继续只做任务运行态数据源与恢复协调，不持有 WebSocket/SSE 连接；实时传输上移到 app 级 `ProgressNotifier` 实现，各业务模块发布逻辑进度事件。`module/file` 不依赖 state，它的素材包解压进度以 `asset_package` 为事实源。

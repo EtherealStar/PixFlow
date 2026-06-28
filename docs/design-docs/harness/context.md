@@ -89,7 +89,7 @@ infra/storage ──► context ──► session ──► conversation
 1. **持久化归属**：context 纯内存 + SPI 委托；不直接读写 `message` 表。
 2. **message 表唯一写者是 session**：所有 `message` 行的写入只经 session 的 `TranscriptPort` 实现；`module/conversation` 不写 `message` 表，只做查询与展示。用户发来的消息也经 context→`TranscriptPort`→session 落库，不由 conversation 直接插库。
 3. **压缩归属**：cheap pipeline 与摘要式 destructive compaction 都在 context；LLM 摘要经 `SummarizationPort` 倒置给 agent。`design.md §12` 无独立 compaction 模块，本设计据此把压缩归 context。
-4. **与 State Store / memory 不混**：`harness/state` 管任务/Agent 运行态（断点/进度/DAG 结构，任务维度）；`module/memory` 管业务记忆（偏好/SKU 历史/分析结论，经 `recall_memory` 召回）。context 只管**对话消息链**（会话维度），既不持久化任务态，也不做语义召回；裁剪优先级里的「关键记忆片段」只是一类需保留内容，其存取属 memory 模块。
+4. **与 State Store / memory 不混**：`harness/state` 管任务/Agent 运行态（断点/进度/DAG 结构，任务维度）；`module/memory` 管业务记忆（偏好/SKU 历史/分析结论），并由 Agent Prompt 组装层在每轮开始前自动召回和注入。context 只管**对话消息链**（会话维度），既不持久化任务态，也不做语义召回；裁剪优先级里的「关键记忆片段」只是一类需保留内容，其存取属 memory 模块。
 
 ---
 
