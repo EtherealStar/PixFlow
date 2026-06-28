@@ -71,6 +71,14 @@ harness/hooks/
 ├── HookResult.java             # 结果 record（blockingReason / updatedInput / metadata）
 ├── HookRegistry.java           # 派发入口接口（dispatch）
 ├── DefaultHookRegistry.java    # Spring bean 收集 + 顺序派发 + 异常隔离实现
+├── internal/
+│   ├── DispatchAccumulator.java # 单次派发的聚合状态：当前 payload / metadata / 是否改写
+│   └── MetadataMerger.java      # metadata 冲突合并与保留键处理
+├── error/
+│   └── HookError.java           # 回调异常的脱敏摘要结构
+├── config/
+│   ├── HookProperties.java
+│   └── HookAutoConfiguration.java
 └── payload/
     ├── HookPayload.java            # sealed 接口；公共基段 conversationId/turnNo/traceId/runtime
     ├── UserPromptSubmitPayload.java
@@ -203,6 +211,8 @@ public interface HookRegistry {
 
 `DefaultHookRegistry` 是唯一实现：构造期注入 `List<HookCallback>`，分桶 + 排序；`dispatch` 顺序执行、短路、累积 metadata、隔离异常（见 [五](#五执行模型)）。
 
+`DefaultHookRegistry` 的职责应保持很薄：它只负责派发、链内改写传播、metadata 累积和异常隔离；**不负责**把 `blockingReason` 渲染成 tool error，也不负责记录 eval trace。阻断归一化属于调用方（`harness/tools` 或 `module/task`）的出口语义，trace 属于调用方经 `harness/eval` 的可观测责任。
+
 ---
 
 ## 五、执行模型
@@ -238,7 +248,7 @@ flowchart TD
   Loop -->|是| Run["callback.handle(event, payload)"]
   Run -->|抛异常| Catch["记入 metadata.hookErrors，继续下一个"]
   Run -->|blockingReason 非空| Stop["短路：终止后续，返回 block 结果"]
-  Run -->|updatedInput| MergeIn["合并进 payload.toolInput（仅 PreToolUse）"]
+  Run -->|updatedInput| MergeIn["浅层 patch 合并进 payload.toolInput（仅 PreToolUse）"]
   Run -->|metadata| MergeMeta["累积合并 metadata"]
   Catch --> Loop
   MergeIn --> Loop
@@ -247,7 +257,8 @@ flowchart TD
 
 - **短路**：首个返回 `blockingReason` 的回调立即终止链，后续回调不执行。
 - **异常隔离**：回调抛异常被捕获，写入 `metadata["hookErrors"]`（含 callback 类名 + 脱敏消息），链继续。异常**不**等同于阻断。
-- **改写传播**：PreToolUse 链内，前一回调的 `updatedInput` 合并进 payload 后，后续回调看到的是改写后的 `toolInput`（与参考实现一致）。
+- **改写传播**：PreToolUse 链内，前一回调的 `updatedInput` 以**浅层 patch** 合并进当前 `toolInput` 后，dispatcher 创建新的不可变 `ToolUsePayload` 传给后续回调；后续回调看到的是改写后的 `toolInput`（与参考实现一致）。`ToolUsePayload` 本身不暴露可变 setter，避免 callback 私自污染 payload。
+- **整包替换不作为默认语义**：`updatedInput` 不是「替换整个工具输入」；它只表达要覆盖或新增的顶层字段。若未来某个工具需要嵌套深合并，应由 `harness/tools` 或该工具自己的 validate/normalize 逻辑显式处理，不能让 hooks 总线猜测嵌套语义。
 
 ### 5.4 子 Agent 作用域：共享总线 + self-gate
 
@@ -276,7 +287,7 @@ public HookResult handle(HookEvent e, HookPayload p) {
 | `TURN_STOPPED` | `harness/loop`（无 tool call 自然结束） | 否 | 否 | 观察 / 回合收尾审计 |
 | `TASK_CREATED` | `module/task`（任务入库后） | **是** | 否 | 阻断则回滚已创建任务（与参考一致语义） |
 | `TASK_COMPLETED` | `module/task`（任务终态） | 否 | 否 | 观察任务完成；Rubrics 预警**不**在此在线触发（见下） |
-| `PRE_COMPACT` | `harness/context` | 否 | 否 | 摘要式压缩前注入 `summaryInstructions`（影响摘要 prompt） |
+| `PRE_COMPACT` | `harness/context` | 否 | 否 | 摘要式压缩前通过 metadata 注入 `compact.summaryInstructions`（影响摘要 prompt） |
 | `POST_COMPACT` | `harness/context` | 否 | 否 | 观察压缩结果（token 前后、trigger） |
 | `COMPACT_FAILED` | `harness/context` | 否 | 否 | 观察摘要失败/断路回退确定性裁剪 |
 
@@ -302,13 +313,32 @@ public HookResult handle(HookEvent e, HookPayload p) {
 
 ### 7.2 输入改写（updatedInput）
 
-- 仅 `PRE_TOOL_USE` 链消费。回调返回 `updatedInput` 后，dispatcher 合并进 `payload.toolInput`，后续回调看到改写后的输入。
+- 仅 `PRE_TOOL_USE` 链消费。回调返回 `updatedInput` 后，dispatcher 按浅层 patch 语义合并进当前 `payload.toolInput`，再创建新的不可变 `ToolUsePayload`，后续回调看到改写后的输入。
+- 浅层 patch 语义：`updatedInput` 中出现的顶层键覆盖原 `toolInput` 同名顶层键；不存在的键追加；未出现的键保持原值。dispatcher 不做嵌套 Map 深合并、不做字段删除、不做类型转换。若需要删除字段，应由调用方在重新 validate/normalize 阶段处理为非法或规范化结果。
+- dispatcher 只返回最终聚合 `HookResult.updatedInput`，表示相对原始输入发生过的顶层 patch；调用方据此判断是否需要重跑工具管线前置校验。调用方不应根据对象引用是否相等判断改写与否。
 - 链结束后，`harness/tools` 若检测到 `toolInput` 被改写，**必须重新执行** `validate → classify → guard → permission`（`tool-runtime-architecture.md`、`permission.md §八`）。hook 不能借改写绕过任一硬校验：改写后的输入若被 permission `DENY`，依然 deny。
 
 ### 7.3 metadata 累积
 
-- 一条事件链内逐回调合并。**键冲突策略**：默认后者不静默覆盖前者；同键写入时把值收敛为列表（或按命名空间前缀隔离，如 `dagCheck.*`、`memory.*`），避免跨模块 hook 互相踩键。
-- `hookErrors` 是 dispatcher 保留键，回调不得写入。
+- 一条事件链内逐回调合并。推荐 key 使用命名空间前缀，例如 `dag.validationWarnings`、`memory.ingestScheduled`、`compact.summaryInstructions`，避免跨模块 hook 互相踩键。
+- **键冲突策略**：新 key 直接写入；同 key 且旧值与新值相等时保留单值；同 key 且旧值不是列表时收敛为列表 `[old, new]`；同 key 且旧值已是列表时追加新值。dispatcher 不静默覆盖已有值。
+- `hookErrors` 是 dispatcher 保留键，回调不得写入。若 callback 返回的 metadata 含 `hookErrors`，dispatcher 必须忽略该键或把它改写进 `callbackMetadata.hookErrors`，不能让 callback 伪造系统级异常隔离结果。
+
+### 7.4 PreCompact 指令注入
+
+`PRE_COMPACT` 不消费 `updatedInput`，它通过 metadata 影响摘要请求。约定 key 为 `compact.summaryInstructions`，值可以是字符串或字符串列表。多个 hook 写入同一 key 时，按 [7.3](#73-metadata-累积) 的列表收敛规则保留顺序，由 `harness/context` 在构造 `SummarizationRequest` 时拼接或选择使用。
+
+这个约束把「工具输入改写」和「压缩摘要指令注入」分开：前者只属于 `PRE_TOOL_USE.updatedInput`，后者只属于 `PRE_COMPACT.metadata`。这样可以避免 context 误把 `updatedInput` 当作摘要请求的可变输入，也避免 hook 总线理解 compaction 业务语义。
+
+### 7.5 首批业务 hook 的归属
+
+`harness/hooks` core 只提供总线和 SPI，不内置业务 hook。首批业务 hook 应放在更高层接线模块中：
+
+- DAG 参数异常检测 hook 放在 `module/dag` 或 `harness/tools` 与 DAG 的接线层，订阅 `PRE_TOOL_USE`，只处理 `compile_dag` / `submit_dag` 相关输入。
+- 分析结论记忆抽取 hook 放在 `agent` 或 memory 接线层，订阅 `ASSISTANT_MESSAGE_COMPLETED`，调用 `MemoryService.ingestAsync` 后立即返回 `noop()`。
+- 压缩摘要指令 hook 放在 `agent` / `context` 接线层，订阅 `PRE_COMPACT` 并写入 `compact.summaryInstructions` metadata。
+
+这样可以保证 hooks core 不反向依赖业务模块，业务扩展通过 Spring bean 装配进入总线。
 
 ---
 
@@ -316,9 +346,9 @@ public HookResult handle(HookEvent e, HookPayload p) {
 
 | 对接方 | 契约 |
 |---|---|
-| `harness/tools` 执行管线 | 在 `validate → classify → guard → permission → **PreToolUse**` 派发；`blockingReason` 在 handler 前短路并归一化为 tool error；`updatedInput` 触发**重新校验+授权**；成功后派发 `PostToolUse`，异常派发 `ToolError`。tool 事件 payload 由 tools 适配填充（含 `PermissionDecision` 只读视图） |
+| `harness/tools` 执行管线 | 在 `validate → classify → guard → permission → **PreToolUse**` 派发；permission `DENY` / `CONFIRM_REQUIRED` 已短路的调用**不触发** `PreToolUse`；`blockingReason` 在 handler 前短路并由 tools 归一化为 tool error；`updatedInput` 触发**重新校验+重新授权**；成功后派发 `PostToolUse`，异常派发 `ToolError`。tool 事件 payload 由 tools 适配填充（含 `PermissionDecision` 只读视图） |
 | `harness/loop` | 回合入口派发 `UserPromptSubmit`；assistant 消息完成派发 `AssistantMessageCompleted`；无 tool call 自然结束派发 `TurnStopped`。`dispatch` 同步返回，loop 据 `metadata` 做后续编排 |
-| `harness/context` | 摘要式 destructive compaction 各阶段派发 `PreCompact`（返回 `summaryInstructions` 注入摘要 prompt）/`PostCompact`/`CompactFailed`（观察）；详见 `context.md §十、§十四` |
+| `harness/context` | 摘要式 destructive compaction 各阶段派发 `PreCompact`（消费 metadata key `compact.summaryInstructions` 注入摘要 prompt）/`PostCompact`/`CompactFailed`（观察）；详见 `context.md §十、§十四` |
 | `module/task` | 任务入库后派发 `TaskCreated`（阻断则回滚）；任务终态派发 `TaskCompleted`（观察）。异步 worker 线程内同步派发，payload `turnNo` 可空 |
 | `permission` | hooks 在 payload 暴露 `PermissionDecision` 只读视图；**hook 的 allow 不能翻转 permission DENY**（物理上 deny 的调用不触发 PreToolUse） |
 | `common/error` | `blockingReason` 经 `ErrorNormalizer` 归一化为 `VALIDATION`（PreToolUse）/`BUSINESS_RULE`（TaskCreated）类 `PixFlowException`；回调异常经 `Sanitizer` 脱敏后入 `hookErrors` |
@@ -365,9 +395,13 @@ pixflow:
 - **顺序与短路**：注册多个不同 `order()` 的回调，断言执行顺序、首个 `blockingReason` 短路后续不执行。
 - **异常隔离**：构造抛异常的回调，断言链继续、`hookErrors` 收集正确、其它回调结果不丢。
 - **改写传播**：PreToolUse 链内前置回调改写 `toolInput`，断言后续回调看到改写值；断言 dispatcher 不对非 PreToolUse 事件应用 `updatedInput`。
+- **浅层 patch 语义**：断言 `updatedInput` 只覆盖/新增顶层字段，不做嵌套深合并、不做删除；断言 dispatcher 通过新 `ToolUsePayload` 向后续回调传播改写。
 - **metadata 累积**：多回调写不同键/同键，断言合并与冲突收敛策略。
+- **保留键保护**：callback 返回 `metadata.hookErrors` 时不能伪造 dispatcher 的异常结果；真实回调异常才进入保留键。
+- **PreCompact 指令注入**：多个 hook 写入 `compact.summaryInstructions` 时按顺序收敛为列表；`PRE_COMPACT.updatedInput` 被忽略。
 - **阻断归一化**：PreToolUse 阻断 → 断言归一化为 `VALIDATION`/`recovery=SKIP`，**绝不**为 `PERMISSION`；TaskCreated 阻断 → `BUSINESS_RULE` 且任务回滚。
 - **安全边界不可越权**：构造 PreToolUse 回调返回「试图放行」的 metadata，断言无法影响已发生的 permission 决策（hooks 无翻转能力）。
+- **permission 短路不触发 hook**：工具管线接入测试中，permission `DENY` / `CONFIRM_REQUIRED` 的工具调用不派发 `PRE_TOOL_USE`；hook 改写后第二次 permission 失败仍必须短路。
 - **子 Agent self-gate**：payload `runtime().subagent()=true` 时，仅作用于主 Agent 的 hook 返回 `noop()`。
 - **同步契约**：断言 `dispatch` 同步返回；异步副作用型 hook（记忆抽取）断言其 `handle` 立即返回 `noop()` 且不阻塞调用线程。
 - **payload 类型完备**：sealed `HookPayload` 的每个子类型与对应事件的映射、公共基段非空约束。

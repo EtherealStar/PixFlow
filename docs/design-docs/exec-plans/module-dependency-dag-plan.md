@@ -203,7 +203,7 @@ contracts → permission → tools → loop → agent
 ### Wave 2 — harness 基础 + 基础数据
 - [ ] `harness/state`：MySQL/Redis/MinIO 状态聚合；状态查询接口（轮询/WS 数据源）
 - [ ] `harness/context`：消息 append-only 存储、投影滑窗、jtokkit 预算裁剪、microcompact
-- [ ] `harness/hooks`：生命周期事件总线（UserPromptSubmit/PreToolUse/... ），可改写/软阻断
+- [x] `harness/hooks`：生命周期事件总线（UserPromptSubmit/PreToolUse/... ），可改写/软阻断
 - [ ] `harness/eval`：trace 表（JSON 列）写入与回放接口、Micrometer 指标
 - [ ] `module/file`：上传/解压、文件名驱动 SKU/分组绑定、结果管理
 - [ ] `module/commerce`：本地 CSV/Excel 导入（POI+commons-csv）、`query_commerce_data` 查询；预留 API 适配器
