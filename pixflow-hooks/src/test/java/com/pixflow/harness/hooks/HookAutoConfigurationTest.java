@@ -41,6 +41,24 @@ class HookAutoConfigurationTest {
         });
     }
 
+    @Test
+    void autoConfigurationBacksOffWhenUserProvidesHookRegistry() {
+        contextRunner.withUserConfiguration(CustomRegistryConfiguration.class).run(context -> {
+            assertThat(context).hasSingleBean(HookRegistry.class);
+
+            HookResult result = context.getBean(HookRegistry.class).dispatch(HookEvent.USER_PROMPT_SUBMIT, new UserPromptSubmitPayload(
+                    "conversation-1",
+                    1,
+                    "trace-1",
+                    RuntimeScope.main(),
+                    "hello",
+                    Map.of(),
+                    Map.of()));
+
+            assertThat(result.metadata()).containsEntry("custom", true);
+        });
+    }
+
     @Configuration
     static class TestCallbacks {
         static final List<String> calls = new ArrayList<>();
@@ -73,6 +91,14 @@ class HookAutoConfigurationTest {
                     return HookResult.withMetadata(Map.of("ordered", value));
                 }
             };
+        }
+    }
+
+    @Configuration
+    static class CustomRegistryConfiguration {
+        @Bean
+        HookRegistry customHookRegistry() {
+            return (event, payload) -> HookResult.withMetadata(Map.of("custom", true));
         }
     }
 }

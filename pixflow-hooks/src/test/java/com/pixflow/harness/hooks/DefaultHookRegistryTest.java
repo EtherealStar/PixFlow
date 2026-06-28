@@ -80,6 +80,32 @@ class DefaultHookRegistryTest {
     }
 
     @Test
+    void dispatchStillContinuesWhenCallbackErrorNormalizationFails() {
+        HookRegistry registry = registry(
+                callback(-1, event -> {
+                    throw new BadMessageException();
+                }),
+                callback(0, event -> HookResult.withMetadata(Map.of("afterNormalizationFailure", true))));
+
+        HookResult result = registry.dispatch(HookEvent.PRE_TOOL_USE, toolPayload(Map.of()));
+
+        assertThat(result.metadata()).containsEntry("afterNormalizationFailure", true);
+        Object hookErrors = result.metadata().get("hookErrors");
+        assertThat(hookErrors).isInstanceOf(HookError.class);
+        HookError error = (HookError) hookErrors;
+        assertThat(error.category()).isEqualTo("INTERNAL");
+        assertThat(error.safeMessage()).contains("Failed to normalize callback error");
+    }
+
+    @Test
+    void runtimeScopeRequiresSubagentTypeWhenSubagentIsTrue() {
+        assertThatExceptionOfType(IllegalArgumentException.class)
+                .isThrownBy(() -> RuntimeScope.of(null));
+        assertThatExceptionOfType(IllegalArgumentException.class)
+                .isThrownBy(() -> new RuntimeScope(true, null));
+    }
+
+    @Test
     @SuppressWarnings("unchecked")
     void preToolUseAppliesShallowPatchAndPropagatesNewPayload() {
         Map<String, Object> originalNested = new LinkedHashMap<>();
@@ -268,5 +294,12 @@ class DefaultHookRegistryTest {
 
     private interface PayloadCallbackBody {
         HookResult handle(HookPayload payload);
+    }
+
+    private static final class BadMessageException extends RuntimeException {
+        @Override
+        public String getMessage() {
+            throw new IllegalStateException("message unavailable");
+        }
     }
 }

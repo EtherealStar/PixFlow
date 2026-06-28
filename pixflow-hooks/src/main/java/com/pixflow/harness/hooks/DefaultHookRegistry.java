@@ -49,7 +49,14 @@ public class DefaultHookRegistry implements HookRegistry {
                     throw throwable instanceof RuntimeException runtime ? runtime : new IllegalStateException(throwable);
                 }
                 // 回调异常只进入 metadata，不改变控制流，避免一个扩展点拖垮整条主链。
-                accumulator.appendHookError(toHookError(callback, throwable));
+                try {
+                    accumulator.appendHookError(toHookError(callback, throwable));
+                } catch (Exception normalizationError) {
+                    accumulator.appendHookError(new HookError(
+                            callback.getClass().getName(),
+                            "INTERNAL",
+                            "Failed to normalize callback error: " + normalizationError.getClass().getSimpleName()));
+                }
             }
         }
         return accumulator.toResult();
