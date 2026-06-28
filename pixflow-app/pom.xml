@@ -38,6 +38,10 @@
         </dependency>
         <dependency>
             <groupId>com.pixflow</groupId>
+            <artifactId>pixflow-infra-vector</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.pixflow</groupId>
             <artifactId>pixflow-infra-ai</artifactId>
         </dependency>
         <dependency>

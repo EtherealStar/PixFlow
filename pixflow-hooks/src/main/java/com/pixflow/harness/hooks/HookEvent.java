@@ -1,0 +1,15 @@
+package com.pixflow.harness.hooks;
+
+public enum HookEvent {
+    USER_PROMPT_SUBMIT,
+    PRE_TOOL_USE,
+    POST_TOOL_USE,
+    TOOL_ERROR,
+    ASSISTANT_MESSAGE_COMPLETED,
+    TURN_STOPPED,
+    TASK_CREATED,
+    TASK_COMPLETED,
+    PRE_COMPACT,
+    POST_COMPACT,
+    COMPACT_FAILED
+}

@@ -20,6 +20,7 @@
         <module>pixflow-contracts</module>
         <module>pixflow-common</module>
         <module>pixflow-permission</module>
+        <module>pixflow-hooks</module>
         <module>pixflow-infra-storage</module>
         <module>pixflow-infra-cache</module>
         <module>pixflow-infra-mq</module>
@@ -67,6 +68,11 @@
             <dependency>
                 <groupId>com.pixflow</groupId>
                 <artifactId>pixflow-permission</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.pixflow</groupId>
+                <artifactId>pixflow-hooks</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
