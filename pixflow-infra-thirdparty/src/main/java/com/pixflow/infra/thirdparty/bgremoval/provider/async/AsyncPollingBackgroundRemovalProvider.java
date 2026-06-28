@@ -12,8 +12,10 @@ import com.pixflow.infra.thirdparty.config.ThirdPartyProperties;
 import com.pixflow.infra.thirdparty.error.ThirdPartyErrorCode;
 import com.pixflow.infra.thirdparty.error.ThirdPartyErrorMapper;
 import com.pixflow.infra.thirdparty.http.RestClientThirdPartyHttpInvoker;
+import com.pixflow.infra.thirdparty.http.ThirdPartyAuthStrategy;
 import com.pixflow.infra.thirdparty.http.ThirdPartyHttpRequest;
 import com.pixflow.infra.thirdparty.http.ThirdPartyHttpResponse;
+import com.pixflow.infra.thirdparty.http.ThirdPartyMutableRequest;
 import com.pixflow.infra.thirdparty.observability.ThirdPartyMetrics;
 import com.pixflow.infra.thirdparty.resilience.ThirdPartyCallContext;
 import com.pixflow.infra.thirdparty.resilience.ThirdPartyCallTemplate;
@@ -24,9 +26,9 @@ import java.time.Instant;
 import java.util.Base64;
 import java.util.Map;
 import java.util.Objects;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
+import org.springframework.web.util.UriUtils;
 
 public final class AsyncPollingBackgroundRemovalProvider implements BackgroundRemovalProvider {
     private static final String API = "bg-removal";
@@ -34,6 +36,7 @@ public final class AsyncPollingBackgroundRemovalProvider implements BackgroundRe
     private final ThirdPartyProperties.Provider properties;
     private final ThirdPartyCallTemplate callTemplate;
     private final RestClientThirdPartyHttpInvoker httpInvoker;
+    private final ThirdPartyAuthStrategy authStrategy;
     private final ThirdPartyErrorMapper errorMapper;
     private final ThirdPartyMetrics metrics;
     private final ObjectMapper objectMapper;
@@ -43,6 +46,7 @@ public final class AsyncPollingBackgroundRemovalProvider implements BackgroundRe
             ThirdPartyProperties.Provider properties,
             ThirdPartyCallTemplate callTemplate,
             RestClientThirdPartyHttpInvoker httpInvoker,
+            ThirdPartyAuthStrategy authStrategy,
             ThirdPartyErrorMapper errorMapper,
             ThirdPartyMetrics metrics,
             ObjectMapper objectMapper) {
@@ -50,6 +54,7 @@ public final class AsyncPollingBackgroundRemovalProvider implements BackgroundRe
         this.properties = Objects.requireNonNull(properties, "properties");
         this.callTemplate = Objects.requireNonNull(callTemplate, "callTemplate");
         this.httpInvoker = Objects.requireNonNull(httpInvoker, "httpInvoker");
+        this.authStrategy = Objects.requireNonNull(authStrategy, "authStrategy");
         this.errorMapper = Objects.requireNonNull(errorMapper, "errorMapper");
         this.metrics = Objects.requireNonNull(metrics, "metrics");
         this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper");
@@ -107,14 +112,14 @@ public final class AsyncPollingBackgroundRemovalProvider implements BackgroundRe
     }
 
     private String submit(BackgroundRemovalRequest request, ThirdPartyProperties.Polling polling) {
-        ThirdPartyHttpRequest httpRequest = new ThirdPartyHttpRequest(
-                API,
-                providerId,
-                HttpMethod.POST,
-                URI.create(properties.endpoint() + polling.submitPath()),
-                new HttpHeaders(),
-                request.image(),
-                MediaType.APPLICATION_JSON);
+        ThirdPartyMutableRequest mutableRequest = new ThirdPartyMutableRequest(API, providerId);
+        mutableRequest.method(HttpMethod.POST);
+        mutableRequest.uri(resolve(polling.submitPath()));
+        mutableRequest.body(request.image());
+        mutableRequest.contentType(MediaType.APPLICATION_JSON);
+        // Submit and polling calls for one provider must share the same authentication path.
+        authStrategy.apply(mutableRequest, properties);
+        ThirdPartyHttpRequest httpRequest = mutableRequest.toImmutable();
         ThirdPartyHttpResponse response = httpInvoker.exchange(httpRequest);
         if (response.statusCode() >= 400) {
             throw errorMapper.fromStatus(org.springframework.http.HttpStatusCode.valueOf(response.statusCode()), response.headers(), new String(response.body(), StandardCharsets.UTF_8), null);
@@ -128,24 +133,23 @@ public final class AsyncPollingBackgroundRemovalProvider implements BackgroundRe
     }
 
     private BackgroundRemovalResult poll(String jobId, ThirdPartyProperties.Polling polling) {
-        ThirdPartyHttpRequest httpRequest = new ThirdPartyHttpRequest(
-                API,
-                providerId,
-                HttpMethod.GET,
-                URI.create(properties.endpoint() + polling.statusPath().replace("{jobId}", jobId)),
-                new HttpHeaders(),
-                new byte[0],
-                MediaType.APPLICATION_JSON);
+        ThirdPartyMutableRequest mutableRequest = new ThirdPartyMutableRequest(API, providerId);
+        mutableRequest.method(HttpMethod.GET);
+        mutableRequest.uri(resolve(polling.statusPath().replace("{jobId}", encodePathSegment(jobId))));
+        mutableRequest.body(new byte[0]);
+        mutableRequest.contentType(MediaType.APPLICATION_JSON);
+        authStrategy.apply(mutableRequest, properties);
+        ThirdPartyHttpRequest httpRequest = mutableRequest.toImmutable();
         ThirdPartyHttpResponse response = httpInvoker.exchange(httpRequest);
         if (response.statusCode() >= 400) {
             throw errorMapper.fromStatus(org.springframework.http.HttpStatusCode.valueOf(response.statusCode()), response.headers(), new String(response.body(), StandardCharsets.UTF_8), null);
         }
         try {
             JsonNode root = objectMapper.readTree(response.body());
-            String status = root.path(polling.statusField()).asText();
+            String status = root.path(firstNonBlank(polling.statusField(), "status")).asText();
             if (status.equalsIgnoreCase(polling.successStatus())) {
                 String field = polling.resultField();
-                String base64 = root.path(field).asText(null);
+                String base64 = field == null ? null : root.path(field).asText(null);
                 if (base64 == null && polling.resultUrlField() != null) {
                     String resultUrl = root.path(polling.resultUrlField()).asText(null);
                     return new BackgroundRemovalResult(resultUrl == null ? new byte[0] : resultUrl.getBytes(StandardCharsets.UTF_8), "text/plain", new ThirdPartyUsage(null, Map.of("resultUrl", resultUrl)), Map.of());
@@ -169,5 +173,35 @@ public final class AsyncPollingBackgroundRemovalProvider implements BackgroundRe
         } catch (Exception ex) {
             throw errorMapper.invalidResponse("poll parse failed", ex);
         }
+    }
+
+    private static String firstNonBlank(String value, String fallback) {
+        return value == null || value.isBlank() ? fallback : value;
+    }
+
+    private URI resolve(String path) {
+        String base = properties.endpoint();
+        if (base == null || base.isBlank()) {
+            throw new PixFlowException(
+                    ThirdPartyErrorCode.THIRDPARTY_PROVIDER_NOT_CONFIGURED,
+                    "provider endpoint is not configured",
+                    null,
+                    Map.of("providerId", providerId),
+                    RecoveryHint.TERMINATE,
+                    null,
+                    null);
+        }
+        String suffix = path == null ? "" : path;
+        if (base.endsWith("/") && suffix.startsWith("/")) {
+            return URI.create(base + suffix.substring(1));
+        }
+        if (!base.endsWith("/") && !suffix.startsWith("/")) {
+            return URI.create(base + "/" + suffix);
+        }
+        return URI.create(base + suffix);
+    }
+
+    private static String encodePathSegment(String value) {
+        return UriUtils.encodePathSegment(value, StandardCharsets.UTF_8);
     }
 }

@@ -1,6 +1,7 @@
 package com.pixflow.infra.thirdparty.config;
 
 import java.time.Duration;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import org.springframework.boot.context.properties.ConfigurationProperties;
@@ -10,7 +11,7 @@ public record ThirdPartyProperties(BgRemoval bgRemoval, Map<String, Provider> pr
 
     public ThirdPartyProperties {
         bgRemoval = bgRemoval == null ? new BgRemoval("removebg") : bgRemoval;
-        providers = providers == null ? Map.of() : Map.copyOf(new LinkedHashMap<>(providers));
+        providers = immutableCopy(providers);
         http = http == null ? new Http(Duration.ofSeconds(30), Duration.ofSeconds(10)) : http;
         resilience = resilience == null ? new Resilience(3, Duration.ofMillis(500), Duration.ofSeconds(8), Duration.ofSeconds(30), 16, 16) : resilience;
     }
@@ -47,7 +48,7 @@ public record ThirdPartyProperties(BgRemoval bgRemoval, Map<String, Provider> pr
 
     public record Auth(String type, Map<String, String> properties) {
         public Auth {
-            properties = properties == null ? Map.of() : Map.copyOf(new LinkedHashMap<>(properties));
+            properties = immutableCopy(properties);
         }
     }
 
@@ -84,5 +85,12 @@ public record ThirdPartyProperties(BgRemoval bgRemoval, Map<String, Provider> pr
     }
 
     public record ResilienceOverride(Integer maxAttempts, Duration timeout, Duration baseDelay) {
+    }
+
+    private static <K, V> Map<K, V> immutableCopy(Map<K, V> source) {
+        if (source == null || source.isEmpty()) {
+            return Map.of();
+        }
+        return Collections.unmodifiableMap(new LinkedHashMap<>(source));
     }
 }

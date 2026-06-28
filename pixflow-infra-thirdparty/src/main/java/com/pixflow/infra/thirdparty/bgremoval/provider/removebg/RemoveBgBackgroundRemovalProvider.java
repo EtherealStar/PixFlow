@@ -10,15 +10,16 @@ import com.pixflow.infra.thirdparty.config.ThirdPartyProperties;
 import com.pixflow.infra.thirdparty.error.ThirdPartyErrorCode;
 import com.pixflow.infra.thirdparty.error.ThirdPartyErrorMapper;
 import com.pixflow.infra.thirdparty.http.RestClientThirdPartyHttpInvoker;
+import com.pixflow.infra.thirdparty.http.ThirdPartyAuthStrategy;
 import com.pixflow.infra.thirdparty.http.ThirdPartyHttpRequest;
 import com.pixflow.infra.thirdparty.http.ThirdPartyHttpResponse;
+import com.pixflow.infra.thirdparty.http.ThirdPartyMutableRequest;
 import com.pixflow.infra.thirdparty.observability.ThirdPartyMetrics;
 import com.pixflow.infra.thirdparty.resilience.ThirdPartyCallContext;
 import com.pixflow.infra.thirdparty.resilience.ThirdPartyCallTemplate;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
-import java.util.Base64;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
@@ -32,6 +33,7 @@ public final class RemoveBgBackgroundRemovalProvider implements BackgroundRemova
     private final ThirdPartyProperties.Provider properties;
     private final ThirdPartyCallTemplate callTemplate;
     private final RestClientThirdPartyHttpInvoker httpInvoker;
+    private final ThirdPartyAuthStrategy authStrategy;
     private final ThirdPartyErrorMapper errorMapper;
     private final ThirdPartyMetrics metrics;
 
@@ -40,12 +42,14 @@ public final class RemoveBgBackgroundRemovalProvider implements BackgroundRemova
             ThirdPartyProperties.Provider properties,
             ThirdPartyCallTemplate callTemplate,
             RestClientThirdPartyHttpInvoker httpInvoker,
+            ThirdPartyAuthStrategy authStrategy,
             ThirdPartyErrorMapper errorMapper,
             ThirdPartyMetrics metrics) {
         this.providerId = Objects.requireNonNull(providerId, "providerId");
         this.properties = Objects.requireNonNull(properties, "properties");
         this.callTemplate = Objects.requireNonNull(callTemplate, "callTemplate");
         this.httpInvoker = Objects.requireNonNull(httpInvoker, "httpInvoker");
+        this.authStrategy = Objects.requireNonNull(authStrategy, "authStrategy");
         this.errorMapper = Objects.requireNonNull(errorMapper, "errorMapper");
         this.metrics = Objects.requireNonNull(metrics, "metrics");
     }
@@ -67,18 +71,25 @@ public final class RemoveBgBackgroundRemovalProvider implements BackgroundRemova
                     null,
                     null);
         }
+        if (request.image() == null || request.image().length == 0) {
+            throw new PixFlowException(
+                    ThirdPartyErrorCode.THIRDPARTY_INVALID_REQUEST,
+                    "remove.bg provider requires image bytes",
+                    null,
+                    Map.of(),
+                    RecoveryHint.TERMINATE,
+                    null,
+                    null);
+        }
         return callTemplate.execute(new ThirdPartyCallContext(API, providerId, Duration.ofSeconds(5)), () -> {
-            HttpHeaders headers = new HttpHeaders();
-            headers.set(HttpHeaders.AUTHORIZATION, "Bearer ");
             byte[] body = multipartBody(request);
-            ThirdPartyHttpRequest httpRequest = new ThirdPartyHttpRequest(
-                    API,
-                    providerId,
-                    HttpMethod.POST,
-                    URI.create(properties.endpoint()),
-                    headers,
-                    body,
-                    MediaType.parseMediaType("multipart/form-data; boundary=" + boundary));
+            ThirdPartyMutableRequest mutableRequest = new ThirdPartyMutableRequest(API, providerId);
+            mutableRequest.method(HttpMethod.POST);
+            mutableRequest.uri(URI.create(properties.endpoint()));
+            mutableRequest.body(body);
+            mutableRequest.contentType(MediaType.parseMediaType("multipart/form-data; boundary=" + boundary));
+            authStrategy.apply(mutableRequest, properties);
+            ThirdPartyHttpRequest httpRequest = mutableRequest.toImmutable();
             ThirdPartyHttpResponse response = httpInvoker.exchange(httpRequest);
             if (response.statusCode() >= 400) {
                 throw errorMapper.fromStatus(
@@ -95,10 +106,11 @@ public final class RemoveBgBackgroundRemovalProvider implements BackgroundRemova
     private final String boundary = "pixflow-" + UUID.randomUUID();
 
     private byte[] multipartBody(BackgroundRemovalRequest request) {
+        MediaType contentType = safeContentType(request.contentType());
         StringBuilder builder = new StringBuilder();
         builder.append("--").append(boundary).append("\r\n");
         builder.append("Content-Disposition: form-data; name=\"image_file\"; filename=\"image\"\r\n");
-        builder.append("Content-Type: ").append(request.contentType()).append("\r\n\r\n");
+        builder.append("Content-Type: ").append(contentType).append("\r\n\r\n");
         byte[] head = builder.toString().getBytes(StandardCharsets.UTF_8);
         byte[] tail = ("\r\n--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8);
         byte[] image = request.image();
@@ -112,5 +124,33 @@ public final class RemoveBgBackgroundRemovalProvider implements BackgroundRemova
     private static String contentType(ThirdPartyHttpResponse response) {
         String contentType = response.headers().getFirst(HttpHeaders.CONTENT_TYPE);
         return contentType == null ? "image/png" : contentType;
+    }
+
+    private static MediaType safeContentType(String contentType) {
+        if (contentType == null || contentType.isBlank()) {
+            return MediaType.APPLICATION_OCTET_STREAM;
+        }
+        if (contentType.indexOf('\r') >= 0 || contentType.indexOf('\n') >= 0) {
+            throw new PixFlowException(
+                    ThirdPartyErrorCode.THIRDPARTY_INVALID_REQUEST,
+                    "invalid contentType",
+                    null,
+                    Map.of("contentType", "invalid"),
+                    RecoveryHint.TERMINATE,
+                    null,
+                    null);
+        }
+        try {
+            return MediaType.parseMediaType(contentType);
+        } catch (IllegalArgumentException ex) {
+            throw new PixFlowException(
+                    ThirdPartyErrorCode.THIRDPARTY_INVALID_REQUEST,
+                    "invalid contentType",
+                    ex,
+                    Map.of("contentType", contentType),
+                    RecoveryHint.TERMINATE,
+                    null,
+                    null);
+        }
     }
 }

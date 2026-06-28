@@ -11,7 +11,9 @@ import com.pixflow.infra.thirdparty.bgremoval.provider.async.AsyncPollingBackgro
 import com.pixflow.infra.thirdparty.bgremoval.provider.configurable.ConfigurableHttpBackgroundRemovalProvider;
 import com.pixflow.infra.thirdparty.bgremoval.provider.removebg.RemoveBgBackgroundRemovalProvider;
 import com.pixflow.infra.thirdparty.error.ThirdPartyErrorMapper;
+import com.pixflow.infra.thirdparty.http.DefaultThirdPartyAuthStrategy;
 import com.pixflow.infra.thirdparty.http.RestClientThirdPartyHttpInvoker;
+import com.pixflow.infra.thirdparty.http.ThirdPartyAuthStrategy;
 import com.pixflow.infra.thirdparty.observability.ThirdPartyMetrics;
 import com.pixflow.infra.thirdparty.resilience.ThirdPartyCallTemplate;
 import com.pixflow.infra.thirdparty.resilience.ThirdPartyResilienceRegistry;
@@ -25,6 +27,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
 
 @Configuration
@@ -33,8 +36,11 @@ public class ThirdPartyAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public RestClient restClient() {
-        return RestClient.builder().build();
+    public RestClient restClient(ThirdPartyProperties properties) {
+        SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
+        requestFactory.setConnectTimeout(properties.http().connectTimeout());
+        requestFactory.setReadTimeout(properties.http().readTimeout());
+        return RestClient.builder().requestFactory(requestFactory).build();
     }
 
     @Bean
@@ -60,6 +66,12 @@ public class ThirdPartyAutoConfiguration {
     @ConditionalOnMissingBean
     public RestClientThirdPartyHttpInvoker thirdPartyHttpInvoker(RestClient restClient) {
         return new RestClientThirdPartyHttpInvoker(restClient);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public ThirdPartyAuthStrategy thirdPartyAuthStrategy() {
+        return new DefaultThirdPartyAuthStrategy();
     }
 
     @Bean
@@ -90,6 +102,7 @@ public class ThirdPartyAutoConfiguration {
             ThirdPartyProperties properties,
             ThirdPartyCallTemplate callTemplate,
             RestClientThirdPartyHttpInvoker httpInvoker,
+            ThirdPartyAuthStrategy authStrategy,
             ThirdPartyErrorMapper errorMapper,
             ThirdPartyMetrics metrics,
             ObjectMapper objectMapper) {
@@ -102,11 +115,11 @@ public class ThirdPartyAutoConfiguration {
             }
             String type = provider.type() == null ? "" : provider.type().trim().toLowerCase();
             if ("removebg".equals(type)) {
-                providers.add(new RemoveBgBackgroundRemovalProvider(providerId, provider, callTemplate, httpInvoker, errorMapper, metrics));
+                providers.add(new RemoveBgBackgroundRemovalProvider(providerId, provider, callTemplate, httpInvoker, authStrategy, errorMapper, metrics));
             } else if ("configurable-http".equals(type)) {
-                providers.add(new ConfigurableHttpBackgroundRemovalProvider(providerId, provider, callTemplate, httpInvoker, errorMapper, metrics, objectMapper));
+                providers.add(new ConfigurableHttpBackgroundRemovalProvider(providerId, provider, callTemplate, httpInvoker, authStrategy, errorMapper, metrics, objectMapper));
             } else if ("async".equals(type) || "async-polling".equals(type)) {
-                providers.add(new AsyncPollingBackgroundRemovalProvider(providerId, provider, callTemplate, httpInvoker, errorMapper, metrics, objectMapper));
+                providers.add(new AsyncPollingBackgroundRemovalProvider(providerId, provider, callTemplate, httpInvoker, authStrategy, errorMapper, metrics, objectMapper));
             }
         }
         return providers;

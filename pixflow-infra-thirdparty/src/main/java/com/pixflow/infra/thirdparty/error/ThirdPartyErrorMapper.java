@@ -4,9 +4,11 @@ import com.pixflow.common.error.PixFlowException;
 import com.pixflow.common.error.RecoveryHint;
 import com.pixflow.common.sanitize.Sanitizer;
 import java.net.SocketTimeoutException;
+import java.time.DateTimeException;
 import java.time.Duration;
+import java.time.Instant;
+import java.time.format.DateTimeFormatter;
 import java.util.Map;
-import java.util.Locale;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.util.StringUtils;
@@ -53,6 +55,9 @@ public final class ThirdPartyErrorMapper {
         if (code == 401 || code == 403) {
             return exception(ThirdPartyErrorCode.THIRDPARTY_AUTH_ERROR, message, cause, RecoveryHint.TERMINATE, null);
         }
+        if (code == 501 || code == 505) {
+            return exception(ThirdPartyErrorCode.THIRDPARTY_PROVIDER_ERROR, message, cause, RecoveryHint.TERMINATE, null);
+        }
         if (code >= 500) {
             return exception(ThirdPartyErrorCode.THIRDPARTY_PROVIDER_ERROR, message, cause, RecoveryHint.RETRY, null);
         }
@@ -85,7 +90,13 @@ public final class ThirdPartyErrorMapper {
         try {
             return Duration.ofSeconds(Long.parseLong(trimmed));
         } catch (NumberFormatException ex) {
-            return null;
+            try {
+                Instant retryAt = DateTimeFormatter.RFC_1123_DATE_TIME.parse(trimmed, Instant::from);
+                Duration duration = Duration.between(Instant.now(), retryAt);
+                return duration.isNegative() ? Duration.ZERO : duration;
+            } catch (DateTimeException ignored) {
+                return null;
+            }
         }
     }
 }

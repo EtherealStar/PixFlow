@@ -13,8 +13,10 @@ import com.pixflow.infra.thirdparty.config.ThirdPartyProperties;
 import com.pixflow.infra.thirdparty.error.ThirdPartyErrorCode;
 import com.pixflow.infra.thirdparty.error.ThirdPartyErrorMapper;
 import com.pixflow.infra.thirdparty.http.RestClientThirdPartyHttpInvoker;
+import com.pixflow.infra.thirdparty.http.ThirdPartyAuthStrategy;
 import com.pixflow.infra.thirdparty.http.ThirdPartyHttpRequest;
 import com.pixflow.infra.thirdparty.http.ThirdPartyHttpResponse;
+import com.pixflow.infra.thirdparty.http.ThirdPartyMutableRequest;
 import com.pixflow.infra.thirdparty.observability.ThirdPartyMetrics;
 import com.pixflow.infra.thirdparty.resilience.ThirdPartyCallContext;
 import com.pixflow.infra.thirdparty.resilience.ThirdPartyCallTemplate;
@@ -25,10 +27,12 @@ import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.UUID;
 import java.util.regex.Pattern;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
+import org.springframework.web.util.UriUtils;
 
 public final class ConfigurableHttpBackgroundRemovalProvider implements BackgroundRemovalProvider {
     private static final String API = "bg-removal";
@@ -38,6 +42,7 @@ public final class ConfigurableHttpBackgroundRemovalProvider implements Backgrou
     private final ThirdPartyProperties.Provider properties;
     private final ThirdPartyCallTemplate callTemplate;
     private final RestClientThirdPartyHttpInvoker httpInvoker;
+    private final ThirdPartyAuthStrategy authStrategy;
     private final ThirdPartyErrorMapper errorMapper;
     private final ThirdPartyMetrics metrics;
     private final ObjectMapper objectMapper;
@@ -47,6 +52,7 @@ public final class ConfigurableHttpBackgroundRemovalProvider implements Backgrou
             ThirdPartyProperties.Provider properties,
             ThirdPartyCallTemplate callTemplate,
             RestClientThirdPartyHttpInvoker httpInvoker,
+            ThirdPartyAuthStrategy authStrategy,
             ThirdPartyErrorMapper errorMapper,
             ThirdPartyMetrics metrics,
             ObjectMapper objectMapper) {
@@ -54,6 +60,7 @@ public final class ConfigurableHttpBackgroundRemovalProvider implements Backgrou
         this.properties = Objects.requireNonNull(properties, "properties");
         this.callTemplate = Objects.requireNonNull(callTemplate, "callTemplate");
         this.httpInvoker = Objects.requireNonNull(httpInvoker, "httpInvoker");
+        this.authStrategy = Objects.requireNonNull(authStrategy, "authStrategy");
         this.errorMapper = Objects.requireNonNull(errorMapper, "errorMapper");
         this.metrics = Objects.requireNonNull(metrics, "metrics");
         this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper");
@@ -83,14 +90,20 @@ public final class ConfigurableHttpBackgroundRemovalProvider implements Backgrou
     }
 
     private ThirdPartyHttpRequest buildRequest(BackgroundRemovalRequest request) {
+        if (request == null) {
+            throw invalidRequest("request is null", Map.of());
+        }
         String mode = properties.request().mode();
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         byte[] body;
         if ("multipart-bytes".equalsIgnoreCase(mode)) {
-            body = request.image();
-            headers.setContentType(MediaType.parseMediaType("multipart/form-data"));
+            requireImage(request, mode);
+            String boundary = "pixflow-configurable-" + UUID.randomUUID();
+            body = multipartBody(request, firstNonNull(properties.request().fileField(), "image"), boundary);
+            headers.setContentType(MediaType.parseMediaType("multipart/form-data; boundary=" + boundary));
         } else if ("json-base64".equalsIgnoreCase(mode)) {
+            requireImage(request, mode);
             Map<String, Object> payload = new LinkedHashMap<>();
             payload.put(firstNonNull(properties.request().imageField(), "image"), Base64.getEncoder().encodeToString(request.image()));
             payload.put("contentType", request.contentType());
@@ -98,19 +111,20 @@ public final class ConfigurableHttpBackgroundRemovalProvider implements Backgrou
             body = writeJson(payload);
         } else if ("json-url".equalsIgnoreCase(mode)) {
             Map<String, Object> payload = new LinkedHashMap<>();
-            payload.put(firstNonNull(properties.request().urlField(), "url"), request.sourceUri() == null ? null : request.sourceUri().toString());
+            payload.put(firstNonNull(properties.request().urlField(), "url"), safeSourceUrl(request));
             body = writeJson(payload);
         } else {
-            throw new PixFlowException(
-                    ThirdPartyErrorCode.THIRDPARTY_INVALID_REQUEST,
-                    "unsupported request mode",
-                    null,
-                    Map.of("mode", mode),
-                    RecoveryHint.TERMINATE,
-                    null,
-                    null);
+            throw invalidRequest("unsupported request mode", Map.of("mode", mode));
         }
-        return new ThirdPartyHttpRequest(API, providerId, HttpMethod.POST, URI.create(properties.endpoint()), headers, body, headers.getContentType());
+        ThirdPartyMutableRequest mutableRequest = new ThirdPartyMutableRequest(API, providerId);
+        mutableRequest.method(HttpMethod.POST);
+        mutableRequest.uri(URI.create(properties.endpoint()));
+        mutableRequest.headers().putAll(headers);
+        mutableRequest.body(body);
+        mutableRequest.contentType(headers.getContentType());
+        // Authentication and signing are handled by the HTTP kernel extension point; providers only project requests.
+        authStrategy.apply(mutableRequest, properties);
+        return mutableRequest.toImmutable();
     }
 
     private BackgroundRemovalResult extractResult(ThirdPartyHttpResponse response) {
@@ -145,6 +159,38 @@ public final class ConfigurableHttpBackgroundRemovalProvider implements Backgrou
         }
     }
 
+    private static byte[] multipartBody(BackgroundRemovalRequest request, String field, String boundary) {
+        StringBuilder builder = new StringBuilder();
+        builder.append("--").append(boundary).append("\r\n");
+        builder.append("Content-Disposition: form-data; name=\"").append(field).append("\"; filename=\"image\"\r\n");
+        builder.append("Content-Type: ").append(request.contentType()).append("\r\n\r\n");
+        byte[] head = builder.toString().getBytes(StandardCharsets.UTF_8);
+        byte[] tail = ("\r\n--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8);
+        byte[] image = request.image();
+        byte[] body = new byte[head.length + image.length + tail.length];
+        System.arraycopy(head, 0, body, 0, head.length);
+        System.arraycopy(image, 0, body, head.length, image.length);
+        System.arraycopy(tail, 0, body, head.length + image.length, tail.length);
+        return body;
+    }
+
+    private static void requireImage(BackgroundRemovalRequest request, String mode) {
+        if (request.image() == null || request.image().length == 0) {
+            throw invalidRequest("request image is required", Map.of("mode", mode));
+        }
+    }
+
+    private static PixFlowException invalidRequest(String message, Map<String, ?> details) {
+        return new PixFlowException(
+                ThirdPartyErrorCode.THIRDPARTY_INVALID_REQUEST,
+                message,
+                null,
+                details,
+                RecoveryHint.TERMINATE,
+                null,
+                null);
+    }
+
     private static String contentType(ThirdPartyHttpResponse response) {
         String contentType = response.headers().getFirst(HttpHeaders.CONTENT_TYPE);
         return contentType == null ? "image/png" : contentType;
@@ -152,6 +198,20 @@ public final class ConfigurableHttpBackgroundRemovalProvider implements Backgrou
 
     private static String firstNonNull(String value, String fallback) {
         return value == null || value.isBlank() ? fallback : value;
+    }
+
+    private static String safeSourceUrl(BackgroundRemovalRequest request) {
+        if (request.sourceUri() == null) {
+            return null;
+        }
+        if (!request.sourceUri().isAbsolute()) {
+            throw invalidRequest("sourceUri must be absolute", Map.of("sourceUri", "relative"));
+        }
+        String scheme = request.sourceUri().getScheme();
+        if (!"http".equalsIgnoreCase(scheme) && !"https".equalsIgnoreCase(scheme)) {
+            throw invalidRequest("sourceUri scheme is not allowed", Map.of("scheme", scheme));
+        }
+        return request.sourceUri().normalize().toASCIIString();
     }
 
     private static String readText(JsonNode root, String path) {

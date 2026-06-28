@@ -1,15 +1,18 @@
 package com.pixflow.infra.thirdparty.resilience;
 
 import com.pixflow.common.error.PixFlowException;
+import com.pixflow.common.error.RecoveryHint;
 import com.pixflow.infra.thirdparty.config.ThirdPartyProperties;
 import java.time.Duration;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import io.github.resilience4j.bulkhead.Bulkhead;
+import io.github.resilience4j.bulkhead.BulkheadFullException;
 import io.github.resilience4j.bulkhead.BulkheadConfig;
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig;
+import io.github.resilience4j.ratelimiter.RequestNotPermitted;
 import io.github.resilience4j.core.IntervalFunction;
 import io.github.resilience4j.ratelimiter.RateLimiter;
 import io.github.resilience4j.ratelimiter.RateLimiterConfig;
@@ -17,6 +20,9 @@ import io.github.resilience4j.retry.Retry;
 import io.github.resilience4j.retry.RetryConfig;
 import io.github.resilience4j.timelimiter.TimeLimiter;
 import io.github.resilience4j.timelimiter.TimeLimiterConfig;
+import java.net.SocketTimeoutException;
+import java.util.concurrent.TimeoutException;
+import org.springframework.web.client.RestClientException;
 
 public final class ThirdPartyResilienceRegistry {
     private final ThirdPartyProperties properties;
@@ -41,9 +47,8 @@ public final class ThirdPartyResilienceRegistry {
         RetryConfig retryConfig = RetryConfig.custom()
                 .maxAttempts(maxAttempts)
                 .waitDuration(baseDelay)
-                .ignoreExceptions(PixFlowException.class, IllegalArgumentException.class)
-                .retryOnException(throwable -> !(throwable instanceof PixFlowException)
-                        && !(throwable instanceof IllegalArgumentException))
+                // provider 已在源头把 429/5xx/超时等翻成 PixFlowException，重试只看控制流提示。
+                .retryOnException(ThirdPartyResilienceRegistry::isRetryable)
                 .build();
         CircuitBreakerConfig circuitBreakerConfig = CircuitBreakerConfig.custom()
                 .failureRateThreshold(50f)
@@ -71,5 +76,16 @@ public final class ThirdPartyResilienceRegistry {
     }
 
     public record ResilienceSet(Retry retry, CircuitBreaker circuitBreaker, Bulkhead bulkhead, RateLimiter rateLimiter, TimeLimiter timeLimiter) {
+    }
+
+    private static boolean isRetryable(Throwable throwable) {
+        if (throwable instanceof PixFlowException exception) {
+            return exception.recovery() == RecoveryHint.RETRY;
+        }
+        return throwable instanceof RestClientException
+                || throwable instanceof TimeoutException
+                || throwable instanceof SocketTimeoutException
+                || throwable instanceof RequestNotPermitted
+                || throwable instanceof BulkheadFullException;
     }
 }
