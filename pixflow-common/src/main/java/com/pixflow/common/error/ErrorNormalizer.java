@@ -99,6 +99,9 @@ public class ErrorNormalizer {
         if ("CacheException".equals(simpleName)) {
             return new PixFlowException(CommonErrorCode.DEPENDENCY_UNAVAILABLE, safeMessage(ex, "缓存服务不可用"), ex);
         }
+        if ("VectorException".equals(simpleName)) {
+            return new PixFlowException(CommonErrorCode.DEPENDENCY_UNAVAILABLE, safeMessage(ex, "向量服务不可用"), ex);
+        }
         if ("ImageProcessingException".equals(simpleName)) {
             return new PixFlowException(CommonErrorCode.IMAGE_PROCESSING_FAILURE, safeMessage(ex, "图片处理失败"), ex);
         }

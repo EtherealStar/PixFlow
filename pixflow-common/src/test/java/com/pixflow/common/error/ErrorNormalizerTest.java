@@ -44,6 +44,13 @@ class ErrorNormalizerTest {
         assertThat(exception.code()).isEqualTo(CommonErrorCode.DEPENDENCY_UNAVAILABLE);
     }
 
+    @Test
+    void normalizesVectorExceptionToDependency() {
+        PixFlowException exception = normalizer.normalize(new VectorException("qdrant unavailable"));
+        assertThat(exception.code()).isEqualTo(CommonErrorCode.DEPENDENCY_UNAVAILABLE);
+        assertThat(exception.recovery()).isEqualTo(RecoveryHint.RETRY);
+    }
+
     private MethodParameter dummyMethodParameter() {
         try {
             Method method = ErrorNormalizerTest.class.getDeclaredMethod("sample", String.class);
@@ -59,6 +66,12 @@ class ErrorNormalizerTest {
 
     private static final class CacheException extends RuntimeException {
         private CacheException(String message) {
+            super(message);
+        }
+    }
+
+    private static final class VectorException extends RuntimeException {
+        private VectorException(String message) {
             super(message);
         }
     }

@@ -36,7 +36,7 @@ public class PixFlowException extends RuntimeException {
             Duration retryAfter,
             String traceId) {
         super(message, cause);
-        this.code = code;
+        this.code = java.util.Objects.requireNonNull(code, "code");
         this.details = immutableCopy(details);
         this.recoveryOverride = recoveryOverride;
         this.retryAfter = retryAfter;
