@@ -8,7 +8,7 @@ public class CompactionEntity {
     private String boundaryMessageId;
     private String summaryMessageId;
     private Long coveredUpToSeq;
-    private String trigger;
+    private String compactionTrigger;
     private String metadata;
     private Instant createdAt;
 
@@ -53,11 +53,11 @@ public class CompactionEntity {
     }
 
     public String getTrigger() {
-        return trigger;
+        return compactionTrigger;
     }
 
     public void setTrigger(String trigger) {
-        this.trigger = trigger;
+        this.compactionTrigger = trigger;
     }
 
     public String getMetadata() {

@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS message_compaction (
   boundary_message_id VARCHAR(64) NOT NULL,
   summary_message_id  VARCHAR(64) NOT NULL,
   covered_up_to_seq   BIGINT      NOT NULL,
-  trigger             VARCHAR(32) NOT NULL,
+  compaction_trigger  VARCHAR(32) NOT NULL,
   metadata            JSON        NULL,
   created_at          TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   KEY idx_message_compaction_conversation_id (conversation_id, id)
