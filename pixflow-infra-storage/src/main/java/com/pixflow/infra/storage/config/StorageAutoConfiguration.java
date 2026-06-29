@@ -6,6 +6,8 @@ import com.pixflow.infra.storage.ObjectStorage;
 import com.pixflow.infra.storage.StorageBucketResolver;
 import com.pixflow.infra.storage.StorageInitializer;
 import com.pixflow.infra.storage.StorageProperties;
+import com.pixflow.infra.storage.toolresult.ObjectStorageToolResultStorage;
+import com.pixflow.infra.storage.toolresult.ToolResultStorage;
 import io.minio.MinioClient;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -44,6 +46,12 @@ public class StorageAutoConfiguration {
     @ConditionalOnMissingBean
     public ObjectStorage objectStorage(MinioClient minioClient, StorageBucketResolver bucketResolver, StorageProperties properties) {
         return new MinioObjectStorage(minioClient, bucketResolver, properties);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public ToolResultStorage toolResultStorage(ObjectStorage objectStorage) {
+        return new ObjectStorageToolResultStorage(objectStorage);
     }
 
     @Bean

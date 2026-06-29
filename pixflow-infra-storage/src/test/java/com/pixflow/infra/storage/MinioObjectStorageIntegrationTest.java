@@ -11,15 +11,18 @@ import java.time.Duration;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.util.unit.DataSize;
 import org.testcontainers.containers.GenericContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 
-@EnabledIfEnvironmentVariable(named = "PIXFLOW_MINIO_INTEGRATION", matches = "true")
+@Testcontainers(disabledWithoutDocker = true)
 class MinioObjectStorageIntegrationTest {
     private static final String ACCESS_KEY = "minioadmin";
     private static final String SECRET_KEY = "minioadmin";
+
+    @Container
     private static final GenericContainer<?> MINIO = new GenericContainer<>(DockerImageName.parse("minio/minio:RELEASE.2024-09-13T20-26-02Z"))
             .withExposedPorts(9000)
             .withEnv("MINIO_ROOT_USER", ACCESS_KEY)
