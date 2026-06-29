@@ -30,7 +30,8 @@ CREATE TABLE IF NOT EXISTS asset_copy (
     sku_id VARCHAR(128),
     product_name VARCHAR(255),
     keywords VARCHAR(1000),
-    description VARCHAR(4000)
+    description VARCHAR(4000),
+    CONSTRAINT uk_asset_copy_package_sku UNIQUE (package_id, sku_id)
 );
 
 CREATE TABLE IF NOT EXISTS asset_ingest_error (
