@@ -159,7 +159,7 @@ public record BackgroundRemovalResult(
 
 - **同步接口**：抠图在 DAG worker 的「图片×支路」线程内调用，同步语义最自然。若某 provider 是「提交任务 + 轮询」的异步模型（如部分阿里云能力），由该 provider 实现把轮询封在同步接口后面，对上仍是一次 `remove`。
 - **无 MinIO 概念**：入参是 bytes，出参是 bytes；落 MinIO 与喂给 `infra/image` 的缝合是 `module/dag` 的事。
-- HITL 确认、令牌与本模块无关：抠图是确定性像素工具，确认令牌只约束 `submit_dag` / 生图（design §6.3），thirdparty 被调到即执行。
+- HITL 确认、令牌与本模块无关：抠图是确定性像素工具，Agent 工具层只提交 `submit_image_plan` / `submit_imagegen_plan` 提案；真实执行经确认 REST 边界触发后，thirdparty 被调到即执行。
 
 ### 5.2 ThirdPartyUsage
 

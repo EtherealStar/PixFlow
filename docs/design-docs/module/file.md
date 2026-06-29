@@ -375,7 +375,7 @@ pixflow:
 | `module/dag` | 读 `asset_image` 的 `sku_id`/`group_key`/`view_id` 做 `BranchExpander` 分组展开与 `compose_group` 成员归组 |
 | `module/conversation` | `message.attached_package_id` 关联素材包；只读查询包详情；后续为 `PackageReferenceChecker` 提供引用检查，防止已被对话引用的包被物理删除 |
 | `module/task` | 任务按 `package_id` 加载图片；下载/预览经 `storage.presignGet`（出口侧，后续波次）；后续为 `PackageReferenceChecker` 提供引用检查，防止已被任务引用的包被物理删除 |
-| `agent` | `query_commerce_data` / 处理建议依赖已绑定的 `sku_id`；file 保证绑定在解压期完成 |
+| `agent` | `search` / `read` / 处理建议依赖已绑定的 `sku_id`；file 保证绑定在解压期完成 |
 | `pixflow-app` | 提供 STOMP broker 配置 + `StompProgressNotifier` Bean；装配 file 的 controller / consumer |
 
 **反向约束**：不依赖 `infra/image`、`infra/cache`、`harness/*`、`module/task`、`module/rubrics`。
@@ -429,3 +429,5 @@ pixflow:
 ## Revision Notes
 
 2026-06-28 / Codex: 根据实现前决策讨论，固化 file 模块的生产级落地口径：`asset_package.id` 统一为 `BIGINT` 以匹配 `StorageKeys.package*(long)`；删除采用软删优先、物理删除受限；新增 `asset_ingest_error` 保存逐图/文档解析失败明细；包内并发采用 `consumer-concurrency` 与 `intra-package-parallelism` 两级有界并发且默认保守；`ProgressNotifier` 作为 common SPI，app 级实现 WebSocket/STOMP 传输，state 只提供数据源不持连接。
+
+2026-06-29 / Codex: 同步 `harness/tools.md` 的新工具口径，将 agent 侧旧 `query_commerce_data` 依赖表述改为 `search` / `read`。

@@ -244,7 +244,7 @@ public interface TranscriptPort {
 ```
 
 - **session 是 `message` 表唯一写者**（设计决策四）：`append` / `replaceForCompaction` 是 message 行的唯一写路径；`module/conversation` 不写此表。
-- 大结果外置在 session 落库时同步进行（写 MinIO + 表内存引用），与 cheap pipeline 的外置共享同一 `ToolResultStorage`（见 [十三](#十三大结果外置共享-toolresultstorage)）。
+- 大结果外置在 session 落库时同步进行（写 MinIO + 表内存引用），与 cheap pipeline 的外置共享 `infra/storage` 抽取出的同一 `ToolResultStorage`（见 [十三](#十三大结果外置共享-toolresultstorage)）。
 - 恢复语义：`load` 回读时若外置结果文件缺失，保留 preview 并标 `missingExternalToolResult`，不阻断 rehydrate。
 
 ---
@@ -310,7 +310,7 @@ flowchart TD
   Est --> Out["PreparedContext"]
 ```
 
-1. **结果预算**：单条 `tool_result` UTF-8 内容超阈值（默认 50KB，`design.md §5.2/§13.4`）→ 经共享 `ToolResultStorage` 写 MinIO，模型只见引用 + 前若干字符 preview。已外置的复用同一文件（去重）。
+1. **结果预算**：单条 `tool_result` UTF-8 内容超阈值（默认 50KB，`design.md §5.2/§13.4`）→ 经 `infra/storage` 的共享 `ToolResultStorage` 写 MinIO，模型只见引用 + 前若干字符 preview。已外置的复用同一文件（去重）。
 2. **snip**：`ContextProjector` 滑窗，最多 `snipMaxMessages` 条，保配对。
 3. **microcompact**：保留最近 `microcompactKeepRecent` 条之外的、未外置的旧 `tool_result` content 降级为占位符（标 `microcompacted`），进一步压体积。
 4. **Token 估算**：`TokenEstimator`（jtokkit，按模型 encoding）估算，写入 `usageHints`（含 `tokenAfter`、是否逼近阈值、`requestOverrides` 如 `maxOutputTokens`）。
@@ -437,12 +437,12 @@ public final class CurrentModelContext {
 | cheap pipeline 结果预算（context） | 调用前单条 tool_result 超阈值 |
 | Tool 执行管线结果预算（`harness/tools §5.2`） | handler 结果超阈值 |
 
-共享实现归属 `infra/storage`（`storage → context` / `storage → tools` 边已存在；session 经 context 间接可达）。约定：
+共享实现归属 `infra/storage`（`storage → context` / `storage → tools` / `storage → session` 边均存在）。`ToolResultStorage` 是 `ObjectStorage + StorageKeys.toolResult(id)` 之上的薄适配：阈值判定仍由调用方配置控制，key/hash/preview/ref/missing 语义集中在 storage 侧。约定：
 
 - 路径 `tool-results/{id}.txt`（`design.md §13.4`）。
 - 命名/去重：同 `toolCallId` 且内容相同复用同一文件；同 id 内容不同用稳定内容 hash 后缀。
 - 读取：回读完整 content；缺失则保留 preview 并标 `missingExternalToolResult`。
-- context 只**消费** `ToolResultStorage`（持久化引用、生成模型可见引用文本），不拥有通用存储实现。
+- context 只**消费** `ToolResultStorage`（持久化引用、生成模型可见引用文本），不拥有通用存储实现；当前 `ObjectStorageToolResultExternalizer` 这类薄适配应在 session 实施时收敛到 `infra/storage` 的共享实现，避免 context/session/tools 三处重复。
 
 ---
 
@@ -455,7 +455,7 @@ public final class CurrentModelContext {
 | `harness/loop` | 每轮 `buildForModel` 取快照；append 用户/assistant/tool 消息；`CONTEXT_LIMIT` 时触发 `reactiveCompact`；snapshot 落 trace 由 loop 经 eval SPI 负责 |
 | `agent` | 实现 `SummarizationPort`（fork 子 Agent 调 LLM 摘要）；组装 systemPrompt 与可见 toolSchemas 传入 `buildForModel` |
 | `infra/ai` | provider adapter 把内部 `TOOL_RESULT`/`ATTACHMENT` 投影为目标 wire format；模型调用超窗抛 `CONTEXT_LIMIT`（`common` 归一化），由 context/loop 消费 |
-| `infra/storage` | 提供共享 `ToolResultStorage`（外置/去重/回读） |
+| `infra/storage` | 提供共享 `ToolResultStorage`（外置/去重/回读），底层仍用 `ObjectStorage` 与 `StorageKeys.toolResult(id)` |
 | `infra/cache` | 实现 `MessageChainCache`（Redis 热缓存，可丢可重建；压缩时失效） |
 | `harness/hooks` | `PreCompact` 返回 `summaryInstructions` 注入 `SummarizationRequest`；`PostCompact`/`CompactFailed` 为观察事件（context 在压缩各阶段派发，hooks 不写 trace） |
 | `common/error` | 捕获/认 `CONTEXT_LIMIT`（默认 `recovery=COMPACT`）触发压缩，**不向上冒泡到 HTTP**；内部异常归一化为 `PixFlowException` |

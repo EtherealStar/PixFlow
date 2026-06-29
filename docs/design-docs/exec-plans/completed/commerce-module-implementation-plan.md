@@ -6,7 +6,7 @@ This ExecPlan is a living document. The sections `Progress`, `Surprises & Discov
 
 ## Purpose / Big Picture
 
-完成本计划后，PixFlow 将具备生产级电商数据接入能力：运营人员可以导入 CSV 或 Excel 电商指标数据，系统可以按一批 SKU 查询曝光量、点击率、加购率、购买率，并返回类目均值、偏离百分比、趋势序列、缺失 SKU 和数据新鲜度。Agent 后续通过 `query_commerce_data` 工具消费这些结构化事实，生成“点击率低于类目均值多少”这类有数据支撑的处理建议，但 commerce 模块本身不做建议、不做决策。
+完成本计划后，PixFlow 将具备生产级电商数据接入能力：运营人员可以导入 CSV 或 Excel 电商指标数据，系统可以按一批 SKU 查询曝光量、点击率、加购率、购买率，并返回类目均值、偏离百分比、趋势序列、缺失 SKU 和数据新鲜度。Agent 后续通过 `search` 发现候选 SKU，通过 `read(include=["data"])` 消费这些结构化事实，生成“点击率低于类目均值多少”这类有数据支撑的处理建议，但 commerce 模块本身不做建议、不做决策。
 
 本计划不是 MVP 方案。实现必须覆盖 MySQL 事实源、幂等导入、行级容错、类目基准、时间窗口、趋势、可替换外部平台适配器、外部 API 异步导入、实时查询按需刷新、紧超时降级、错误码与测试。真实电商平台暂未确定，因此本计划只实现可替换平台端口和测试用 fake/provider 适配，不把代码写死到某一家平台。
 
@@ -103,7 +103,7 @@ This ExecPlan is a living document. The sections `Progress`, `Surprises & Discov
     聚合规则
     FreshnessPolicy
     ExternalPlatformSource
-    query_commerce_data
+    search / read
     missingSkus
     stale
     category-conflict
@@ -113,7 +113,7 @@ This ExecPlan is a living document. The sections `Progress`, `Surprises & Discov
     Wave 2
     module/commerce
     基础数据
-    query_commerce_data
+    search / read
     infra/mq
 
 在 `docs/design-docs/base/common.md` 中搜索：
@@ -176,7 +176,7 @@ This ExecPlan is a living document. The sections `Progress`, `Surprises & Discov
 
 实现实时查询按需刷新。`CommerceQueryService` 在查询前调用 `FreshnessPolicy` 检查被查 SKU 的库存数据是否在 TTL 内。库存够新或 `live-enabled=false` 时直接查 MySQL。过期或缺失且 live 开启时，只刷新被查 SKU，调用 `ExternalPlatformSource.pull`，成功后 write-through upsert，再统一从 MySQL 聚合。失败、超时、限流或熔断时降级用库存数据并标记 stale；库存也没有时把该 SKU 放入 `missingSkus`。外部故障不应抛到 Agent 主循环，也不应让同步查询超过配置的紧超时，默认不超过 2 秒。
 
-最后接入 app 与 HTTP 验证入口。`pixflow-app` 应依赖 `pixflow-module-commerce` 并装配 auto-configuration。新增 `CommerceController` 或等价 web 层，暴露本地导入、API 导入任务创建、导入任务查询和查询接口。返回体统一使用 `ApiResponse<T>`。后续 `harness/tools` 和 `agent` 就绪后，`query_commerce_data` 工具只需要把 tool 入参转换为 `CommerceQuery` 并调用 `CommerceService.query(...)`，commerce 模块自身不依赖 tools 或 agent。
+最后接入 app 与 HTTP 验证入口。`pixflow-app` 应依赖 `pixflow-module-commerce` 并装配 auto-configuration。新增 `CommerceController` 或等价 web 层，暴露本地导入、API 导入任务创建、导入任务查询和查询接口。返回体统一使用 `ApiResponse<T>`。后续 `harness/tools` 和 `agent` 就绪后，`search` / `read` 工具 handler 只需要把 tool 入参转换为 commerce 查询或候选检索请求；其中 `read(include=["data"])` 调用 `CommerceService.query(...)`。commerce 模块自身不依赖 tools 或 agent。
 
 ## Concrete Steps
 
@@ -355,7 +355,7 @@ API 异步导入验收：调用 API 导入任务创建接口，传入几个 SKU 
     GET  /api/commerce/import/jobs/{jobId}
     POST /api/commerce/query
 
-这些端点用于 Wave 2 验证和前端调试。真正的 Agent 工具名仍是 `query_commerce_data`，等 `harness/tools` 和 `agent` 模块就绪后再注册，不在 commerce 内部直接实现 Tool Registry。
+这些端点用于 Wave 2 验证和前端调试。真正的 Agent 工具名以 `harness/tools.md` 为准：`search` 用于发现候选 SKU，`read` 用于精读单 SKU，`read(include=["data"])` 才拉取电商指标。等 `harness/tools` 和 `agent` 模块就绪后再注册，不在 commerce 内部直接实现 Tool Registry。
 
 ## Interfaces and Dependencies
 
@@ -453,3 +453,5 @@ commerce 模块不得依赖：
 ## Change Note
 
 2026-06-28 / Codex: 初次创建计划。本文把 commerce 模块从设计讨论落成可执行规格，明确生产级范围、外部平台可替换、外部 API 导入走 RabbitMQ 异步、查询默认 `sourceScope=ALL` 但保留 source 过滤、类目冲突默认 WARN，以及 `stale/freshness` 必须进入查询结果。
+
+2026-06-29 / Codex: 同步 `harness/tools.md` 的新工具口径，将后续 Agent 工具引用从 `query_commerce_data` 改为 `search` / `read`。commerce 模块本身的已实现服务边界不变，仍只提供导入、查询和数据事实。

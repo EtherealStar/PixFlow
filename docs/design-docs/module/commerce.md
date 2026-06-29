@@ -15,7 +15,7 @@
 - [五、导入管线](#五导入管线)
 - [六、查询与分析层](#六查询与分析层)
 - [七、外部数据源适配（实时查询 + 导入）](#七外部数据源适配实时查询--导入)
-- [八、query_commerce_data 工具契约](#八query_commerce_data-工具契约)
+- [八、search / read 工具接入契约](#八search--read-工具接入契约)
 - [九、一致性与重建](#九一致性与重建)
 - [十、配置](#十配置)
 - [十一、错误与降级](#十一错误与降级)
@@ -28,15 +28,15 @@
 
 ## 一、文档定位与设计原则
 
-`module/commerce` 处于依赖 DAG 的 **Wave 2**，是一个**纯业务数据模块**：依赖 `common`（错误归一化/脱敏）+ MySQL（MyBatis-Plus）+ POI/commons-csv（文档解析）；实时查询适配器额外用 Spring `RestClient` + Resilience4j（库依赖，非模块依赖）。被 `agent` 决策层（`query_commerce_data` 动作）消费；与 `module/rubrics`、`module/memory`（`sku_history.metrics_before/after`）在数据语义上相关，但**无代码依赖**。
+`module/commerce` 处于依赖 DAG 的 **Wave 2**，是一个**纯业务数据模块**：依赖 `common`（错误归一化/脱敏）+ MySQL（MyBatis-Plus）+ POI/commons-csv（文档解析）；实时查询适配器额外用 Spring `RestClient` + Resilience4j（库依赖，非模块依赖）。它被后续 `search` / `read` Agent 工具的 handler 消费：`search` 发现候选 SKU，`read(include=["data"])` 精读单 SKU 并附带电商指标。commerce 与 `module/rubrics`、`module/memory`（`sku_history.metrics_before/after`）在数据语义上相关，但**无代码依赖**。
 
 > `infra/thirdparty.md §十五` 与 `permission.md` 已明确：**电商平台数据 API 适配器归 `module/commerce`，不进 `infra/thirdparty`**（thirdparty 只封非模型、无业务语义的第三方）。commerce 的外部数据源是有业务语义的数据接入，自带适配与韧性。
 
 模块专属设计原则：
 
 1. **commerce 是「数据 + 描述性分析」，不做决策**。它产出结构化的指标、类目基准、偏离与趋势这类**客观事实**；要不要白底处理、要不要重绘是 `agent` 的判断。commerce 永远不输出处理建议。
-2. **MySQL 为唯一事实源与基准聚合源**。无论数据来自本地导入还是外部 API 实时拉取，一律 **write-through 落 `commerce_data`**；`query_commerce_data` 的类目均值/趋势永远基于 MySQL 聚合，不在内存里跨源拼算。
-3. **实时性靠新鲜度策略，不靠实时穿透**。`query_commerce_data` 在 agent 同步回合内执行（秒级），外部 API 调用必须有紧超时 + 失败降级到库存数据，**绝不让第三方抖动阻塞或拖垮主循环回合**。
+2. **MySQL 为唯一事实源与基准聚合源**。无论数据来自本地导入还是外部 API 实时拉取，一律 **write-through 落 `commerce_data`**；`read(include=["data"])` 需要的类目均值/趋势永远基于 MySQL 聚合，不在内存里跨源拼算。
+3. **实时性靠新鲜度策略，不靠实时穿透**。`read(include=["data"])` 在 agent 同步回合内执行（秒级），外部 API 调用必须有紧超时 + 失败降级到库存数据，**绝不让第三方抖动阻塞或拖垮主循环回合**。
 4. **数据源可替换**。对内统一 `CommerceDataSource` 端口：本期 `LocalDatasetSource`（导入落库），预留/可启用 `ExternalPlatformSource`（真实平台 API）。换平台只动实现与配置，查询/分析层零改动。
 5. **导入容错、可观测**。行级校验失败跳过并记录（`ImportReport`），不让单个坏行炸掉整批；导入幂等（自然键 upsert），重复导入不污染均值。
 6. **数据诚实**。无数据的 SKU 在查询结果里**显式列出**（`missingSkus`），避免 agent 对没有数据支撑的 SKU 编造结论。
@@ -237,7 +237,7 @@ interface CommerceDataSource {
 
 ```mermaid
 flowchart TD
-    Q[query_commerce_data: skuIds + window] --> F{FreshnessPolicy 判定}
+    Q[read include=data: skuId + window] --> F{FreshnessPolicy 判定}
     F -->|库存够新 或 live 关闭| DB[(MySQL 聚合)]
     F -->|需刷新 且 live 开启| Pull[ExternalPlatformSource.pull]
     Pull -->|成功| WT[write-through 落 commerce_data]
@@ -260,19 +260,19 @@ flowchart TD
 
 ---
 
-## 八、query_commerce_data 工具契约
+## 八、search / read 工具接入契约
 
-`design.md` 的 `query_commerce_data` Agent 级动作落为 `CommerceService.query(CommerceQuery)`，由 `agent` 模块注册为工具：
+`harness/tools.md` 已把旧的 `query_commerce_data` Agent 动作拆成 `search` + `read`。commerce 仍只提供业务服务，不依赖 `harness/tools` 或 `agent`；后续真实工具 handler 由 `module/commerce` 或 agent 接线层注册为 Spring bean：
 
 | 维度 | 约定 |
 |---|---|
-| 调用方 | `agent` 决策层（Tool Registry 执行管线） |
-| 权限 | 默认 `ALLOW`（`permission.md §阶段C` 只读动作放行），不需确认令牌 |
-| 入参 | `skuIds`（本批）、`window`（默认近 30 天）、`withBenchmark`、`withTrend` |
-| 出参 | `CommerceQueryResult`：每 SKU 指标 + 类目基准/偏离 + 趋势 + `missingSkus` + `stale` 标记 |
+| `search` | 按 `asset_copy.product_name` / `description` / `sku_id` 做候选 SKU 检索，返回候选列表，不返回电商指标 |
+| `read` | 默认精读单 SKU 的文案与基础信息；当 `include=["data"]` 时调用 `CommerceService.query(CommerceQuery)` 读取指标、类目基准、偏离、趋势和新鲜度 |
+| 权限 | 两者均为只读工具，默认 `ALLOW`，不需确认令牌 |
+| 失败 | 外部 API 失败不抛给 agent；`read(include=["data"])` 返回库存数据 + stale，或 missingSkus |
 | 结果预算 | 批量大时受 Tool Registry「结果预算」约束；超阈值由 harness/tools 外置 MinIO（commerce 不感知） |
 
-agent 拿到结构化结果后自行组织成数据支撑文案（如「点击率低于类目均值 40%」），commerce 只供事实。
+`search` / `read` 都不是「处理建议工具」。它们只返回候选、文案事实和描述性分析（如「点击率低于类目均值 40%」），最终建议由 agent 结合记忆、视觉理解、用户偏好生成。
 
 ---
 
@@ -348,7 +348,7 @@ pixflow:
 | 模块 | 契约 |
 |---|---|
 | `common` | 抛 `PixFlowException`（导入 VALIDATION / 依赖 DEPENDENCY）；`CommerceErrorCode implements ErrorCode`；文案经 `Sanitizer` |
-| `agent` | 注册 `query_commerce_data` 动作 → `CommerceService.query`；默认 ALLOW，无需确认令牌 |
+| `harness/tools` / `agent` | 注册 `search` / `read` 动作；`read(include=["data"])` → `CommerceService.query`；默认 ALLOW，无需确认令牌 |
 | `module/file` | 可在素材包上传后触发电商数据导入（调 `CommerceService.importData`）；commerce 不反向依赖 file |
 | `module/memory` | `sku_history.metrics_before/after` 的指标语义来自 commerce 的 `Metrics`（数据语义对齐，无代码依赖） |
 | `module/rubrics` | 决策质量评估读 commerce 指标做前后对比（数据语义对齐，无代码依赖） |
@@ -376,11 +376,15 @@ pixflow:
 本模块对 `design.md` 做如下**细化（非冲突）**，需同步回 design 记录（与 `module/memory.md §十四` 同一处理方式）：
 
 1. **`commerce_data` 表扩字段**（§13.1）：新增 `category`（SKU→类目随数据进来，决策 A）、把单字段 `period` 拆为 `period_type` + `period_start` + `period_end`（支持窗口与趋势）、新增 `source`/`fetched_at`/`updated_at`（多源 + 新鲜度）。加自然键唯一索引 `(sku_id, period_type, period_start, source)` 保证导入幂等。
-2. **commerce 拥有描述性分析**（§8、§6.1）：`query_commerce_data` 不止裸查指标，还在 SQL 层算**类目均值 / 偏离 / 时间窗口 / 趋势**，为 agent 的「数据支撑说明」供事实；decision 仍属 agent。
+2. **commerce 拥有描述性分析**（§8、§6.1）：`read(include=["data"])` 不止裸查指标，还在 SQL 层算**类目均值 / 偏离 / 时间窗口 / 趋势**，为 agent 的「数据支撑说明」供事实；decision 仍属 agent。
 3. **外部 API 同时是实时查询源 + 导入源**（§8）：在「预留 API 接入」基础上明确**支持实时查询**，但统一 write-through 落 MySQL、紧超时 + 失败降级库存，不阻塞 agent 主循环。MySQL 始终为事实源与基准聚合源。
 4. **数据诚实**：查询结果显式返回 `missingSkus` 与 `stale` 标记，约束 agent 不对无数据/过期数据编造支撑。
 
 > 这些是对既有设计的补充落地，不改变 §8 的「系统不拥有电商数据、通过标准接口消费」原则与 §15 的「MySQL 事实源 / 可重建侧存储」原则。
+
+## Revision Notes
+
+2026-06-29 / Codex: 同步 `harness/tools.md` 的新工具口径，将旧 `query_commerce_data` Agent 动作改为 `search` / `read` 接入契约。commerce 继续保持纯业务数据模块；真实工具 handler 后续通过 Spring bean 接入 tools registry。
 
 ---
 

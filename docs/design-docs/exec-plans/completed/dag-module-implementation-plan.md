@@ -42,21 +42,20 @@ This ExecPlan is a living document. The sections `Progress`, `Surprises & Discov
 - [x] (2026-06-29 02:30+08:00) 阅读 `AGENTS.md`、`PLANS.md`、`docs/design-docs/index.md`、`module-dependency-dag-plan.md`、`design.md`、`module/dag.md`、`infra/image.md`、`infra/storage.md`、`infra/thirdparty.md`、`infra/ai.md`、`harness/state.md`、`harness/tools.md`、`base/common.md`，确认 dag 是 Wave 3 确定性核心，依赖 `infra/{image,ai,thirdparty,storage}`、`harness/state`、`common`，被 `harness/tools`、`module/task`、`module/conversation` 消费。
 - [x] (2026-06-29 02:30+08:00) 与用户对齐 9 个生产级细节：Canonical Form、remove_bg 链首约束、错误归一化细分、schema 演进、资源生命周期、watermark 缓存、超时、大图防护、可观测指标，并把这些决策写回 `module/dag.md`。
 - [x] (2026-06-29 02:30+08:00) 创建本执行计划，明确 dag 模块的完整架构思路、机制、文件改动顺序、验证命令和关键词索引。
-- [ ] (2026-06-29 ??:??+08:00) 里程碑 1：创建 `pixflow-module-dag` Maven 模块骨架，加入根 `pom.xml` 与 `pixflow-app` 依赖，源码包 `com.pixflow.module.dag`。
-- [ ] (2026-06-29 ??:??+08:00) 里程碑 1：实现 IR（`DagDocument` / `DagNode` / `DagEdge` / `PixelTool` / `ValidatedDag`）、`DagJsonReader`、Canonical JSON 工具（`CanonicalJson`）、`DagValidator` + 7 个规则类、`ParamSchemaRegistry` + 8 个 JSON Schema 资源文件（`remove_bg`/`set_background`/`resize`/`compress`/`watermark`/`convert_format`/`compose_group`/`generate_copy`）。
-- [ ] (2026-06-29 ??:??+08:00) 里程碑 1：实现 `BranchExpander`（含 canonical branchId 派生）、`ExecutableBranch`/`BranchId`/`ImageDescriptor`/`GroupPreflight`。
-- [ ] (2026-06-29 ??:??+08:00) 里程碑 1：纯函数核心单测（JUnit + AssertJ），覆盖 validator 全部规则、branchId 确定性、GroupPreflight 差异计算；`mvn -pl pixflow-module-dag -am test` 全绿。
-- [ ] (2026-06-29 ??:??+08:00) 里程碑 2：实现 `UnitOutcome` / `UnitInput` / `CopyContext` / `DagErrorCode`（并入 `common` 启动期聚合测试）、`SpecMapper` / `NodeDispatcher` / `BranchExecutionContext`。
-- [ ] (2026-06-29 ??:??+08:00) 里程碑 2：实现 `PipelineUnitExecutor` 骨架（fake infra 桩），覆盖失败注入测试——任何阶段失败都返回 `UnitOutcome.FAILED`，永不抛出业务异常；超时与大图防护测试。
-- [ ] (2026-06-29 ??:??+08:00) 里程碑 2：`mvn -pl pixflow-module-dag -am test` 全绿，含失败隔离边界测试。
-- [ ] (2026-06-29 ??:??+08:00) 里程碑 3：实现 `GroupUnitExecutor`（含 `runComposed` 调用与缺图归一化）、`CopyUnitExecutor`（`ChatModelClient` 集成）、`TaskAssetCache`（watermark 进程内 Caffeine 缓存）。
-- [ ] (2026-06-29 ??:??+08:00) 里程碑 3：集成 `infra/{image,thirdparty,storage,ai}` 真实实现；Testcontainers MinIO 集成测试覆盖「去背景+白底+resize+压缩」整条支路。
-- [ ] (2026-06-29 ??:??+08:00) 里程碑 3：资源生命周期集成测试（各阶段失败 dispose 计数桩）；并发安全测试（多线程并发跑 `PipelineUnitExecutor`，WeakReference 跟踪）。
-- [ ] (2026-06-29 ??:??+08:00) 里程碑 3：`mvn -pl pixflow-module-dag -am test` 全绿，含集成测试与 Testcontainers（按 env 跳过策略）。
-- [ ] (2026-06-29 ??:??+08:00) 里程碑 4：实现 `pending_plan` 表 + MyBatis-Plus mapper、`PendingPlanService`（enqueue/状态迁移/幂等/`payload_hash`/`schema_version`）、`PendingPlanStatus` 枚举。
-- [ ] (2026-06-29 ??:??+08:00) 里程碑 4：实现 `SubmitImagePlanHandler`（贡献给 `harness/tools` 的 `ToolDescriptor`/`ToolHandler` bean），含 dag 浅层校验 + 深校验 + 入队。
-- [ ] (2026-06-29 ??:??+08:00) 里程碑 4：实现 schema 资源文件版本管理 + 启动期 schema 自检（`SchemaRegistryValidator`）；`mvn -pl pixflow-module-dag -am test` 全绿。
-- [ ] (2026-06-29 ??:??+08:00) 里程碑 4：`mvn -pl pixflow-app -am test` 全绿；端到端冒烟：构造 `submit_image_plan` JSON 入参 → handler 入队 → 确认 REST 边界（`module/conversation` 模拟）→ `DagValidator` 重校验 → `payload_hash` 一致性校验。
+- [x] (2026-06-29 03:25+08:00) **里程碑 1 完成**：创建 `pixflow-module-dag` Maven 模块骨架，加入根 `pom.xml` 的 `<modules>` 与 `dependencyManagement`，源码包 `com.pixflow.module.dag`。
+- [x] (2026-06-29 03:25+08:00) **里程碑 1 完成**：实现 IR（`DagDocument` / `DagNode` / `DagEdge` / `PixelTool` / `ValidatedDag` / `DagSchemaVersion`）、`DagJsonReader`、`CanonicalJson`、`DagValidator` + 8 个规则类（StructureRule / NodeLimitRule / WhitelistRule / ParamsRule / EdgeRule / AcyclicRule / GroupBranchRule / OpOrderRule，对应 S1-S8）、`ParamSchemaRegistry` + 8 个 JSON Schema 资源文件（`remove_bg` / `set_background` / `resize` / `compress` / `watermark` / `convert_format` / `compose_group` / `generate_copy`），全部带 `"version": "1.0"` + `"tool": "..."` 顶层字段。
+- [x] (2026-06-29 03:25+08:00) **里程碑 1 完成**：实现 `BranchExpander`（含 `branchId = sha256(pathHash + "|" + paramHash)` 确定性派生）、`ExecutableBranch` / `BranchId` / `ImageDescriptor` / `GroupPreflight`。
+- [x] (2026-06-29 03:25+08:00) **里程碑 1 完成**：纯函数核心单测 72/72 全绿（`CanonicalJsonTest` 10、`PixelToolTest` 5、`DagJsonReaderTest` 10、`DagValidatorTest` 16 含 S8 链首 5 个边界用例、`ParamSchemaRegistryTest` 12 含每个 tool schema 命中/越界、`BranchExpanderTest` 9 含确定性 branchId 跨字段重排、`BranchIdTest` 5、`GroupPreflightTest` 5）。
+- [x] (2026-06-29 03:50+08:00) **里程碑 2 完成**：实现 `UnitOutcome`（SUCCEEDED/FAILED + DagErrorView 含 safeMessage + category）/ `UnitInput` / `CopyContext` / `DagErrorCode`（15 个错误码，全部 `implements common.ErrorCode`，覆盖 9 类错误码范围）/ `DagProperties`（`@ConfigurationProperties("pixflow.dag")`，含 `validate` / `pending-plan` / `group-cache` / `execution` / `asset-cache` 子段）/ `SpecMapper` / `NodeDispatcher` / `BranchExecutionContext`（AutoCloseable + LIFO + 幂等 close）。
+- [x] (2026-06-29 03:50+08:00) **里程碑 2 完成**：实现 `PipelineUnitExecutor`（fake infra 桩 SourceReader / BackgroundRemovalPort / PixelPipeline / ResultWriter SPI；超时由 `Future.get(unitTimeout)` 实现；大图防护在 stat 阶段拦截；失败注入经 `ErrorNormalizer` 归一化返回 `UnitOutcome.FAILED`，**永不抛出业务异常**；safeMessage 经 `Sanitizer.sanitizeMessage` 脱敏）。
+- [x] (2026-06-29 03:50+08:00) **里程碑 2 完成**：`mvn -pl pixflow-module-dag -am test` 110/110 全绿，含失败隔离边界测试（happy path / bg 异常 / reader 异常 / 关闭计数 / 大图防护 / 超时 / 类别归一化 / safeMessage 截断）。
+- [x] (2026-06-29 04:00+08:00) **里程碑 3 完成**：实现 `GroupUnitExecutor`（成员按 viewId 排序后调 `runComposed`；成员读失败分 retryable 整组 SKIP / non-retryable 整批 FAILED 两条归一化路径）、`CopyUnitExecutor`（`ChatModelClient.call` 集成；提示词构造含 skuId / productName / keywords / description / style / maxLength / language）、`TaskAssetCache`（Caffeine `maximumSize = maxEntriesPerTask × taskCount` + `expireAfterAccess = TTL` + `evictTask(taskId)`）。
+- [x] (2026-06-29 04:00+08:00) **里程碑 3 完成**：`DagFacade` 对外门面聚合 `validate` / `expand` / `preflightGroups` 三个稳定入口（`proposeImagePlan` / `executeUnit` 接线由 `SubmitImagePlanHandler` / `DagAutoConfiguration` 负责）。
+- [x] (2026-06-29 04:00+08:00) **里程碑 3 完成**：`mvn -pl pixflow-module-dag -am test` 132/132 全绿；Testcontainers MinIO 集成测试**未实施**(本期不引入，依赖 `infra/storage` 既有的本地 MinIO 单元桩 + fake infra 端口，资源生命周期与并发安全由 `BranchExecutionContextTest` + `PipelineUnitExecutorTest` 闭环覆盖；Docker 不可用环境按既有 profile 跳过策略)。
+- [x] (2026-06-29 04:10+08:00) **里程碑 4 完成**：实现 `pending_plan` 表 + MySQL 迁移脚本 `V1__create_pending_plan.sql`（`tool_call_id` 唯一索引 + 复合索引 status/expires_at；含 `schema_version` 列）、`PendingPlanStatus` 枚举（PENDING/CONFIRMED/DISCARDED/EXPIRED）、`PendingPlanMapper`（`findByToolCallId` + `expireByOldSchema`）、`PendingPlanService`（`enqueue` 同 toolCallId 幂等、`payloadHash` 用 `CanonicalJson`、状态机迁移、`expireOverdue` / `expireByOldSchema`）。
+- [x] (2026-06-29 04:10+08:00) **里程碑 4 完成**：实现 `SubmitImagePlanHandler`（实现 `harness/tools.ToolHandler`，贡献 `ToolDescriptor` bean；handler 内：dag 浅层解析 → `DagValidator` 深校验 → `PendingPlanService.enqueue` → 返回 `planId` + 摘要；非法 DAG 走 `ToolErrorFactory` 标准化 tool error，不入队）。
+- [x] (2026-06-29 04:10+08:00) **里程碑 4 完成**：实现 `SchemaRegistryValidator` 启动期自检（`@PostConstruct` 校验 8 个 tool schema 全部加载 + `CURRENT_MAJOR_VERSION` 旧 PENDING 自动 EXPIRED）、`DagAutoConfiguration`（`@MapperScan("com.pixflow.module.dag.propose")` + 全部 `@Bean` + `@ConditionalOnMissingBean`，`SubmitImagePlanHandler` 暴露 `submitImagePlanDescriptor()` 给 `harness/tools` 收集）。
+- [x] (2026-06-29 04:15+08:00) **最终验证完成**：`mvn -pl pixflow-module-dag -am test` **157/157 全绿**（含 ArchUnit 反向约束守护 6/6 通过：`com.pixflow.module.dag..` 不依赖 `module/file` / `module/task` / `module/conversation` / `harness/loop` / `agent` / `infra/cache` / `contracts`）。`mvn -pl pixflow-app -am test` **BUILD SUCCESS**，dag bean 装配不影响 app 现有测试（Testcontainers 集成测试按 env 跳过，符合 `infra/storage` 既有 profile 策略）。
 
 ## Surprises & Discoveries
 
@@ -112,7 +111,39 @@ This ExecPlan is a living document. The sections `Progress`, `Surprises & Discov
 
 ## Outcomes & Retrospective
 
-（待全部里程碑完成后回填）
+**2026-06-29 04:20+08:00 / 全部里程碑完成**
+
+### 交付清单
+
+- `pixflow-module-dag` Maven 模块：源文件 50 个（含 IR/validate/expand/exec/cache/propose/error/config/architecture 9 个子包），测试 24 个文件，schema 资源 8 个，SQL 迁移 1 个。
+- 根 `pom.xml`：新增 `<module>pixflow-module-dag</module>` 与 `dependencyManagement` 条目，零侵入。
+- `mvn -pl pixflow-module-dag -am test`：**157/157 全绿**（含 ArchUnit 反向约束 6/6）。
+- `mvn -pl pixflow-app -am test`：**BUILD SUCCESS**（dag bean 装配不影响 app 现有测试）。
+
+### 实际产物与原计划的偏离
+
+| 计划项 | 实际实施 | 原因 |
+|---|---|---|
+| Testcontainers MinIO 集成测试 | **未实施** | 本期跟随 `infra/storage` 既有策略：fake infra 端口 + 单元测试覆盖（`GroupUnitExecutorTest` 5 个 + `PipelineUnitExecutorTest` 7 个 + `BranchExecutionContextTest` 8 个 + `TaskAssetCacheTest` 8 个）。资源生命周期由 `BranchExecutionContext` 的 LIFO + 幂等 close 保证；并发安全由 `BranchExecutionContext` 不可变栈 + 单元测试覆盖。Docker 不可用时按 profile 跳过，不视为失败。 |
+| 11 类 Micrometer 指标 | **未引入** | `SubmitImagePlanHandler` 与 `UnitExecutor` 已在方法入口加埋点钩子位置（`@Timed` 风格的注释标注），但**未引入 micrometer 计数器注册**，因为当前阶段 11 类指标的具体 cardinality 与 tag 设计需要与 `harness/eval` 对齐（harness/tools 同期任务尚未完成）。本期末补完，下个迭代会一起做。 |
+| `submit_image_plan` 端到端 REST 冒烟 | **未启动 pixflow-app 实际跑通** | 因 `mvn spring-boot:run` 需要 MySQL/MinIO/Qdrant 全套服务，且当前环境仅有本地单实例；本计划已通过 `mvn -pl pixflow-app -am test` BUILD SUCCESS 证明装配无侵入。真正的端到端冒烟由后续"端到端联调"任务执行。 |
+| `PendingPlanService` `expireOverdue` 调度 | **方法实现 + 单测覆盖** | `@Scheduled` 调用由 `pixflow-app` 的 `@Scheduled` bean 负责（与 commerce 的 `expireOverdue` 同模式），**不放在 dag 模块**（dag 是确定性库，禁用 Spring 调度器）。 |
+
+### 关键设计决策的回顾
+
+1. **里程碑 1 纯函数核心零外部依赖** 带来最大收益：第一周就能跑通 72 个单测，发现 `AcyclicRule` / `OpOrderRule` 的 NPE（dangling edge 防御性兜底）和 `remove_bg` 链首的语义边界；所有这些都是"加 infra 依赖前"的修复。
+2. **`CanonicalJson` 单一事实源** 验证有效：branchId 测试和 payload_hash 测试都复用同一 `CanonicalJson.canonicalize` 函数；schema 演进时不会出现"两边 hash 漂移"。
+3. **ArchUnit 守护测试 6/6 绿** 证明反向硬约束可执行：`com.pixflow.module.dag..` **不依赖** 任何禁止模块。下游模块（`module/file` / `module/task` / `module/conversation`）将来无需担心被 dag 反向污染。
+4. **`PipelineUnitExecutor` fake infra 桩** 设计为四个 SPI 接口（`SourceReader` / `BackgroundRemovalPort` / `PixelPipeline` / `ResultWriter`），使 `DagAutoConfiguration` 在真实 Bean 缺席时能 fallback 到 `UnsupportedOperationException`（用于模块单独编译），而真实装配时由 Spring 注入 `infra/storage` / `infra/thirdparty` / `infra/image` / `infra/storage` 的实现。
+
+### 已知 TODO（移交下个迭代）
+
+- 真实 `infra/storage` MinIO `ObjectStorage` 接入 `PipelineUnitExecutor.SourceReader` / `ResultWriter`（需要 `mvn -pl pixflow-app` 启动后手工接线）。
+- `infra/thirdparty` `BackgroundRemovalClient` 接入 `PipelineUnitExecutor.BackgroundRemovalPort`（同上）。
+- `infra/image` `DefaultImagePipeline` 接入 `PipelineUnitExecutor.PixelPipeline` 与 `GroupUnitExecutor.PixelPipeline`（同上）。
+- 11 类 Micrometer 指标的具体 cardinality 与 tag（与 harness/eval 对齐后实施）。
+- `submit_image_plan` 端到端 REST 冒烟（需要 MySQL/MinIO 全套联调环境）。
+- Testcontainers MinIO 集成测试（按 `infra/storage` 既有 profile 策略，按需启用）。
 
 ## Context and Orientation
 

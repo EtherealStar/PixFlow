@@ -53,6 +53,9 @@ infra/storage/
 ├── ObjectRef.java                # record(BucketType, key, size, etag) —— put 后的句柄
 ├── StoredObjectMetadata.java     # record(size, contentType, etag, lastModified)
 ├── StorageKeys.java              # key 约定中心：业务路径模板 → ObjectLocation（纯静态，无 IO 依赖）
+├── toolresult/
+│   ├── ToolResultStorage.java    # 大 tool-result 共享外置抽象：write/read/ref/preview/miss
+│   └── ObjectStorageToolResultStorage.java # 基于 ObjectStorage + StorageKeys.toolResult 的实现
 ├── StorageException.java         # 独立领域异常（携带 operation/bucket/key/retryable）
 ├── MinioObjectStorage.java       # ObjectStorage 的 MinIO 实现（封装 MinioClient + Resilience4j）
 ├── StorageProperties.java        # @ConfigurationProperties(pixflow.storage)
@@ -193,12 +196,14 @@ public record StoredObjectMetadata(long size, String contentType, String etag, I
 - 用于任务级/支路级清理 `TMP` 桶残留，以及素材包删除时清 `PACKAGES` 桶对应前缀。
 - 批量删按页处理，避免单次列举过大；删除失败的 key 收集后随 `StorageException` 上报（含失败明细 details）。
 
-### 6.4 大 tool-result 外置（与 harness/tools 的边界）
+### 6.4 大 tool-result 外置（共享 ToolResultStorage）
 
-`design.md` §5.2 的「结果预算」：工具结果超阈值（默认 50KB）写 MinIO，模型只见引用+预览。**这是业务策略，不进 storage**：
+`design.md` §5.2 的「结果预算」：工具结果超阈值（默认 50KB）写 MinIO，模型只见引用+预览。阈值判定属于调用方策略，但 key 生成、内容 hash 去重、preview 生成、引用模型和缺失回读降级必须三处一致，因此在 `infra/storage` 中抽出共享 `ToolResultStorage`。它是 `ObjectStorage` 之上的薄适配，不让业务模块直接接触 MinIO，也不改变 storage 核心「纯 I/O」原则。
 
-- storage 只提供原语：`put(StorageKeys.toolResult(id), ...)` 写入、`getBytes` 取回。
-- 「50KB 阈值判定、预览截断、生成模型可见引用」由 `harness/tools` 实现。storage 不认识 50KB 这个数。
+- storage 核心仍只提供原语：`put(StorageKeys.toolResult(id), ...)` 写入、`getBytes` 取回。
+- `ToolResultStorage` 负责把 `(toolCallId, content, previewChars)` 转成稳定 `ToolResultReference`，底层写入 `TOOL_RESULTS` 逻辑桶；同 `toolCallId` 且内容相同复用同一 key，内容不同带 hash 后缀。
+- 「是否超过 50KB」由 `harness/context`、`harness/tools`、`harness/session` 各自按配置决定；它们只调用共享 `ToolResultStorage` 做外置和回读，不各自拼 key 或定义引用 JSON。
+- 回读时对象缺失不应让 transcript rehydrate 失败；`ToolResultStorage` 返回带 `missing=true` 的引用或等价结果，由调用方保留 preview 并标记 `missingExternalToolResult`。
 
 ---
 
@@ -297,10 +302,12 @@ pixflow:
 | `module/file` | 用 `StorageKeys.package*` 写入原 zip/原图/文档；大文件走 `put` 流式分片 |
 | `module/dag`/`task` | 结果图 `put` 到 `RESULTS`；下载/预览取 `presignGet`；任务清理用 `deleteByPrefix(TMP, ...)` |
 | `module/imagegen` | 生图结果 `put` 到 `GENERATED` |
-| `harness/tools` | 大 tool-result 用 `put(StorageKeys.toolResult(id),...)` + `getBytes` 预览；50KB 阈值/截断在 tools 侧 |
-| `harness/state`/`context` | 外置大结果与中间产物的 put/get/delete |
+| `harness/context` | cheap pipeline 判断单条 tool_result 超阈值后调用共享 `ToolResultStorage`，只把引用+preview 送入模型 |
+| `harness/tools` | Tool handler 返回超阈值结果后调用共享 `ToolResultStorage`，trace/工具结果只保存稳定引用 |
+| `harness/session` | transcript 落库前调用共享 `ToolResultStorage` 外置大 tool_result，`load` rehydrate 时通过同一抽象回读完整 content |
+| `harness/state` | 中间产物引用的 put/get/delete 继续使用 `ObjectStorage` 原语 |
 | `common` | storage 抛 `StorageException`，由 `ErrorNormalizer` 边界翻译为 `STORAGE`；脱敏用 `Sanitizer` |
-| 调用方统一 | 只依赖 `ObjectStorage` 接口与 `StorageKeys`，不直接接触 `MinioClient` |
+| 调用方统一 | 只依赖 `ObjectStorage`、`StorageKeys` 与共享 `ToolResultStorage`，不直接接触 `MinioClient` |
 
 ---
 

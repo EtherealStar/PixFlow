@@ -223,7 +223,7 @@ contracts → permission → tools → loop → agent
 ### Wave 4 — 主循环 + 编排模块
 - [ ] `harness/loop`：手写 think-act-observe 主循环、ContextSnapshot 记录、自然结束判定
 - [ ] `module/conversation`：对话与消息、SSE 流式、附件关联
-- [ ] `module/task`：RabbitMQ 消费、任务内 fan-out [图片×支路/组×支路]、进度计数、WebSocket 推送、断点恢复、失败隔离、下载
+- [x] `module/task`：RabbitMQ 消费、任务内 fan-out [图片×支路/组×支路]、进度计数、WebSocket 推送、断点恢复、失败隔离、下载
 
 ### Wave 5 — Agent 决策层
 - [ ] `agent`：主循环编排、动态 Prompt 组装 + section 缓存、Agent 级动作接线、子 Agent runner、HITL 确认流

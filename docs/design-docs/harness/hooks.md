@@ -334,7 +334,7 @@ public HookResult handle(HookEvent e, HookPayload p) {
 
 `harness/hooks` core 只提供总线和 SPI，不内置业务 hook。首批业务 hook 应放在更高层接线模块中：
 
-- DAG 参数异常检测 hook 放在 `module/dag` 或 `harness/tools` 与 DAG 的接线层，订阅 `PRE_TOOL_USE`，只处理 `compile_dag` / `submit_dag` 相关输入。
+- DAG 参数异常检测 hook 放在 `module/dag` 或 `harness/tools` 与 DAG 的接线层，订阅 `PRE_TOOL_USE`，只处理 `submit_image_plan` 的 DAG 提案输入。
 - 分析结论记忆抽取 hook 放在 `agent` 或 memory 接线层，订阅 `ASSISTANT_MESSAGE_COMPLETED`，调用 `MemoryService.ingestAsync` 后立即返回 `noop()`。
 - 压缩摘要指令 hook 放在 `agent` / `context` 接线层，订阅 `PRE_COMPACT` 并写入 `compact.summaryInstructions` metadata。
 
