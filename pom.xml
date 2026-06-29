@@ -22,6 +22,7 @@
         <module>pixflow-permission</module>
         <module>pixflow-hooks</module>
         <module>pixflow-context</module>
+        <module>pixflow-session</module>
         <module>pixflow-state</module>
         <module>pixflow-eval</module>
         <module>pixflow-tools</module>
@@ -89,6 +90,11 @@
             <dependency>
                 <groupId>com.pixflow</groupId>
                 <artifactId>pixflow-context</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.pixflow</groupId>
+                <artifactId>pixflow-session</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
