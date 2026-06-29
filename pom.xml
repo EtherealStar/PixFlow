@@ -29,6 +29,7 @@
         <module>pixflow-module-memory</module>
         <module>pixflow-module-commerce</module>
         <module>pixflow-module-dag</module>
+        <module>pixflow-module-imagegen</module>
         <module>pixflow-infra-storage</module>
         <module>pixflow-infra-cache</module>
         <module>pixflow-infra-mq</module>
@@ -123,6 +124,11 @@
             <dependency>
                 <groupId>com.pixflow</groupId>
                 <artifactId>pixflow-module-dag</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.pixflow</groupId>
+                <artifactId>pixflow-module-imagegen</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>

@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>com.pixflow</groupId>
+        <artifactId>pixflow</artifactId>
+        <version>1.0.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>pixflow-module-imagegen</artifactId>
+    <name>PixFlow Module Imagegen</name>
+    <description>生成式产图路径:submit_imagegen_plan 提案 handler + 无状态单图重绘执行器(Wave 3 生成式核心)</description>
+
+    <dependencies>
+        <!-- 公共:错误模型、归一化、脱敏 -->
+        <dependency>
+            <groupId>com.pixflow</groupId>
+            <artifactId>pixflow-common</artifactId>
+        </dependency>
+        <!-- contracts:确认动作枚举 IMAGEGEN -->
+        <dependency>
+            <groupId>com.pixflow</groupId>
+            <artifactId>pixflow-contracts</artifactId>
+        </dependency>
+        <!-- permission:PermissionSubject / PermissionContext 引用 -->
+        <dependency>
+            <groupId>com.pixflow</groupId>
+            <artifactId>pixflow-permission</artifactId>
+        </dependency>
+        <!-- tools:ToolHandler / ToolDescriptor / ToolInvocation -->
+        <dependency>
+            <groupId>com.pixflow</groupId>
+            <artifactId>pixflow-tools</artifactId>
+        </dependency>
+        <!-- 源图重绘 -->
+        <dependency>
+            <groupId>com.pixflow</groupId>
+            <artifactId>pixflow-infra-ai</artifactId>
+        </dependency>
+        <!-- 源图解析 / 生图落桶 -->
+        <dependency>
+            <groupId>com.pixflow</groupId>
+            <artifactId>pixflow-infra-storage</artifactId>
+        </dependency>
+
+        <!-- JSON 序列化:payloadHash + 提案载荷 -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+        </dependency>
+
+        <!-- Spring 基础 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-autoconfigure</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-configuration-processor</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
+        <!-- 可观测 -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-core</artifactId>
+        </dependency>
+
+        <!-- 测试 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- 边界守护 -->
+        <dependency>
+            <groupId>com.tngtech.archunit</groupId>
+            <artifactId>archunit-junit5</artifactId>
+            <version>1.4.1</version>
+            <scope>test</scope>
+        </dependency>
+        <!-- Testcontainers(集成测试按 env 跳过) -->
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>minio</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>
