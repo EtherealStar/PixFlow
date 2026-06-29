@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "version": "1.0",
+  "tool": "set_background",
+  "title": "set_background 参数 schema",
+  "description": "把带 alpha 的图合成到背景之上。color 与 backgroundImage 二选一。",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "color": {
+      "type": "string",
+      "pattern": "^#([0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$"
+    },
+    "backgroundImage": {
+      "type": "string",
+      "minLength": 1
+    },
+    "fit": {
+      "type": "string",
+      "enum": ["STRETCH", "TILE", "CENTER"]
+    }
+  },
+  "anyOf": [
+    { "required": ["color"] },
+    { "required": ["backgroundImage"] }
+  ]
+}

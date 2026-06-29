@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "version": "1.0",
+  "tool": "compress",
+  "title": "compress 参数 schema",
+  "description": "压缩(quality 与 targetBytes 二选一)。",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "quality": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100
+    },
+    "targetBytes": {
+      "type": "integer",
+      "exclusiveMinimum": 0
+    }
+  },
+  "anyOf": [
+    { "required": ["quality"] },
+    { "required": ["targetBytes"] }
+  ]
+}

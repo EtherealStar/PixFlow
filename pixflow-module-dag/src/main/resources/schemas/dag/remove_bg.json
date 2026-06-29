@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "version": "1.0",
+  "tool": "remove_bg",
+  "title": "remove_bg 参数 schema",
+  "description": "第三方抠图(infra/thirdparty)。调用 BackgroundRemovalClient.remove 的入参。",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "outputFormat": {
+      "type": "string",
+      "enum": ["png", "keep"]
+    },
+    "crop": {
+      "type": "boolean"
+    },
+    "featherRadius": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 50
+    }
+  }
+}

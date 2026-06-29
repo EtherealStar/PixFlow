@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "version": "1.0",
+  "tool": "watermark",
+  "title": "watermark 参数 schema",
+  "description": "水印叠加。watermarkImage 必填(MinIO key);其余有默认值。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["watermarkImage"],
+  "properties": {
+    "watermarkImage": {
+      "type": "string",
+      "minLength": 1
+    },
+    "position": {
+      "type": "string",
+      "enum": [
+        "TOP_LEFT",
+        "TOP_CENTER",
+        "TOP_RIGHT",
+        "CENTER_LEFT",
+        "CENTER",
+        "CENTER_RIGHT",
+        "BOTTOM_LEFT",
+        "BOTTOM_CENTER",
+        "BOTTOM_RIGHT"
+      ]
+    },
+    "opacity": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "scale": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "maximum": 1
+    },
+    "margin": {
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}

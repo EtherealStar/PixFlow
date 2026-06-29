@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "version": "1.0",
+  "tool": "resize",
+  "title": "resize 参数 schema",
+  "description": "缩放(width/height 至少给一边,mode 默认 FIT)。",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "width": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 12000
+    },
+    "height": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 12000
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["FIT", "FILL", "EXACT"]
+    },
+    "upscale": {
+      "type": "boolean"
+    }
+  },
+  "anyOf": [
+    { "required": ["width"] },
+    { "required": ["height"] }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "version": "1.0",
+  "tool": "convert_format",
+  "title": "convert_format 参数 schema",
+  "description": "格式转换。targetFormat 必填;quality 可选;flattenBackground 用于 alpha 扁平化。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["targetFormat"],
+  "properties": {
+    "targetFormat": {
+      "type": "string",
+      "enum": ["JPEG", "PNG", "WEBP", "BMP"]
+    },
+    "quality": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100
+    },
+    "flattenBackground": {
+      "type": "string",
+      "pattern": "^#([0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$"
+    }
+  }
+}

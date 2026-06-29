@@ -26,6 +26,10 @@
         </dependency>
         <dependency>
             <groupId>com.pixflow</groupId>
+            <artifactId>pixflow-tools</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.pixflow</groupId>
             <artifactId>pixflow-infra-storage</artifactId>
         </dependency>
         <dependency>

@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "version": "1.0",
+  "tool": "compose_group",
+  "title": "compose_group 参数 schema",
+  "description": "多图合成 1 张。layout 必填;expected_count 仅供 HITL 张数校验。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["layout"],
+  "properties": {
+    "layout": {
+      "type": "string",
+      "enum": ["HORIZONTAL", "VERTICAL", "GRID"]
+    },
+    "order": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "gap": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "background": {
+      "type": "string",
+      "pattern": "^#([0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$"
+    },
+    "expected_count": {
+      "type": "integer",
+      "exclusiveMinimum": 0
+    }
+  }
+}

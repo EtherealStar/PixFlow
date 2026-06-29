@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "version": "1.0",
+  "tool": "generate_copy",
+  "title": "generate_copy 参数 schema",
+  "description": "文案生成(infra/ai),不串接像素链;style 与 maxLength 限定生成范围。",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "style": {
+      "type": "string",
+      "enum": ["SHORT", "PROMOTIONAL", "DESCRIPTIVE", "STORY"]
+    },
+    "maxLength": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 2000
+    },
+    "language": {
+      "type": "string",
+      "enum": ["zh", "en"]
+    },
+    "includeKeywords": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  }
+}

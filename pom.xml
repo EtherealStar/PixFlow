@@ -24,9 +24,11 @@
         <module>pixflow-context</module>
         <module>pixflow-state</module>
         <module>pixflow-eval</module>
+        <module>pixflow-tools</module>
         <module>pixflow-module-file</module>
         <module>pixflow-module-memory</module>
         <module>pixflow-module-commerce</module>
+        <module>pixflow-module-dag</module>
         <module>pixflow-infra-storage</module>
         <module>pixflow-infra-cache</module>
         <module>pixflow-infra-mq</module>
@@ -100,6 +102,11 @@
             </dependency>
             <dependency>
                 <groupId>com.pixflow</groupId>
+                <artifactId>pixflow-tools</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.pixflow</groupId>
                 <artifactId>pixflow-module-file</artifactId>
                 <version>${project.version}</version>
             </dependency>
@@ -111,6 +118,11 @@
             <dependency>
                 <groupId>com.pixflow</groupId>
                 <artifactId>pixflow-module-commerce</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.pixflow</groupId>
+                <artifactId>pixflow-module-dag</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
