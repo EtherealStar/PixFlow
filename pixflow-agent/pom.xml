@@ -1,0 +1,138 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>com.pixflow</groupId>
+        <artifactId>pixflow</artifactId>
+        <version>1.0.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>pixflow-agent</artifactId>
+    <name>PixFlow Agent</name>
+    <description>Agent 决策层装配：动态 Prompt + Skill + 记忆召回 + Session Memory + 异步 Subagent + Plan 模式</description>
+
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+    </properties>
+
+    <dependencies>
+        <!-- common / contracts -->
+        <dependency>
+            <groupId>com.pixflow</groupId>
+            <artifactId>pixflow-common</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.pixflow</groupId>
+            <artifactId>pixflow-contracts</artifactId>
+        </dependency>
+
+        <!-- harness -->
+        <dependency>
+            <groupId>com.pixflow</groupId>
+            <artifactId>pixflow-context</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.pixflow</groupId>
+            <artifactId>pixflow-tools</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.pixflow</groupId>
+            <artifactId>pixflow-loop</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.pixflow</groupId>
+            <artifactId>pixflow-session</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.pixflow</groupId>
+            <artifactId>pixflow-hooks</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.pixflow</groupId>
+            <artifactId>pixflow-eval</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.pixflow</groupId>
+            <artifactId>pixflow-permission</artifactId>
+        </dependency>
+
+        <!-- module -->
+        <dependency>
+            <groupId>com.pixflow</groupId>
+            <artifactId>pixflow-module-memory</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.pixflow</groupId>
+            <artifactId>pixflow-module-file</artifactId>
+        </dependency>
+
+        <!-- infra -->
+        <dependency>
+            <groupId>com.pixflow</groupId>
+            <artifactId>pixflow-infra-ai</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.pixflow</groupId>
+            <artifactId>pixflow-infra-storage</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.pixflow</groupId>
+            <artifactId>pixflow-infra-cache</artifactId>
+        </dependency>
+
+        <!-- Spring / MyBatis / Redisson / Caffeine -->
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-context</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-autoconfigure</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-configuration-processor</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>com.baomidou</groupId>
+            <artifactId>mybatis-plus-spring-boot3-starter</artifactId>
+            <version>${mybatis-plus.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.redisson</groupId>
+            <artifactId>redisson-spring-boot-starter</artifactId>
+            <version>${redisson.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.github.ben-manes.caffeine</groupId>
+            <artifactId>caffeine</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.knuddels</groupId>
+            <artifactId>jtokkit</artifactId>
+            <version>0.6.1</version>
+        </dependency>
+
+        <!-- test -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.tngtech.archunit</groupId>
+            <artifactId>archunit-junit5</artifactId>
+            <version>1.4.1</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>
