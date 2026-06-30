@@ -354,6 +354,40 @@ class SessionTranscriptIntegrationTest {
             }
         }
 
+        @Override
+        public List<com.pixflow.harness.session.persistence.MessageReadView> findMessagesByConversation(
+                String conversationId,
+                long offset,
+                long limit) {
+            return queryMessages("WHERE conversation_id = ? ORDER BY seq LIMIT ? OFFSET ?",
+                    conversationId,
+                    limit,
+                    offset).stream().map(SessionTranscriptIntegrationTest::toReadView).toList();
+        }
+
+        @Override
+        public long countMessagesByConversation(String conversationId) {
+            try (Connection connection = DriverManager.getConnection(jdbcUrl, username, password);
+                 var statement = connection.prepareStatement(
+                         "SELECT COUNT(*) FROM message WHERE conversation_id = ?")) {
+                statement.setObject(1, conversationId);
+                try (var rs = statement.executeQuery()) {
+                    rs.next();
+                    return rs.getLong(1);
+                }
+            } catch (Exception ex) {
+                throw new IllegalStateException(ex);
+            }
+        }
+
+        @Override
+        public List<com.pixflow.harness.session.persistence.MessageReadView> findAttachments(String conversationId) {
+            return queryMessages("WHERE conversation_id = ? AND role = 'ATTACHMENT' ORDER BY seq", conversationId)
+                    .stream()
+                    .map(SessionTranscriptIntegrationTest::toReadView)
+                    .toList();
+        }
+
         private List<MessageEntity> queryMessages(String suffix, Object... args) {
             String sql = """
                     SELECT id, conversation_id AS conversationId, seq, role, content,
@@ -389,6 +423,21 @@ class SessionTranscriptIntegrationTest {
                 throw new IllegalStateException(ex);
             }
         }
+    }
+
+    private static com.pixflow.harness.session.persistence.MessageReadView toReadView(MessageEntity entity) {
+        return new com.pixflow.harness.session.persistence.MessageReadView(
+                entity.getId(),
+                entity.getConversationId(),
+                entity.getSeq(),
+                entity.getRole(),
+                entity.getContent(),
+                entity.getToolCallId(),
+                entity.getCompactionMarker(),
+                entity.getMetadata(),
+                entity.getAttachedPackageId(),
+                entity.getTaskId(),
+                entity.getCreatedAt());
     }
 
     private static final class MysqlCompactionMapper implements CompactionMapper {

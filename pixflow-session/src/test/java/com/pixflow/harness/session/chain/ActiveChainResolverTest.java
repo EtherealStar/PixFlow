@@ -116,6 +116,24 @@ class ActiveChainResolverTest {
                     .max()
                     .orElse(0L);
         }
+
+        @Override
+        public List<com.pixflow.harness.session.persistence.MessageReadView> findMessagesByConversation(
+                String conversationId,
+                long offset,
+                long limit) {
+            return List.of();
+        }
+
+        @Override
+        public long countMessagesByConversation(String conversationId) {
+            return 0;
+        }
+
+        @Override
+        public List<com.pixflow.harness.session.persistence.MessageReadView> findAttachments(String conversationId) {
+            return List.of();
+        }
     }
 
     private static final class StubCompactionMapper implements CompactionMapper {

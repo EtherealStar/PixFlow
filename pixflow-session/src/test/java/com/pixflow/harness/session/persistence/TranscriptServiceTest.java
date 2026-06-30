@@ -278,6 +278,48 @@ class TranscriptServiceTest {
                     .max()
                     .orElse(0L);
         }
+
+        @Override
+        public List<MessageReadView> findMessagesByConversation(String conversationId, long offset, long limit) {
+            return state.messages.stream()
+                    .filter(item -> conversationId.equals(item.getConversationId()))
+                    .sorted((a, b) -> Long.compare(a.getSeq(), b.getSeq()))
+                    .skip(offset)
+                    .limit(limit)
+                    .map(TranscriptServiceTest::toReadView)
+                    .toList();
+        }
+
+        @Override
+        public long countMessagesByConversation(String conversationId) {
+            return state.messages.stream()
+                    .filter(item -> conversationId.equals(item.getConversationId()))
+                    .count();
+        }
+
+        @Override
+        public List<MessageReadView> findAttachments(String conversationId) {
+            return state.messages.stream()
+                    .filter(item -> conversationId.equals(item.getConversationId()))
+                    .filter(item -> "ATTACHMENT".equals(item.getRole()))
+                    .map(TranscriptServiceTest::toReadView)
+                    .toList();
+        }
+    }
+
+    private static MessageReadView toReadView(MessageEntity entity) {
+        return new MessageReadView(
+                entity.getId(),
+                entity.getConversationId(),
+                entity.getSeq(),
+                entity.getRole(),
+                entity.getContent(),
+                entity.getToolCallId(),
+                entity.getCompactionMarker(),
+                entity.getMetadata(),
+                entity.getAttachedPackageId(),
+                entity.getTaskId(),
+                entity.getCreatedAt());
     }
 
     private static final class InMemoryCompactionMapper implements CompactionMapper {

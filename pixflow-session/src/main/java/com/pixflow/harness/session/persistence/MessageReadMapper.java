@@ -57,4 +57,31 @@ public interface MessageReadMapper {
 
     @Select("SELECT COALESCE(MAX(seq), 0) FROM message WHERE conversation_id = #{conversationId} AND compaction_marker IS NULL")
     long maxNormalSeq(@Param("conversationId") String conversationId);
+
+    @Select("""
+            SELECT id, conversation_id AS conversationId, seq, role, content,
+                   tool_call_id AS toolCallId, compaction_marker AS compactionMarker, metadata,
+                   attached_package_id AS attachedPackageId, task_id AS taskId, created_at AS createdAt
+            FROM message
+            WHERE conversation_id = #{conversationId}
+            ORDER BY seq
+            LIMIT #{limit} OFFSET #{offset}
+            """)
+    List<MessageReadView> findMessagesByConversation(
+            @Param("conversationId") String conversationId,
+            @Param("offset") long offset,
+            @Param("limit") long limit);
+
+    @Select("SELECT COUNT(*) FROM message WHERE conversation_id = #{conversationId}")
+    long countMessagesByConversation(@Param("conversationId") String conversationId);
+
+    @Select("""
+            SELECT id, conversation_id AS conversationId, seq, role, content,
+                   tool_call_id AS toolCallId, compaction_marker AS compactionMarker, metadata,
+                   attached_package_id AS attachedPackageId, task_id AS taskId, created_at AS createdAt
+            FROM message
+            WHERE conversation_id = #{conversationId} AND role = 'ATTACHMENT'
+            ORDER BY seq
+            """)
+    List<MessageReadView> findAttachments(@Param("conversationId") String conversationId);
 }
