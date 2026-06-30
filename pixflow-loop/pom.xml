@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>com.pixflow</groupId>
+        <artifactId>pixflow</artifactId>
+        <version>1.0.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>pixflow-loop</artifactId>
+    <name>PixFlow Loop</name>
+    <description>AgentLoop 执行主循环（think-act-observe 薄编排）</description>
+
+    <dependencies>
+        <!-- harness 基础件 -->
+        <dependency>
+            <groupId>com.pixflow</groupId>
+            <artifactId>pixflow-common</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.pixflow</groupId>
+            <artifactId>pixflow-permission</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.pixflow</groupId>
+            <artifactId>pixflow-hooks</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.pixflow</groupId>
+            <artifactId>pixflow-context</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.pixflow</groupId>
+            <artifactId>pixflow-tools</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.pixflow</groupId>
+            <artifactId>pixflow-eval</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.pixflow</groupId>
+            <artifactId>pixflow-infra-ai</artifactId>
+        </dependency>
+
+        <!-- Spring / 自动装配 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-autoconfigure</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-configuration-processor</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-context</artifactId>
+        </dependency>
+
+        <!-- 可观测 -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-core</artifactId>
+        </dependency>
+
+        <!-- 测试 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.projectreactor</groupId>
+            <artifactId>reactor-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- 边界守护 -->
+        <dependency>
+            <groupId>com.tngtech.archunit</groupId>
+            <artifactId>archunit-junit5</artifactId>
+            <version>1.4.1</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>
