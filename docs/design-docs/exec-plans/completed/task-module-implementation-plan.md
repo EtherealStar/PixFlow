@@ -35,8 +35,6 @@ This ExecPlan is a living document. The sections `Progress`, `Surprises & Discov
 
 ## Progress
 
-<!-- 在执行过程中按时间顺序追加条目，每条带 ISO 时间戳。 -->
-
 - 2026-06-29T23:05:00+08:00：完成 `pixflow-module-task` Maven 模块创建，并接入根 `pom.xml` 与 `pixflow-app/pom.xml`。新增 API、domain、persistence、infra adapter、worker、scheduler、query、download、recovery、stateadapter、auto-configuration 与测试目录。
 - 2026-06-29T23:06:00+08:00：实现 `TaskCommandService` / `TaskQueryService` 对外 API、`TaskId` / command / query / event records，以及 `TaskAssetReader` SPI。最终将 `TaskAssetReader` 放入 `api.port`，供 file/app 侧实现资产读取，task 不直连 `module/file`。
 - 2026-06-29T23:07:00+08:00：实现 `process_task` / `process_result` / `process_result_member` 三张表实体、MyBatis-Plus mapper 与 `V1__create_process_task_tables.sql` 迁移脚本；实现 `CheckpointReadPortImpl` 对接 `pixflow-state`。

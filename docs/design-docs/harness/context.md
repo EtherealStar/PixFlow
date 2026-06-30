@@ -399,13 +399,20 @@ public record ContextSnapshot(
 
 ```java
 public final class ContextEngine {
-    ContextSnapshot buildForModel(RuntimeState state,
-                                  String systemPrompt,
-                                  List<ToolSchemaView> toolSchemas);
+    record BuildResult(ContextSnapshot snapshot, List<TracePruneEntry> pruneEntries) {}
+
+    BuildResult buildForModel(String systemPrompt, List<ToolSchemaView> toolSchemas);
+
+    @Deprecated
+    ContextSnapshot buildForModelLegacy(String systemPrompt, List<ToolSchemaView> toolSchemas);
 }
 ```
 
-流程：`currentMessages()` → `ContextCompactionService.prepare`（cheap pipeline）→ 必要时 `maybeAutoCompact` → 组装 `ContextSnapshot`（注入传入的 systemPrompt/toolSchemas）→ 写入 `CurrentModelContext` → 返回。
+流程：`currentMessages()` → `ContextCompactionService.prepare`（cheap pipeline）→ 必要时 `maybeAutoCompact` → 组装 `ContextSnapshot`（注入传入的 systemPrompt/toolSchemas）→ 写入 `CurrentModelContext` → 同时把本轮 cheap / destructive compaction 裁剪条目装入 `BuildResult.pruneEntries` → 返回。
+
+**接口微调（2026-06-29 / loop plan 落地同步）**：`buildForModel` 由原「返回 `ContextSnapshot`」改为返回 `BuildResult(snapshot, pruneEntries)`，把本轮 cheap pipeline 与 destructive compaction 产生的裁剪日志带出 `ContextEngine` 边界，由 `harness/loop.TraceFanout` 转投 `harness/eval.TurnTrace.recordPrune`（与 `loop.md §八` 末尾的设计建议一致）。`pruneEntries` 在以下触发时填充：`MICRO`（cheap pipeline 命中 `microcompactedTokens > 0` 时由 `usageHints` 推断）、`AUTO`（destructive compaction 命中 `autoCompactThreshold`）、`MANUAL`（未来手工调用）、`REACTIVE`（未来 `reactiveCompact` 走同一入口返回 BuildResult 时填充，本期仍由 `ReactiveCompactionGate` 直接调 `context.reactiveCompact`，不回 BuildResult；如需 trace 可后续把 reactive 的 metadata 也折成 prune 条目）。`ContextSnapshot` 本身保持「模型可见数据」纯粹视图。
+
+旧签名 `buildForModelLegacy` 保留为 deprecated 路径，过渡期 context 内部其他调用点继续走旧路径；后续 Phase 2（context 改写完成后）将彻底删除旧签名。loop 走新入口。
 
 `design.md §5.1` 要求「每轮记录 ContextSnapshot，异常可回溯」：snapshot 是该可回溯记录的载体，由 loop 在调用 LLM 前后落入 trace（trace 写入是 loop 经 eval SPI 的责任，context 不自记）。
 
@@ -452,7 +459,7 @@ public final class CurrentModelContext {
 |---|---|
 | `harness/session` | 实现 `TranscriptPort`，是 `message` 表唯一写者；`append`/`load`/`replaceForCompaction`；落库时经共享 `ToolResultStorage` 外置大结果 |
 | `module/conversation` | 共享 context 消息模型；用户消息经 context→`TranscriptPort` 落库（不直接写 `message` 表）；历史展示走**只读**查询；SSE 流式与附件关联在 conversation，附件以 `ATTACHMENT` 消息进 context |
-| `harness/loop` | 每轮 `buildForModel` 取快照；append 用户/assistant/tool 消息；`CONTEXT_LIMIT` 时触发 `reactiveCompact`；snapshot 落 trace 由 loop 经 eval SPI 负责 |
+| `harness/loop` | 每轮 `buildForModel` 取 `BuildResult(snapshot, pruneEntries)`；append 用户/assistant/tool 消息；`CONTEXT_LIMIT` 时触发 `reactiveCompact`；`pruneEntries` 由 loop 经 `TraceFanout` 转投 `eval.TurnTrace.recordPrune`；snapshot 落 trace 由 loop 经 eval SPI 负责 |
 | `agent` | 实现 `SummarizationPort`（fork 子 Agent 调 LLM 摘要）；组装 systemPrompt 与可见 toolSchemas 传入 `buildForModel` |
 | `infra/ai` | provider adapter 把内部 `TOOL_RESULT`/`ATTACHMENT` 投影为目标 wire format；模型调用超窗抛 `CONTEXT_LIMIT`（`common` 归一化），由 context/loop 消费 |
 | `infra/storage` | 提供共享 `ToolResultStorage`（外置/去重/回读），底层仍用 `ObjectStorage` 与 `StorageKeys.toolResult(id)` |
@@ -515,3 +522,7 @@ pixflow:
 - **会话-节点亲和（sticky session）**：采用每轮 rehydrate，不做节点亲和。
 - **provider 级 context caching**：prompt 复用走 `agent §6.2` 的 section 缓存，不依赖服务商 context caching。
 - **多租户上下文隔离**：`design.md §16` 本期不做多账号。
+
+## Revision Notes
+
+- 2026-06-30 / Codex: 新增 `SessionMemoryPort` SPI（agent 模块 Wave 5 落地）。定义在 `com.pixflow.harness.context.sessionmemory` 包，包含 `SessionMemoryContent`（Markdown 内容 + contentHash）与 `SessionMemoryThreshold`（lastSummarizedSeq + coveredTurnCount + 运行时增量）两个 record。4 方法契约：load / save / computeThreshold / scheduleExtraction。`agent` 模块的 `SessionMemoryService` 实现该 SPI。这是继 `SummarizationPort` 后第 2 个由 agent 实现的 context SPI。

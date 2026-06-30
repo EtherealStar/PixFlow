@@ -108,6 +108,7 @@ graph TD
     context --> loop
     permission --> loop
     eval --> loop
+    ai --> loop
 
     %% ---- module 依赖 ----
     storage --> file
@@ -221,12 +222,12 @@ contracts → permission → tools → loop → agent
 - [x] `module/imagegen`：生图子 Agent（源图+提示词→重绘，HITL 令牌）
 
 ### Wave 4 — 主循环 + 编排模块
-- [ ] `harness/loop`：手写 think-act-observe 主循环、ContextSnapshot 记录、自然结束判定
-- [ ] `module/conversation`：对话与消息、SSE 流式、附件关联
+- [x] `harness/loop`：手写 think-act-observe 主循环、ContextSnapshot 记录、自然结束判定
+- [x] `module/conversation`：对话与消息、SSE 流式、附件关联
 - [x] `module/task`：RabbitMQ 消费、任务内 fan-out [图片×支路/组×支路]、进度计数、WebSocket 推送、断点恢复、失败隔离、下载
 
 ### Wave 5 — Agent 决策层
-- [ ] `agent`：主循环编排、动态 Prompt 组装 + section 缓存、Agent 级动作接线、子 Agent runner、HITL 确认流
+- [ ] `agent`：主循环编排、动态 Prompt 组装 + section 缓存、Agent 级动作接线、子 Agent runner、HITL 确认流。**详细设计见 `docs/design-docs/agent.md`**（Skill 工具化接入 + 渐进披露、Session Memory 累积提取「阈值不入 transcript」、压缩策略三层金字塔 cheap/session_memory/auto_compact、SubagentRunner 三处复用、`SummarizationPort` + `SessionMemoryPort` SPI 实现）。
 
 ### Wave 6 — 离线闭环 + 端到端
 - [ ] `module/rubrics`：图片质量(VLLM)/文案质量(LLM)/决策质量(综合) 评估、评分写回 RAG、预警通知
@@ -262,3 +263,7 @@ common+contracts
 2026-06-29 / Kiro: 修正 `module/vision` 的 DAG 依赖边：移除 `tools --> vision`（vision 不直产工具结果，由 agent 层 SubagentRunner 包装），新增 `storage --> vision`（vision 自己解析图片引用为字节，ai 不碰 MinIO）、`image --> vision`（送 VLLM 前的降采样与格式归一复用 infra/image）、`mq --> vision`（仅富化面：上传期文案抽取作业经 MQ 解耦，file 投递、vision 消费）。同时把 vision 显式拆为阶段 A「分析面」（infra/ai+storage+image+common）与阶段 B「富化作业」（再增 infra/mq），Wave 3 内部分两个里程碑推进。详细设计见 `module/vision.md` §三·一/§三·三/§十七。
 
 2026-06-29 / Codex: 补充 `storage --> session` 依赖边。原因是 session 落 MySQL `message` 表前需要复用 `infra/storage` 抽取出的共享 `ToolResultStorage` 外置大 tool-result，并在 `load` rehydrate 时回读完整结果；`infra/storage` 在 Wave 1，session 在 Wave 3，无环。
+
+2026-06-30 / Codex: 补充 `ai --> loop` 依赖边；标记 Wave 4 主循环 `harness/loop` 任务清单为「落地计划见 `loop-module-implementation-plan.md`」，现已完成落地（`pixflow-loop` 模块新增 + 44 个测试 + ArchUnit 4 条守护 + `BuildResult` 接口微调）。原因是 `ModelRetryRunner` 是 loop 的真正上游（`loop.md` §一原则 2「provider-neutral」约束），`pixflow-infra-ai` 在 Wave 1，loop 在 Wave 4，无环。
+
+2026-06-30 / Codex: 新增 `agent` 模块设计文档 `docs/design-docs/agent.md`，并更新 `docs/design-docs/index.md` 加入 `agent/` 索引。Wave 5 任务清单加详细设计指针。文档确立 agent 为 `harness/loop` 之上的薄装配层；引入 Skill 工具化（`skill__<name>` 命名空间 + 渐进披露 schema→prompt→body）、Session Memory 累积提取（MySQL + Redis 缓存，**阈值不入 transcript**，重入会话时从 `last_summarized_seq` 重算）、压缩策略三层金字塔（cheap pipeline 必跑 / Session Memory 主要压缩 / auto compact 应急备份）、SubagentRunner 单一类三处复用（`agent` 工具 / `SummarizationPort` / `SessionMemoryExtractor`）。同时新增两条 SPI 实现约定：`context.SummarizationPort` 与 `context.SessionMemoryPort` 都在 agent 层实现（倒置接入，Wave 5 唯一新增 SPI 实现点）。

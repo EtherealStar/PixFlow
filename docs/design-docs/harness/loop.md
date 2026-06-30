@@ -83,7 +83,7 @@ loop 是 `design.md §5.1` 明确要求的「**手写的显式循环，不依赖
 
 ## 三、loop / agent 边界（Wave 4 引擎 vs Wave 5 装配）
 
-参考实现里 `core/loop.py`（引擎）与 `QueryEngine.ts`（装配 prompt/工具/模型/processUserInput）是两层。PixFlow 沿用此切法，**loop 是可复用的 provider-neutral 引擎，agent 是业务装配**：
+参考实现里 `core/loop.py`（引擎）与 `QueryEngine.ts`（装配 prompt/工具/模型/processUserInput）是两层。PixFlow 沿用此切法，**loop 是可复用的 provider-neutral 引擎，agent 是业务装配**。`agent` 模块的详细装配契约（Prompt 动态组装、Skill 工具化、Session Memory 累积、Subagent Runner、SPI 实现）见 **`docs/design-docs/agent.md`**；本节只描述 loop 与 agent 的接缝边界。
 
 | 关注点 | 归属 | 说明 |
 |---|---|---|
@@ -394,7 +394,7 @@ PixFlow 的 vision / explore 子 Agent 在 Wave 3 就绪，真正接成 `agent` 
 
 | 对接方 | 契约 |
 |---|---|
-| `agent`（Wave 5） | 驱动 `stream`/`continueStream`；每轮 `buildForModel` 传入组装好的 `systemPrompt` 与可见 `toolSchemas`；实现 `SummarizationPort`（context 用）与子 Agent runner；自动记忆召回在 prompt 组装前完成 |
+| `agent`（Wave 5） | 驱动 `stream`/`continueStream`；每轮 `buildForModel` 传入组装好的 `systemPrompt` 与可见 `toolSchemas`；实现 `SummarizationPort`（context 用，destructive compaction 备份路径）与 `SessionMemoryPort`（主要压缩手段）；实现 `agent` 工具 handler + 子 Agent runner + Plan 模式控制器；自动记忆召回（RRF 融合）/ Session Memory 累积提取 / Skill 工具注册 / Skill 加载的按需披露在 prompt 组装前完成。详细接缝见 `docs/design-docs/agent.md` |
 | `harness/context` | 每迭代 `buildForModel(state, systemPrompt, toolSchemas)` 取快照（cheap pipeline 内含）；`appendUser/appendAssistant/appendToolResults/appendAttachments`（写穿透 session）；`CONTEXT_LIMIT` 触发 `reactiveCompact`；prune 日志经 loop 转投 eval（建议 `buildForModel` 带出裁剪条目，见 [八](#八单轮-think-act-observe-流程)）；`CurrentModelContext` 供 fork 继承 |
 | `harness/tools` | `ToolExecutor.execute(calls, ctx)`；loop 构造 `ToolExecutionContext`（`PermissionContext` + 当前 `TurnTrace` 句柄 + `RuntimeScope`）；loop 不评估权限、不理解工具语义；工具异常已被 tools 归一化为 tool error，loop 照常 append 续轮 |
 | `harness/hooks` | 回合入口派发 `USER_PROMPT_SUBMIT`；每次 assistant 完成派发 `ASSISTANT_MESSAGE_COMPLETED`（触发分析结论记忆异步抽取）；无工具调用自然结束派发 `TURN_STOPPED`；`dispatch` 同步返回，loop 据返回 metadata 决策；hook 执行的 trace 由 loop 经 eval 记录 |
@@ -482,3 +482,5 @@ loop **不自存 trace**，但它是 trace 的**汇聚责任方**：把 context/
 ## Revision Notes
 
 2026-06-29 / Kiro: 新建 `harness/loop` 设计文档。确立 loop 为 provider-neutral 薄编排引擎：手写 think-act-observe 主循环、阻塞 + `AgentEventSink`（SSE 流式接出）、续轮只看 tool_calls、**去掉 maxTurns（无迭代上限，唯一正常终止是无工具调用自然结束）**、错误恢复分层（限流/网络退避在 `infra/ai`、`CONTEXT_LIMIT` 反应式压缩与输出截断 escalate/recovery 在 loop、其余上抛）、子 Agent fork 经 `continueStream` 入口（runner 装配留 Wave 5 agent 层）、trace 责任上移由 loop 转投 eval。明确 loop/agent 边界（prompt 组装/可见工具集/SummarizationPort/子 Agent runner 归 agent 层）。本文提出两项接口建议：① `module-dependency-dag-plan.md` 补 `ai --> loop` 依赖边；② `harness/context` 的 `buildForModel` 带出本轮 prune 裁剪条目供 loop 转投 eval。
+
+2026-06-30 / Codex: 新增 `docs/design-docs/agent.md`（Wave 5 Agent 决策层设计），更新 §三、§十三交叉引用指向 agent.md。明确 `SummarizationPort` 与 `SessionMemoryPort` 两个 SPI 都在 agent 层实现；压缩策略主次关系为 Session Memory 主要压缩、auto compact 应急备份；Session Memory 阈值**不入 transcript**，重入会话时从 `last_summarized_seq` 重算增量。

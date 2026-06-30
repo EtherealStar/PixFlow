@@ -54,23 +54,31 @@
 
 ## Surprises & Discoveries
 
-（实施期发现后回填此区）
+- `VisionRequest` 继续沿用 `infra.ai.chat.ChatMessage` 作为兼容输入契约，没有为 vision 重新定义一套消息模型；这与当前 `infra-ai` 公共契约保持一致，也避免了重复封装。
+- `asset_copy(package_id, sku_id)` 需要唯一约束才能让富化侧 gap-fill / upsert 保持幂等，已在 `pixflow-module-file` 的 schema 中补上。
+- 阶段 B 目前只做到骨架与默认装配边界，Testcontainers 的 MinIO + RabbitMQ + MySQL 集成测试仍未补齐。
 
 ## Decision Log
 
-（实施期回填决策与理由）
+- 阶段 A 与阶段 B 继续拆分推进，先把分析面交付给上层调用，再把富化作业作为独立里程碑收口。
+- vision 模块保留对 `infra.ai.chat.ChatMessage` 的兼容，而不是重写消息类型，理由是当前 `infra-ai` 已有稳定公共契约，vision 只需要在其上做能力封装。
+- 富化作业的幂等写入依赖 `asset_copy(package_id, sku_id)` 唯一约束，这比在消费侧做临时去重更稳。
+- 阶段 B 骨架与阶段 A 装配隔离，避免 stage A 的 sentinel 测试被 MyBatis / MQ 依赖拖入。
 
 ## Outcomes & Retrospective
 
-（每完成一个里程碑或整份计划后回填此区）
+- `pixflow-module-vision` 已落地并完成模块级测试，阶段 A 的分析能力可独立使用。
+- `pixflow-app` 已完成编译级装配验证，说明 vision 的基础 bean 接入不会破坏应用构建。
+- 阶段 B 已完成骨架与配置收口，但还缺少真实基础设施的端到端验证，因此计划后半段仍保留 Testcontainers 里程碑。
+- 后续工作重点是补齐富化集成测试，再做 `pixflow-app` 级别全量回归。
 
 ## Context and Orientation
 
 ### 当前状态
 
-`docs/design-docs/module/vision.md` 已完成生产级细化设计。本轮（2026-06-29）经 4 项设计决策扩写——① 阶段 A「分析面优先」与阶段 B「富化作业独立」拆为两个里程碑（避免富化集成测试拖累阶段 A 的 CI 反馈节奏），② 图片预处理走 `infra/image.ImagePipeline` 仅允许 `ResizeOp` + `ConvertFormatOp` 两个本地像素操作，③ `VisionErrorCode` 4 条入 common 启动期聚合目录并守 `VISION_*` 全局命名空间唯一，④ ArchUnit 14+ 条硬守护覆盖 import 边界与模型/供应商字面量。所有扩写均已写回 `vision.md §三·一 / §三·二 / §三·三 / §十七` 与 `module-dependency-dag-plan.md` 的 DAG 边、Wave 3 任务清单、Revision Notes。
+`docs/design-docs/module/vision.md` 已完成生产级细化设计，并与当前实现状态对齐。本轮（2026-06-29）经 4 项设计决策扩写——① 阶段 A「分析面优先」与阶段 B「富化作业独立」拆为两个里程碑，② 图片预处理走 `infra/image.ImagePipeline` 仅允许 `ResizeOp` + `ConvertFormatOp` 两个本地像素操作，③ `VisionErrorCode` 4 条入 common 启动期聚合目录并守 `VISION_*` 全局命名空间唯一，④ ArchUnit 14+ 条硬守护覆盖 import 边界与模型/供应商字面量。当前实现已覆盖阶段 A 全部内容，阶段 B 保持骨架实现，Testcontainers 集成验证仍待补齐。所有扩写均已写回 `vision.md §三·一 / §三·二 / §三·三 / §十七` 与 `module-dependency-dag-plan.md` 的 DAG 边、Wave 3 任务清单、Revision Notes。
 
-仓库根目录 `pom.xml` 已有 `pixflow-common`、`pixflow-infra-ai`、`pixflow-infra-storage`、`pixflow-infra-image`、`pixflow-infra-mq`、`pixflow-module-file`、`pixflow-module-commerce` 等依赖可被 `pixflow-module-vision` 引用。`pixflow-module-imagegen` 已先实现并完成 5 个里程碑（82 个单测全绿），本计划在 imagegen 的「SPI 倒置 / Canonical Form / Sentinel 装配边界 / 错误码并入 common / ArchUnit 边界守护」三套约定上保持同构。`pixflow-module-dag` 也已实现完成。`harness/tools` 已实现 ToolRegistry 倒置接缝，Wave 5 的 `agent(type=vision)` 接线在阶段 A 上线后即可对接。
+`pixflow-module-vision` 已落地并完成模块级测试；`mvn -pl pixflow-module-vision -am test` 已通过，`mvn -pl pixflow-app -am compile` 也已通过。阶段 A 的分析能力、错误码、装配与 ArchUnit 守护都已就位，阶段 B 仅保留富化消费骨架和配置，尚未做 MinIO + RabbitMQ + MySQL 的全链路集成验证。
 
 ### 关键术语
 

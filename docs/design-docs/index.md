@@ -13,6 +13,7 @@ This directory contains the production-grade design documents for PixFlow. Use t
 - `infra/`: Infrastructure-layer module designs. This folder is for technical adapters and platform capabilities such as AI access, cache, image processing, MQ, permission infrastructure, object storage, third-party clients, and vector storage.
 - `harness/`: Cross-cutting runtime service designs. This folder is for Agent runtime support concerns such as context management, lifecycle hooks, tool execution boundaries, session/state/evaluation support, and other horizontal runtime mechanisms.
 - `module/`: Business module designs. This folder is for domain-facing PixFlow capabilities such as memory, file handling, commerce data, DAG execution, task orchestration, conversation, vision, image generation, and rubrics.
+- `agent/`: Agent decision-layer assembly design (the `agent/` Maven module per `design.md §12`). Covers dynamic prompt assembly with section cache, skill mechanism, automatic memory recall (RRF), session memory accumulation, subagent runner, and the `SummarizationPort` / `SessionMemoryPort` SPI implementations. See `agent.md`.
 - `exec-plans/`: Current execution plans. Files directly under this folder describe active or pending implementation plans and should be read before starting development work.
 - `exec-plans/completed/`: Completed execution plans. These documents are historical records and implementation references; they are not the active plan unless an active plan explicitly points to them.
 
