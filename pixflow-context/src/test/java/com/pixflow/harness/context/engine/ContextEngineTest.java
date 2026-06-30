@@ -29,7 +29,7 @@ class ContextEngineTest {
         CurrentModelContext holder = new CurrentModelContext();
         ContextEngine engine = new ContextEngine(store, compactionService, holder);
 
-        ContextSnapshot snapshot = engine.buildForModel("system", List.of(new ToolSchemaView("tool", "desc", Map.of())));
+        ContextSnapshot snapshot = engine.buildForModelLegacy("system", List.of(new ToolSchemaView("tool", "desc", Map.of())));
 
         assertThat(snapshot.systemPrompt()).isEqualTo("system");
         assertThat(holder.snapshot()).contains(snapshot);

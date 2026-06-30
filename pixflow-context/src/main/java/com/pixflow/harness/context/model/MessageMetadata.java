@@ -15,6 +15,10 @@ public record MessageMetadata(Map<String, Object> values) {
     public static final String COMPACT_BOUNDARY = "isCompactBoundary";
     public static final String COMPACT_SUMMARY = "isCompactSummary";
     public static final String COMPACT_TRIGGER = "compactTrigger";
+    public static final String ATTACHMENT_TYPE = "attachmentType";
+    public static final String ATTACHMENT_REF = "attachmentRef";
+    public static final String ATTACHED_PACKAGE_ID = "attachedPackageId";
+    public static final String ATTACHMENT_ID = "attachmentId";
 
     public MessageMetadata {
         values = immutableCopy(values);
