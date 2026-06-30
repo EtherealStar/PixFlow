@@ -26,7 +26,9 @@ import com.pixflow.module.file.naming.SkuExtractor;
 import com.pixflow.module.file.pkg.AssetPackageMapper;
 import com.pixflow.module.file.pkg.AssetPackageService;
 import com.pixflow.module.file.pkg.DefaultPackageReferenceChecker;
+import com.pixflow.module.file.pkg.DefaultPackageReferenceResolver;
 import com.pixflow.module.file.pkg.PackageReferenceChecker;
+import com.pixflow.module.file.pkg.PackageReferenceResolver;
 import java.time.Clock;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.amqp.rabbit.listener.MessageListenerContainer;
@@ -90,6 +92,15 @@ public class FileAutoConfiguration {
     @ConditionalOnMissingBean
     public PackageReferenceChecker packageReferenceChecker() {
         return new DefaultPackageReferenceChecker();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnBean({AssetPackageService.class, AssetImageMapper.class})
+    public PackageReferenceResolver packageReferenceResolver(
+            AssetPackageService packageService,
+            AssetImageMapper imageMapper) {
+        return new DefaultPackageReferenceResolver(packageService, imageMapper);
     }
 
     @Bean
