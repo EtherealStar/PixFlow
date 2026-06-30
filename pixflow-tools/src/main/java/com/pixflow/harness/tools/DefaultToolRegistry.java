@@ -72,4 +72,23 @@ public class DefaultToolRegistry implements ToolRegistry {
                 .map(descriptor -> descriptor.name() + ": " + descriptor.prompt())
                 .toList();
     }
+
+    @Override
+    public synchronized void registerDynamic(ToolDescriptor descriptor) {
+        Objects.requireNonNull(descriptor, "descriptor");
+        if (!TOOL_NAME.matcher(descriptor.name()).matches()) {
+            throw new IllegalArgumentException("工具名必须是 snake_case: " + descriptor.name());
+        }
+        if (!descriptor.inputSchema().isEmpty() && !"object".equals(descriptor.inputSchema().get("type"))) {
+            throw new IllegalArgumentException("工具输入 schema 必须是 object: " + descriptor.name());
+        }
+        if (descriptors.putIfAbsent(descriptor.name(), descriptor) != null) {
+            throw new IllegalStateException("重复的动态工具名: " + descriptor.name());
+        }
+    }
+
+    @Override
+    public synchronized void unregisterDynamic(String name) {
+        descriptors.remove(name);
+    }
 }
