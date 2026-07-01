@@ -1,0 +1,84 @@
+spring:
+  datasource:
+    url: jdbc:mysql://localhost:3306/pixflow?useUnicode=true&characterEncoding=utf8&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
+    username: pixflow
+    password: pixflow
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  rabbitmq:
+    host: localhost
+    port: 5672
+    username: guest
+    password: guest
+
+pixflow:
+  cache:
+    address: redis://localhost:6379
+    env-prefix: dev
+  storage:
+    endpoint: http://localhost:9000
+    access-key: minioadmin
+    secret-key: minioadmin
+    auto-create-bucket: true
+  vector:
+    host: localhost
+    port: 6334
+  mq:
+    publish-confirm-timeout: 5s
+    prefetch: 1
+    consumer-concurrency: 4
+  ai:
+    default-provider: dashscope
+    dashscope:
+      api-key: ${DASHSCOPE_API_KEY:}
+      base-url: ${DASHSCOPE_BASE_URL:https://dashscope.aliyuncs.com}
+    roles:
+      primary-chat:
+        provider: dashscope
+        model: deepseek-ai/DeepSeek-V4-Pro
+        capability: CHAT
+        temperature: 0.3
+        max-tokens: 4096
+      vision:
+        provider: dashscope
+        model: Qwen/Qwen3-VL-32B-Instruct
+        capability: VISION
+      imagegen:
+        provider: dashscope
+        model: Kwai-Kolors/Kolors
+        capability: IMAGEGEN
+      embedding:
+        provider: dashscope
+        model: Qwen/Qwen3-Embedding-8B
+        capability: EMBEDDING
+      rerank:
+        provider: dashscope
+        model: Qwen/Qwen3-Reranker-8B
+        capability: RERANK
+  thirdparty:
+    bg-removal:
+      default-provider: removebg
+    providers:
+      removebg:
+        type: removebg
+        enabled: true
+        endpoint: ${REMOVEBG_ENDPOINT:https://api.remove.bg/v1.0/removebg}
+        auth:
+          type: api-key
+          properties:
+            header: X-Api-Key
+            value: ${REMOVEBG_API_KEY:}
+      aliyun-market:
+        type: aliyun-market-bgrem
+        enabled: true
+        endpoint: ${ALIYUN_BGREM_ENDPOINT:https://bgrem.market.alicloudapi.com}
+        auth:
+          type: header
+          properties:
+            header: Authorization
+            value: APPCODE ${ALIYUN_BGREM_APPCODE:}
+        model-type: ${ALIYUN_BGREM_MODEL_TYPE:general}
+        polling:
+          submit-path: /api/v1/bg-remove/submit
+          status-path: /api/v1/bg-remove/query
+          timeout: 30s
+          interval: 1s

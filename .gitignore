@@ -27,6 +27,9 @@ target/
 .idea/
 .vscode/
 .postman/
+.env
+.env.*
+!.env.example
 
 # 依赖
 **/node_modules/
