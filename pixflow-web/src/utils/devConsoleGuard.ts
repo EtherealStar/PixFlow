@@ -1,0 +1,1 @@
+export { installDevConsoleGuard, redactToken } from './error'

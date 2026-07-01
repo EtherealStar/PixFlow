@@ -1,0 +1,36 @@
+{
+  "name": "pixflow-web",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "PixFlow Vue 3 前端",
+  "main": "index.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "packageManager": "pnpm@10.15.0",
+  "dependencies": {
+    "@stomp/stompjs": "^7.3.0",
+    "element-plus": "^2.14.2",
+    "pinia": "^2.3.1",
+    "vue": "^3.5.39",
+    "vue-router": "^4.6.4",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^26.0.1",
+    "@vitejs/plugin-vue": "^6.0.7",
+    "@vitest/coverage-v8": "^2.1.9",
+    "happy-dom": "^20.10.6",
+    "typescript": "^5.9.3",
+    "vite": "^5.4.21",
+    "vitest": "^2.1.9"
+  }
+}

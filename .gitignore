@@ -27,3 +27,23 @@ target/
 .idea/
 .vscode/
 .postman/
+
+# 依赖
+**/node_modules/
+
+# 构建产物
+**/dist/
+**/build/
+**/.output/
+
+# 包管理器缓存/日志
+**/.npm/
+**/npm-debug.log*
+**/yarn-error.log*
+**/pnpm-debug.log*
+
+# 前端框架常见缓存目录
+**/.vite/
+**/.turbo/
+**/.next/
+**/.nuxt/
