@@ -50,3 +50,4 @@ target/
 **/.turbo/
 **/.next/
 **/.nuxt/
+target/

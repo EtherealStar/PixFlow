@@ -1,8 +1,8 @@
 # module/task —— 任务调度与异步执行外壳（Wave 4 主循环 + 编排模块）
 
 > 本文是 PixFlow 完整重写阶段 `module/task` 模块的设计文档，对应 `design.md` 第九章「DAG 确定性执行引擎」（§9.2 异步任务分发、§9.3 并发保障、§9.4 断点恢复与失败隔离、§9.5 分组聚合）、第十三章数据模型、第十四章异步执行时序，以及 `module-dependency-dag-plan.md` 的 **Wave 4 主循环 + 编排模块**。
-> 范围：消费 RabbitMQ 任务消息、按 `[图片×支路]/[组×支路]`（确定性路径）与 `[1 源图→1 重绘]`（生成式路径）两种单元粒度 fan-out、`process_task` / `process_result` 落库、Redis 进度/取消/锁协调、下载分发、两条产图路径的共用执行壳、断点恢复扫描。
-> 配套阅读：`module/dag.md`（dag 是无状态确定性单元执行器、被 task 逐单元调用）、`module/imagegen.md`（生图执行器 SPI、被 task 同款外壳消费）、`harness/state.md`（运行态读模型聚合、恢复协调权威、双源对账）、`infra/mq.md`（RabbitMQ 封装、DLQ/重试）、`infra/cache.md`（Redisson 锁/信号量/进度计数）、`infra/storage.md`（MinIO 桶与路径约定）、`base/contracts.md`（确认令牌形状）、`harness/hooks.md`（TaskCreated/TaskCompleted 事件订阅方）。本文不涉及 MVP 既有实现，从生产级需求重新推导。
+> 范围：消费 RocketMQ 任务消息、按 `[图片×支路]/[组×支路]`（确定性路径）与 `[1 源图→1 重绘]`（生成式路径）两种单元粒度 fan-out、`process_task` / `process_result` 落库、Redis 进度/取消/锁协调、下载分发、两条产图路径的共用执行壳、断点恢复扫描。
+> 配套阅读：`module/dag.md`（dag 是无状态确定性单元执行器、被 task 逐单元调用）、`module/imagegen.md`（生图执行器 SPI、被 task 同款外壳消费）、`harness/state.md`（运行态读模型聚合、恢复协调权威、双源对账）、`infra/mq.md`（RocketMQ 封装、topic/tag/consumer group、DLQ/重试）、`infra/cache.md`（Redisson 锁/信号量/进度计数）、`infra/storage.md`（MinIO 桶与路径约定）、`base/contracts.md`（确认令牌形状）、`harness/hooks.md`（TaskCreated/TaskCompleted 事件订阅方）。本文不涉及 MVP 既有实现，从生产级需求重新推导。
 
 ---
 
@@ -119,7 +119,7 @@ module/task/
 │   ├── cancel/
 │   │   └── CancellationService.java     # 取消标志设置 + 单元间检查
 │   ├── worker/
-│   │   ├── TaskWorker.java              # 入口：@RabbitListener 消费
+│   │   ├── TaskWorker.java              # 入口：RocketMQ consumer 接管
 │   │   ├── WorkerRouter.java            # 按 task_type 路由
 │   │   ├── ProcessWorker.java           # 调 dag.UnitExecutor
 │   │   ├── ImageGenWorker.java          # 调 imagegen.ImageGenExecutor
@@ -153,7 +153,7 @@ module/task/
 │   ├── mq/
 │   │   ├── TaskMessage.java             # 中立 record（taskType/taskId/...）
 │   │   ├── TaskMessagePublisher.java
-│   │   └── TaskMessageListener.java     # @RabbitListener
+│   │   └── TaskMessageConsumer.java     # ManagedMessageContainer / ConsumerBinding
 │   ├── cache/
 │   │   ├── TaskCacheKeys.java           # key 命名空间集中
 │   │   ├── TaskProgressCounter.java     # AtomicLong incr / get
@@ -170,7 +170,7 @@ module/task/
 依赖方向：
 
 ```
-module/task ──► infra/mq        （任务消息 publish/consume、DLQ 监听、重试模板）
+module/task ──► infra/mq        （任务消息 publish/consume、ConsumerBinding、DLQ/重试策略）
 module/task ──► infra/cache     （Redisson 锁/进度/信号量/取消/idempotency/heartbeat）
 module/task ──► infra/storage   （结果落 MinIO、presigned URL 生成）
 module/task ──► module/dag      （BranchExpander.expand / UnitExecutor.execute / ImageDescriptor / CopyContext）
@@ -302,7 +302,7 @@ public class WorkerRouter {
 }
 ```
 
-`ProcessWorker` 与 `ImageGenWorker` 都实现相同的 `TaskWorker` 接口（`handle(TaskMessage)`），由 `WorkerRouter` 在 `@RabbitListener` 入口处路由。
+`ProcessWorker` 与 `ImageGenWorker` 都实现相同的 `TaskWorker` 接口（`handle(TaskMessage)`），由 `WorkerRouter` 在 RocketMQ consumer 接管入口处路由。
 
 ### 6.2 ProcessWorker（确定性路径）
 
@@ -439,7 +439,7 @@ public record WorkUnitPayload(
 ```
 PENDING(0)    → QUEUED(1)            # createAndEnqueue 入队成功
 PENDING(0)    → FAILED(4)            # 入队失败（如 MQ 不可用）
-QUEUED(1)     → RUNNING(2)           # worker 拉起（@RabbitListener 入口）
+QUEUED(1)     → RUNNING(2)           # worker 拉起（RocketMQ consumer 入口）
 RUNNING(2)    → COMPLETED(3)         # 全部完成，至少一条成功
 RUNNING(2)    → FAILED(4)            # 全部失败
 RUNNING(2)    → CANCELLED(5)         # 用户取消
@@ -643,7 +643,7 @@ public void recover() {
 ### 12.2 取消标志的读侧
 
 - task worker 在以下边界检查 `cancel:task:{id}`：
-  1. `@RabbitListener` 入口（拉起任务时）
+  1. RocketMQ consumer 入口（拉起任务时）
   2. 每个工作单元提交到线程池前
   3. 每个工作单元结束后、下一个开始前
   4. `awaitAll(units)` 之后做终态判定时
@@ -705,15 +705,15 @@ public void recover() {
 | Redis 进度 incr 失败 | `DEPENDENCY/SKIP` | 跳过（不影响结果落库），指标告警 |
 | Redis 取消标志读取失败 | `DEPENDENCY/SKIP` | 跳过（视为未取消，继续执行；下次边界再查） |
 | MinIO 写失败（dag 单元执行器已归一化） | `STORAGE/RETRY` | 透传，由 `FailureIsolator` 标 FAILED |
-| MQ 消费失败 | `DEPENDENCY/RETRY` | Resilience4j 重试，3 次后入 DLQ（`infra/mq` 的 DLQ 监听器） |
-| MQ DLQ 消息 | —— | DLQ 监听器落 `task.last_error` + 状态机迁移 `RUNNING → FAILED` + publish TaskCompletedEvent（带 `lastError`） |
+| MQ 消费失败 | `DEPENDENCY/RETRY` | infra/mq 进程内重试 + RocketMQ broker 重投或显式延迟重投，耗尽后入 DLQ |
+| MQ DLQ 消息 | —— | DLQ 处理器落 `task.last_error` + 状态机迁移 `RUNNING → FAILED` + publish TaskCompletedEvent（带 `lastError`） |
 
 ### 14.3 降级原则
 
 - **进度推送失败** → 不影响主流程，仅指标告警。
 - **取消标志读取失败** → 视为未取消（最坏情况是用户取消按钮失效，但不会让任务错乱）。
 - **process_result 写失败** → 单元标 FAILED + 重试，**绝不**让"结果正确但落库失败"的单元被错误地标 SUCCESS。
-- **DLQ 消息处理失败** → 入二级 DLQ + 告警（不无限重试）。
+- **DLQ 消息处理失败** → 记录脱敏告警与失败指标，不无限重试。
 
 ---
 
@@ -815,7 +815,7 @@ task 模块通过 Micrometer 暴露指标，**不依赖 `harness/eval`**（honor
 | `module/dag` | 调 `BranchExpander.expand(ValidatedDag, List<ImageDescriptor>)`；调 `UnitExecutor.execute(ExecutableBranch, UnitInput)`；据 `UnitOutcome` 写 `process_result`/`process_result_member`；喂 `ImageDescriptor`/`CopyContext` 中立输入 |
 | `module/imagegen`（Wave 4 落地） | 调 `ImageGenExecutor.redraw(GenerativeUnitSpec)`；据 `GeneratedArtifact` 写 `process_result` |
 | `harness/state` | 调 `CheckpointReadPort`（由 task 实现，state 调用）→ `Set<UnitKey>` 可跳过集合；调 `CancellationReader.throwIfCancelled(taskId)` 在单元边界 |
-| `infra/mq` | 任务消息 publish/consume；DLQ 监听器调用 `task` 的 `markFailedByDlq(taskId, errorMsg)` |
+| `infra/mq` | 任务消息 publish/consume；`TaskMessageDestination` 声明 `pixflow-task` topic、`TASK_EXECUTE` tag 与 `pixflow-task-worker` consumer group；DLQ 处理器调用 `task` 的 `markFailedByDlq(taskId, errorMsg)` |
 | `infra/cache` | Redisson 锁/进度/取消/信号量/心跳/idempotency；键命名空间由 task 决定（`TaskCacheKeys`），value 序列化由 cache 抽象负责 |
 | `infra/storage` | 调 `ObjectStorage.put(StorageKeys.results/results-gen, bytes)` 写结果；调 `presignedGetUrl` 拼下载 URL；调 `getStream` 拉源图字节（task 不直拉，由 dag/imagegen 拉） |
 | `common` | 抛 `PixFlowException(TaskErrorCode)`；进度/错误文案经 `Sanitizer`；`TaskErrorCode` 并入 `common` 启动期聚合测试 |
@@ -878,7 +878,7 @@ static final ArchRule task_api_internal_isolation = classes()
 
 ### 18.5 端到端
 
-- 与 dag / imagegen / state / mq / cache / storage 联合跑全链路（Testcontainers 拉起 MySQL/Redis/MinIO/RabbitMQ）：
+- 与 dag / imagegen / state / mq / cache / storage 联合跑全链路（Testcontainers 拉起 MySQL/Redis/MinIO/RocketMQ）：
   - 真实 DAG 端到端：上传素材包 → Agent 提案 → 用户确认 → task 执行 → 终态 → 通知 → 下载
   - 真实生图端到端：同上传素材包 → Agent 提案 → 用户确认 → task 执行 → 终态 → 下载
   - 故障注入：MQ DLQ、worker 崩溃、MinIO 暂时不可用、Redis 不可用 → 行为符合设计预期
@@ -897,7 +897,7 @@ static final ArchRule task_api_internal_isolation = classes()
 6. **新增 `imagegen → task` 依赖边**（`module-dependency-dag-plan.md`）：Wave 4 落地时由 task 引入，与 `dag → task` 边对称（dag.md / imagegen.md 已登记）。
 7. **task 与 dag/imagegen 的「执行引擎」边界**（`design.md §9/§12`、`dag.md §二`、`imagegen.md §二`）：本模块钉死——dag 与 imagegen 是被 task 调用的**无状态确定性/能力单元**；task 是**有状态异步外壳**。失败隔离分两半——单元内归一化在 dag/imagegen（返回 FAILED outcome），批次内继续在 task（落 `process_result.status=FAILED` + 兄弟单元继续）。
 8. **WebSocket 归属**（`design.md §5.4`）：task **不直连** WebSocket / STOMP / SSE；进度推送由 `harness/state.ProgressEventPublisher` 负责，task 只发 `ProgressEvent`（domain event）到 publisher。这细化 design.md §4 「WebSocket 推送」的归属（应改为 state 模块）。
-9. **DLQ 语义**（`design.md §9.2`）：业务错误（dag 校验失败）不入 DLQ；系统错误（worker 抛 NPE / DB 挂）入 DLQ → 监听器落 `last_error` + 状态机迁移 RUNNING → FAILED；第三方错误（抠图/生图 5xx）→ 走支路级 Resilience4j 重试 + FailureIsolator，不入 DLQ。
+9. **DLQ 语义**（`design.md §9.2`）：业务错误（dag 校验失败）不入 DLQ；系统错误（worker 抛 NPE / DB 挂）入 RocketMQ consumer group DLQ → DLQ 处理器落 `last_error` + 状态机迁移 RUNNING → FAILED；第三方错误（抠图/生图 5xx）→ 走支路级 Resilience4j 重试 + FailureIsolator，不入 DLQ。
 10. **`process_task.dag_json` 字段含义**（`design.md §13.1`）：明确该字段存**已校验的不可变 DAG 快照**（确定性路径）或**生图提案规范化载荷**（生成式路径）；恢复时不需回查 dag/imagegen 模块。task 自包含、避免循环依赖。
 11. **生成式路径 task 模块边界**（`imagegen.md §八`）：task 模块包办两条产图路径的异步执行壳，imagegen 只暴露 `ImageGenExecutor` SPI；由 `WorkerRouter` 按 `task_type` 路由到 `ProcessWorker` / `ImageGenWorker`。该边界在 `module-dependency-dag-plan.md` 已有（task 模块本就设计为承接两条路径），本文落实实现细节。
 12. **可观测性 14 类指标**（与 dag 的 11 类、imagegen 的 6 类在 shape 上互补）：按 `create/worker/heartbeat/recovery/cancel/terminal/progress/download/lock/state.transition` 10 组维度组织；不依赖 `harness/eval`；不带业务字段；细分到 `TaskErrorCode` 的 label。
@@ -909,7 +909,7 @@ static final ArchRule task_api_internal_isolation = classes()
 ## 二十、暂不考虑
 
 - **节点级断点续传**：恢复以支路/单元为幂等单元整体重算（design.md §9.4），不做节点级续传。
-- **任务优先级调度**：`process_task.priority` 字段已建但本期不实现优先级队列（RabbitMQ 不直接支持，需额外实现 priority queue）；生产可调线程池并发上限达到类似效果。
+- **任务优先级调度**：`process_task.priority` 字段已建但本期不实现优先级队列；生产可调线程池并发上限达到类似效果。
 - **下载细粒度鉴权**：本期按 taskId 即可下载（前端已在会话内鉴权）；多租户隔离留待权限层细化。
 - **任务级工作流编排**（DAG 任务的子任务 / 任务依赖）：本期每个 task 独立执行，无 task 间依赖；如需"批量完成后触发下游任务"留待后续工作流模块。
 - **任务级重试上限**：`attempt_count` 字段已建但本期不实现自动重试（DLQ 是 task 级失败出口，单元级重试在 dag/imagegen 的 Resilience4j 内）。
@@ -921,3 +921,5 @@ static final ArchRule task_api_internal_isolation = classes()
 ## Revision Notes
 
 2026-06-29 / Kiro: 新增 `module/task` 设计文档。确立核心边界「task 是 dag/imagegen 的异步外壳」——dag 是无状态确定性单元执行器、imagegen 是无状态单图重绘能力模块、task 是有状态并发编排外壳。确定 12 项对既有设计的细化（§十九），核心包括：① 状态机 7 态 + 5 态扩展；② `process_task` / `process_result` 增量 13 个生产级字段；③ Redis 键补强 3 类；④ 两条产图路径共用同一执行壳（`WorkerRouter` + `ProcessWorker` + `ImageGenWorker`）；⑤ 失败隔离分两半（单元内归一化在 dag/imagegen，批次内继续在 task）；⑥ 取消是协作式协议、绝不打断运行中单元；⑦ WebSocket 归属改为 `harness/state`，task 只发 domain event；⑧ 恢复粒度 = task 级 + 单元级，单元级幂等靠 `UnitKey` + `process_result` 唯一索引；⑨ task 模块包办两条产图路径的异步执行壳，imagegen 不自建异步；⑩ 14 类 Micrometer 指标按 10 组维度组织，不依赖 `harness/eval`。向 `design.md §5.4/§9.2/§9.4/§12/§13.1/§13.3`、`module-dependency-dag-plan.md`、`dag.md §二`、`imagegen.md §二` 提出连带修订建议。
+
+2026-07-02 / Codex: 同步 `infra/mq.md` 的 RocketMQ 目标设计，将任务消息消费从 RabbitMQ / `@RabbitListener` 口径改为 RocketMQ consumer / `ConsumerBinding` / `ManagedMessageContainer` 口径；`TaskMessageDestination` 声明 `pixflow-task` topic、`TASK_EXECUTE` tag 与 `pixflow-task-worker` consumer group。业务语义保持不变：消费成功只代表接管成功，长任务可靠性仍由 MySQL 状态机、Redisson 锁、`process_result` checkpoint 与恢复扫描兜底。

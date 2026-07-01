@@ -2,7 +2,9 @@
 
 This ExecPlan is a living document. The sections `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
-本计划遵循仓库根目录的 `PLANS.md`、`AGENTS.md`、`docs/design-docs/index.md`、`docs/design-docs/web.md`（设计权威，与本计划同步重整）、`docs/design-docs/api.md`（API 契约权威）、`docs/design-docs/design.md`（总架构）。后续任何执行者修改本计划时，必须保持它自包含、可验证、可恢复，并在文末记录修改原因。
+本计划遵循仓库根目录的 `PLANS.md`、`AGENTS.md`、`docs/design-docs/index.md`、`docs/design-docs/web.md`（设计权威，与本计划同步重整；**视觉与布局、组件库选型以本文为准**）、`docs/design-docs/api.md`（API 契约权威）、`docs/design-docs/design.md`（总架构）。后续任何执行者修改本计划时，必须保持它自包含、可验证、可恢复，并在文末记录修改原因。
+
+> **2026-07-01 注脚**：本文 M0~M8 阶段基于旧 web.md（Element Plus 视觉栈）实现完成；2026-07-01 重整 web.md 后，技术栈改为 Tailwind + radix-vue + 自绘视觉层 + SVG 图标 + 浅色主题，新增的视觉重构里程碑（M9~M14）尚未启动，原 M1~M8 的 Element Plus 引用作为过渡期的"已实现事实"保留，待视觉重构阶段替换。
 
 执行完成后，`pixflow-web` 在 `pnpm dev` 下可正常加载聊天 / 任务 / 素材包三大主流程；`pnpm vitest run` 单测全绿；分片上传 1GB 压缩包断点续传不重传已上传分片；SSE 断流、WS 重连、5xx/429 自动退避均按设计文档行为收敛。
 
@@ -228,6 +230,24 @@ This ExecPlan is a living document. The sections `Progress`, `Surprises & Discov
   Date/Author: 2026-07-01 / Codex
 - Decision: **`confirmationToken` 脱敏层 = dev 模式 console wrapper**。V1 无 Sentry，主要是开发期自我约束。`vite.config.ts` 配 `define: { __DEV__: JSON.stringify(mode !== 'production') }`，main.ts 装 `console.log` wrapper（dev 模式剥掉含 `confirmationToken` 字段的对象）。
   Rationale: 业务层封装代价低于全局 wrapper，但全局 wrapper 是 V1 最小代价可验证方案。
+  Date/Author: 2026-07-01 / Codex
+- Decision: **视觉技术栈：弃 Element Plus，改用 Tailwind + radix-vue + 自绘视觉层**。`tailwind.config.ts` `darkMode: false`；颜色全部走语义 token（`bg-bg-page` / `text-fg-primary` 等），禁止直接命中调色板。浅色主题，不实现深色。
+  Rationale: Element Plus 视觉偏管理后台不易做出"留白 + 柔和 + 大圆角"现代感；radix-vue 提供无障碍 + 行为，Tailwind 接管视觉自由度。详细落地见 `web.md` §三 / §五 / §七 / §二十三。
+  Date/Author: 2026-07-01 / Codex
+- Decision: **图标：禁止 emoji，统一自绘 SVG**。`src/components/icons/*` 自绘 lucide 风格 24×24 stroke=1.75（IconPackage / IconImage / IconFolder / IconChat / IconUpload / IconCheck / IconX / ...）；emoji 字符（含 emoji 字体）禁止进入产品界面（技术文档例外）。
+  Rationale: emoji 字体在不同浏览器 / 操作系统下渲染不一致，与浅色主题不协调；SVG 图标视觉一致、tree-shake 友好。
+  Date/Author: 2026-07-01 / Codex
+- Decision: **布局：左默认展开 / 右默认收起**。`AppShell` 三栏：LeftPanel 280px 默认展开 + 可钉住 + 可折叠为 8px 把手；RightPanel 默认收起为右侧 8px 把手 + 3 枚徽章（进行中 / 已完成 / 失败），新任务产生自动展开 6 秒后收回，可钉住。
+  Rationale: 参考图风格以"首屏空旷"为视觉核心；右栏默认收起可让中央对话流不受任务卡片干扰，需要时再呼出。
+  Date/Author: 2026-07-01 / Codex
+- Decision: **路由：保留 vue-router 多页**。`/`、`/chat/:cid`、`/files`、`/tasks/:tid` 独立路由，URL 可深链，刷新能恢复视图。
+  Rationale: 浏览器刷新能恢复视图是 V1 可用性基线；与 `api.md` 的资源 URL 自然对齐；单用户单机也保留路由是低成本高收益的工程选择。
+  Date/Author: 2026-07-01 / Codex
+- Decision: **鉴权：接入 `pixflow-infra-auth` 轻量 JWT**（单账号/单用户）。httpOnly cookie 优先，`localStorage.pixflow.auth.token` 降级；`api/client.ts` 注入 `Authorization` 头；vue-router `beforeEach` 路由守卫；未登录触发 `LoginDialogContent` 场景：首页上传 / Composer 发送 / 左栏点击节点。
+  Rationale: 后端 `infra/auth.md` 已就位轻量 JWT，前端只需包装；右侧栏未登录态不显示徽章推送避免匿名访问伪状态。
+  Date/Author: 2026-07-01 / Codex
+- Decision: **`docs/design-docs/refact-web.md` 并入 `web.md` 并删除**。refact-web.md 原本是"前端重构设计"草案，技术栈与 web.md 冲突；2026-07-01 重整 web.md 后，其内容并入 §五~§十三 + §二十，原文件删除。
+  Rationale: 单一权威文档（Single Source of Truth），避免双文档同步成本。
   Date/Author: 2026-07-01 / Codex
 
 ## Outcomes & Retrospective

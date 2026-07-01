@@ -42,7 +42,7 @@ graph TD
     %% ===== infra 基础设施 =====
     storage[infra/storage MinIO]
     cache[infra/cache Redis/Redisson]
-    mq[infra/mq RabbitMQ]
+    mq[infra/mq RocketMQ]
     vector[infra/vector Qdrant]
     ai[infra/ai Spring AI]
     image[infra/image 编解码+像素执行器]
@@ -136,6 +136,8 @@ graph TD
     eval --> rubrics
     ai --> rubrics
     memory --> rubrics
+    hooks --> rubrics
+    storage --> rubrics
 
     %% ---- agent 依赖 ----
     loop --> agent
@@ -199,7 +201,7 @@ contracts → permission → tools → loop → agent
 - [x] `permission`：权限评估引擎（deny-first）、确认令牌签发与校验、超阈值二次确认规则
 - [x] `infra/storage`：MinIO 抽象（原图/结果/生图/大 tool-result 外置）、桶与路径约定
 - [x] `infra/cache`：Redis/Redisson 封装（分布式锁/看门狗、进度计数、信号量、断点缓存键、确认令牌 Redis 实现）
-- [x] `infra/mq`：RabbitMQ 封装（任务队列、DLQ、重试、prefetch）
+- [x] `infra/mq`：RocketMQ 封装（topic/tag/consumer group、DLQ、重试、可靠投递）
 - [x] `infra/vector`：Qdrant 封装（collection `analysis_insight`、读写检索）
 - [x] `infra/ai`：Spring AI + Alibaba 封装（文本/多模态 Qwen-VL/生图 通义万相/嵌入）
 - [x] `infra/image`：TwelveMonkeys + Thumbnailator + scrimage(WebP)；像素工具执行器骨架
@@ -224,15 +226,15 @@ contracts → permission → tools → loop → agent
 ### Wave 4 — 主循环 + 编排模块
 - [x] `harness/loop`：手写 think-act-observe 主循环、ContextSnapshot 记录、自然结束判定
 - [x] `module/conversation`：对话与消息、SSE 流式、附件关联
-- [x] `module/task`：RabbitMQ 消费、任务内 fan-out [图片×支路/组×支路]、进度计数、WebSocket 推送、断点恢复、失败隔离、下载
+- [x] `module/task`：RocketMQ 消费、任务内 fan-out [图片×支路/组×支路]、进度计数、WebSocket 推送、断点恢复、失败隔离、下载
 
 ### Wave 5 — Agent 决策层
-- [ ] `agent`：主循环编排、动态 Prompt 组装 + section 缓存、Agent 级动作接线、子 Agent runner、HITL 确认流。**详细设计见 `docs/design-docs/agent.md`**（Skill 工具化接入 + 渐进披露、Session Memory 累积提取「阈值不入 transcript」、压缩策略三层金字塔 cheap/session_memory/auto_compact、SubagentRunner 三处复用、`SummarizationPort` + `SessionMemoryPort` SPI 实现）。
+- [x] `agent`：主循环编排、动态 Prompt 组装 + section 缓存、Agent 级动作接线、子 Agent runner、HITL 确认流。**详细设计见 `docs/design-docs/agent.md`**（Skill 工具化接入 + 渐进披露、Session Memory 累积提取「阈值不入 transcript」、压缩策略三层金字塔 cheap/session_memory/auto_compact、SubagentRunner 三处复用、`SummarizationPort` + `SessionMemoryPort` SPI 实现）。
 
 ### Wave 6 — 离线闭环 + 端到端
-- [ ] `module/rubrics`：图片质量(VLLM)/文案质量(LLM)/决策质量(综合) 评估、评分写回 RAG、预警通知
-- [ ] 前端：Vue 3 对话/文件/结果/评分展示，SSE + WebSocket 接入
-- [ ] 集成：Docker Compose 拉起 MySQL/Redis/RabbitMQ/Qdrant/MinIO，端到端联调
+- [ ] `module/rubrics`：图片质量(VLLM)/文案质量(LLM)/决策质量(LLM+规则) 离线评估。**核心方法论**——LLM judge 做二元 PASS/FAIL 判定 + 置信档位 + 理由，所有连续分数（维度/域/总分）由程序按权重聚合；规则验证器覆盖确定性维度（分辨率/格式/文件大小/α 通道残留/底色）。**详细设计见 `module/rubrics.md`**（单机定位、本地 YAML 模板与版本管理、`RuleVerifier` SPI、基线回归、三层评分写回 rubrics_score→sku_history→analysis_insight 异步抽取、可追溯 EvidenceRef）。
+- [x] 前端：Vue 3 对话/文件/结果/评分展示，SSE + WebSocket 接入
+- [x] 集成：Docker Compose 拉起 MySQL/Redis/RocketMQ/Qdrant/MinIO，端到端联调
 
 ---
 
@@ -267,3 +269,7 @@ common+contracts
 2026-06-30 / Codex: 补充 `ai --> loop` 依赖边；标记 Wave 4 主循环 `harness/loop` 任务清单为「落地计划见 `loop-module-implementation-plan.md`」，现已完成落地（`pixflow-loop` 模块新增 + 44 个测试 + ArchUnit 4 条守护 + `BuildResult` 接口微调）。原因是 `ModelRetryRunner` 是 loop 的真正上游（`loop.md` §一原则 2「provider-neutral」约束），`pixflow-infra-ai` 在 Wave 1，loop 在 Wave 4，无环。
 
 2026-06-30 / Codex: 新增 `agent` 模块设计文档 `docs/design-docs/agent.md`，并更新 `docs/design-docs/index.md` 加入 `agent/` 索引。Wave 5 任务清单加详细设计指针。文档确立 agent 为 `harness/loop` 之上的薄装配层；引入 Skill 工具化（`skill__<name>` 命名空间 + 渐进披露 schema→prompt→body）、Session Memory 累积提取（MySQL + Redis 缓存，**阈值不入 transcript**，重入会话时从 `last_summarized_seq` 重算）、压缩策略三层金字塔（cheap pipeline 必跑 / Session Memory 主要压缩 / auto compact 应急备份）、SubagentRunner 单一类三处复用（`agent` 工具 / `SummarizationPort` / `SessionMemoryExtractor`）。同时新增两条 SPI 实现约定：`context.SummarizationPort` 与 `context.SessionMemoryPort` 都在 agent 层实现（倒置接入，Wave 5 唯一新增 SPI 实现点）。
+
+2026-07-01 / Kiro: 新增 `module/rubrics` 设计文档 `docs/design-docs/module/rubrics.md`；Wave 6 任务清单加详细设计指针。文档确立 rubrics 为「**LLM judge 二元判定（PASS/FAIL + 置信档位） + 程序按权重聚合连续分数**」的离线评估模块，**LLM 不直接输出 0~100 数值**；覆盖本地 YAML 模板与版本管理、`RuleVerifier` SPI（确定性维度毫秒级判定）、决策质量 6 维精细化拆解、基线对比与回归检测（无灰度/无 A/B）、三层评分写回（rubrics_score → sku_history → analysis_insight 异步抽取）、可追溯 EvidenceRef 链。同时补充 `hooks --> rubrics`（订阅 TaskCompleted 事件）与 `storage --> rubrics`（读待评图）两条 Wave 6 依赖边，`hooks` 在 Wave 2、`storage` 在 Wave 1，rubrics 在 Wave 6，无环。
+
+2026-07-02 / Codex: 同步 `infra/mq.md` 的 RocketMQ 目标设计，将依赖图与 Wave 任务清单中的 `infra/mq` 描述从 RabbitMQ 改为 RocketMQ。依赖边不变：`infra/mq` 仍是 Wave 1 基础设施，向上支撑 file/vision/task 的异步作业；变化只在 broker 语义，从 exchange/queue/prefetch 转为 topic/tag/consumer group/可靠投递。

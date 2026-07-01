@@ -34,7 +34,7 @@
 模块专属设计原则：
 
 1. **入口侧聚焦**。file 只负责「素材进系统」：上传、解压、绑定、文案解析。结果图与评分的展示是**出口侧**，依赖 `task`/`rubrics`（Wave 4/6）写入的表，本期不在 file 实现（见 [§二](#二职责边界入口侧-vs-出口侧)）。
-2. **重活异步、入口轻**。HTTP 上传请求只做「流式落 zip + 建包记录 + 发解压消息」，秒级返回 `packageId`；耗时的解压 / N 次 MinIO 上传 / 批量入库交 RabbitMQ 作业异步处理（见 [§五](#五上传与解压管线mq-驱动)）。
+2. **重活异步、入口轻**。HTTP 上传请求只做「流式落 zip + 建包记录 + 发解压消息」，秒级返回 `packageId`；耗时的解压 / N 次 MinIO 上传 / 批量入库交 RocketMQ 作业异步处理（见 [§五](#五上传与解压管线mq-驱动)）。
 3. **解压作业幂等可重投**。一个包 = 一条消息，`process-then-ack` + `(package_id, original_path)` 唯一约束让崩溃后的 MQ 重投天然续跑，**不需要自建恢复扫描与分布式锁**（见 [§十](#十恢复幂等与失败隔离)）。
 4. **只准入、不解码**。file 对图片做轻量准入（扩展名白名单 + magic bytes 嗅探 + 大小限制），**不调 ImageIO 解码**——真正的解码 / 像素校验留给处理期的 `infra/image` + `module/dag`，保持 file 不依赖 `infra/image`。
 5. **分组由文件名编号决定**。SKU / 分组 / 视图全部从文件名编号解析，不做视觉识别（对齐 `design.md §9.5`）。
@@ -71,7 +71,7 @@ module/file/
 │   ├── AssetPackage.java             # 实体
 │   └── AssetPackageMapper.java       # MyBatis-Plus
 ├── ingest/
-│   ├── ExtractionTopology.java       # 用 QueueTopologyBuilder 声明 pixflow.file 队列组
+│   ├── ExtractionDestination.java    # 声明 pixflow-file topic / PACKAGE_EXTRACT tag / consumer group
 │   ├── ExtractionPublisher.java      # 上传后发解压消息（MessagePublisher 封装）
 │   ├── ExtractionConsumer.java       # process-then-ack 消费：跑完整包解压才 ack
 │   ├── ExtractionErrorHandler.java   # 实现 infra/mq 的 ConsumerErrorHandler（重试/DLQ 判定）
@@ -105,7 +105,7 @@ module/file/
 
 ```
 module/file ──► infra/storage   （StorageKeys + ObjectStorage 流式读写、级联删除）
-module/file ──► infra/mq        （QueueTopology 声明、MessagePublisher、ConsumerErrorHandler）
+module/file ──► infra/mq        （MessageDestination/ConsumerBinding 声明、MessagePublisher、ConsumerErrorHandler）
 module/file ──► common          （ErrorNormalizer / Sanitizer / ProgressNotifier SPI / ApiResponse）
 module/file ──► MySQL / MyBatis-Plus + POI + commons-csv
 ```
@@ -156,7 +156,7 @@ module/file ──► MySQL / MyBatis-Plus + POI + commons-csv
 
 ## 五、上传与解压管线（MQ 驱动）
 
-分两阶段：**同步上传（请求内）** 与 **异步解压（MQ 作业）**。决策依据见与设计讨论一致的结论——解压是 I/O 密集长耗时作业，MQ 提供跨节点削峰、背压、durable 恢复与毒包 DLQ，且 `infra/mq.md §二` 明确预留「批量导入」复用。
+分两阶段：**同步上传（请求内）** 与 **异步解压（MQ 作业）**。决策依据见与设计讨论一致的结论——解压是 I/O 密集长耗时作业，MQ 提供跨节点削峰、背压、可靠投递与毒包 DLQ，且 `infra/mq.md §二` 明确预留「批量导入」复用。
 
 ### 5.1 同步上传（HTTP 请求内）
 
@@ -200,7 +200,7 @@ ExtractionConsumer.onMessage(ExtractionMessage{packageId})   // 未 ack
 
 - **为何取回临时文件而非纯流式**：读 **zip 中央目录**可一次性拿到 entry 总数与各 entry 声明大小——既给出准确的进度分母（`image_count`），又能在解压前做**声明大小级别的 bomb 预检**（更安全）。临时文件大小受上传上限约束、用完即删。这细化了 `storage.md`「不落盘」原则——其本意是「不把整个对象缓冲进堆」，而非禁止受限临时工作文件（见 [§十五](#十五对-designmd-的细化)）。跨节点消费本就要求 worker 从 MinIO 取回 zip，临时文件是其自然落点。
 - **包内并发**：基于临时文件的随机访问可对多个 entry 并发上传 MinIO，但必须是有界并发而非无限 fan-out。`consumer-concurrency` 控制同时解压的包数，默认 1～2；`intra-package-parallelism` 控制单包内 entry 准入/上传/入库并发，默认 4。中央目录预扫保持单线程；入库阶段按批次提交，并通过 `(package_id, original_path)` 唯一约束消化重投重复。这个默认值偏保守，目的是保护 MinIO、MySQL 与 zip 随机读取吞吐，避免一个大包抢占整机资源。
-- **consumer_timeout**：process-then-ack 下整包解压须在 RabbitMQ `consumer_timeout`（默认 30min）内 ack；为 `pixflow.file.q` 单独调大该超时或约束单包规模（本期数据集规模足够），作为部署配置记录。
+- **消费超时**：process-then-ack 下整包解压须控制在 RocketMQ consumer 的消费超时 / 不可见窗口内；为 `pixflow-file` + `PACKAGE_EXTRACT` 单独配置 `consume-timeout`，或约束单包规模（本期数据集规模足够），作为部署配置记录。
 
 ---
 
@@ -276,7 +276,7 @@ public interface ProgressNotifier {
 
 ### 10.1 崩溃恢复 = MQ 重投 + 幂等续跑
 
-- **解压崩溃**：`process-then-ack` 下消息未 ack，worker 崩溃后 RabbitMQ 自动重投到另一 worker。**无需 `@Scheduled` 恢复扫描、无需分布式锁**——一个包=一条消息、`prefetch` 低、同一包同一时刻只被一个消费者处理。
+- **解压崩溃**：`process-then-ack` 下消息未确认成功，worker 崩溃后 RocketMQ 按 consumer group 重投到可用 worker。**无需 `@Scheduled` 解压恢复扫描、无需分布式锁**——一个包=一条消息、同一 consumer group 内同一消息同一时刻只被一个消费者处理。
 - **幂等续跑**：重投后 `asset_image` 的 `(package_id, original_path)` 唯一约束让已入库的图被跳过（`INSERT IGNORE` / `ON DUPLICATE KEY`），已上传 MinIO 的对象按同 key 覆盖（幂等）。`extracted_count` 重算时按 `asset_image` 实际行数校准，避免重复计数。
 - **投递缺口**：仅「DB 已建 `UPLOADED` 但消息没进 broker」这一缝由 `PublishGapRescan`（`@Scheduled` 扫超龄 `UPLOADED`）补发，对齐 `infra/mq.md §5.2`。
 
@@ -284,7 +284,7 @@ public interface ProgressNotifier {
 
 - **逐图失败隔离**：单张图准入失败 / MinIO 上传失败 / 解析异常 → 写入 `asset_ingest_error`，并汇总进 `error_summary`，**不中断整包**，其余图继续。失败明细的 `stage` 建议取 `ZIP_SCAN`、`IMAGE_ADMISSION`、`STORAGE_UPLOAD`、`NAMING_PARSE`、`COPYDOC_PARSE` 等稳定枚举值，便于包详情页筛选与测试断言。
 - **终态判定**：至少一张成功 → `READY`（无失败）或 `PARTIAL`（有失败，`error_summary` 记跳过数与原因）；无任何有效图或 zip 不可解 → `FAILED`。
-- **毒包**：反复让解析器失败的损坏 zip，经 `ExtractionErrorHandler` 判 `DeadLetter` 进 `pixflow.file.dlq`，DLQ 深度告警人工介入（`infra/mq.md §十`），不无限重投。
+- **毒包**：反复让解析器失败的损坏 zip，经 `ExtractionErrorHandler` 判 `DeadLetter` 进 `pixflow-file` 对应 consumer group 的 DLQ，DLQ 深度告警人工介入（`infra/mq.md §十`），不无限重投。
 
 ### 10.3 素材包删除语义
 
@@ -335,10 +335,12 @@ pixflow:
       max-zip-size: 2GiB              # 单 zip 上限（亦配 Spring multipart）
       max-doc-size: 50MiB
     extract:
+      topic: pixflow-file
+      tag: PACKAGE_EXTRACT
+      consumer-group: pixflow-file-extractor
       consumer-concurrency: 2         # 同时解压的包数（process-then-ack，少量即可）
-      prefetch: 1                     # 公平分发，避免单 worker 囤积
       intra-package-parallelism: 4    # 单包内并发上传 entry 的线程数
-      consumer-timeout: 30m           # pixflow.file.q 的 ack 超时（部署侧同步 RabbitMQ）
+      consume-timeout: 30m            # PACKAGE_EXTRACT 的消费超时（部署侧同步 RocketMQ）
       temp-dir: ${java.io.tmpdir}/pixflow-extract
     zip:
       max-entries: 50000              # entry 数上限
@@ -360,7 +362,7 @@ pixflow:
       stale-after: 30s
 ```
 
-- 队列 / 交换机 / 路由键名由 `ExtractionTopology` 用 `QueueTopologyBuilder("pixflow.file")` 声明，不在配置硬编码业务队列名（`infra/mq.md §四/§十`）。
+- Topic / Tag / Consumer Group 由 `ExtractionDestination` 声明，配置仅用于覆盖默认命名，不在代码里散落 MQ 目的地字符串（`infra/mq.md §四/§十`）。
 - `max-zip-size` 需与 Spring `spring.servlet.multipart.max-*` 对齐。
 
 ---
@@ -370,7 +372,7 @@ pixflow:
 | 模块 | 契约 |
 |---|---|
 | `infra/storage` | 用 `StorageKeys.package*` 写 zip/原图/文档；解压期 `getStream` 取回 zip、`put` 流式上传图；仅在素材包未被引用且执行物理删除时用 `deleteByPrefix(PACKAGES, "{packageId}/")` |
-| `infra/mq` | `ExtractionTopology` 声明 `pixflow.file` 队列组；`ExtractionPublisher` 经 `MessagePublisher` 发布并据 `PublishResult` 补偿；`ExtractionConsumer` process-then-ack；`ExtractionErrorHandler` 实现 `ConsumerErrorHandler` |
+| `infra/mq` | `ExtractionDestination` 声明 `pixflow-file` topic、`PACKAGE_EXTRACT` tag 与 `pixflow-file-extractor` consumer group；`ExtractionPublisher` 经 `MessagePublisher` 发布并据 `PublishResult` 补偿；`ExtractionConsumer` process-then-ack；`ExtractionErrorHandler` 实现 `ConsumerErrorHandler` |
 | `common` | 错误归一化 / `Sanitizer` / `ApiResponse`；实现侧消费 `ProgressNotifier` SPI（接口在 common，STOMP 实现在 app 级） |
 | `module/dag` | 读 `asset_image` 的 `sku_id`/`group_key`/`view_id` 做 `BranchExpander` 分组展开与 `compose_group` 成员归组 |
 | `module/conversation` | `message.attached_package_id` 关联素材包；只读查询包详情；后续为 `PackageReferenceChecker` 提供引用检查，防止已被对话引用的包被物理删除 |
@@ -390,7 +392,7 @@ pixflow:
 - **`ZipExtractor` 安全单测**：slip（`../`、绝对路径、盘符）拦截；bomb（超大小/比率/entry 数）中止；中央目录预扫得到正确总数。
 - **`AssetIngestError` 明细测试**：逐图跳过、命名解析失败、文档行缺 `sku_id` 时写入稳定 `stage/code/message`；`error_summary` 只保留脱敏摘要且不超过 1000 字。
 - **删除语义测试**：未引用包物理删除会清理 DB 与 MinIO 前缀；模拟已引用包时只写 `deleted_at`，列表默认不可见，按 ID 查询仍可用于历史回放。
-- **解压管线集成测试（Testcontainers：MinIO + RabbitMQ）**：上传→发消息→消费→流式上传→批量入库→终态全链路；`READY`/`PARTIAL`/`FAILED` 三态。
+- **解压管线集成测试（Testcontainers：MinIO + RocketMQ）**：上传→发消息→消费→流式上传→批量入库→终态全链路；`READY`/`PARTIAL`/`FAILED` 三态。
 - **幂等/重投测试**：消费中途模拟崩溃 → 重投后跳过已入库图、`extracted_count` 不重复计、最终一致。
 - **`ConsumerErrorHandler` 测试**：MinIO 抖动→`Retry`；损坏 zip→`DeadLetter`；逐图 SKIP 不影响整包 ack 为 `PARTIAL`。
 - **投递缺口测试**：`publish` 返回 `failed` 时包留 `UPLOADED`，`PublishGapRescan` 补发。
@@ -405,7 +407,7 @@ pixflow:
 本模块对 `design.md` 及相邻设计文档做如下**细化（非冲突）**，需同步记录：
 
 1. **`asset_package` 主键、状态枚举、进度列与软删除列**：`design.md §13.1` 的 `id` 在 file 模块落为 `BIGINT`，与现有 `StorageKeys.package*(long packageId)` 契约一致；`status` 落为 `PackageStatus{UPLOADED/EXTRACTING/READY/PARTIAL/FAILED}`，新增 `extracted_count`、`error_summary`、`deleted_at`，支撑进度推送、失败隔离与被引用后的软删除。
-2. **解压异步化走 RabbitMQ**：新增依赖边 `mq → file`（mq 在 Wave 1、file 在 Wave 2，无环），复用 `infra/mq.md §二` 预留的「批量导入」场景；file 自声明 `pixflow.file` 队列组。
+2. **解压异步化走 RocketMQ**：新增依赖边 `mq → file`（mq 在 Wave 1、file 在 Wave 2，无环），复用 `infra/mq.md §二` 预留的「批量导入」场景；file 自声明 `pixflow-file` topic / `PACKAGE_EXTRACT` tag / consumer group。
 3. **解压用 process-then-ack（区别于 task 的 ack-then-process）**：解压是天然幂等的整包工作单元，恢复靠 MQ 原生重投 + `(package_id, original_path)` 幂等续跑，**不引入 `@Scheduled` 解压恢复扫描与分布式锁**；仅保留覆盖「投递缺口」的 `UPLOADED` 重扫（对齐 `mq.md §5.2`）。
 4. **跨切 `ProgressNotifier` SPI + WebSocket 传输上移到 app 级共享**：把 WS 推送从 task/conversation **专属**细化为 **app 级共享传输 + `common.ProgressNotifier` 解耦**，使 Wave 2 的 file 可复用同一 WS 通道而不反向依赖 Wave 4 模块。`common.md` 已新增 `ProgressNotifier` SPI（同 `ErrorRecorder` 模式），`state.md` 已把「推送在 task/conversation」细化为「推送传输 app 级共享、各模块经 `ProgressNotifier` 发布，state 仍只供数据源」。
 5. **`asset_image` 唯一约束 + `asset_ingest_error` 失败明细**：`(package_id, original_path)` 唯一，保证重投/重跑幂等；新增 `asset_ingest_error` 存逐图/文档解析失败明细，`error_summary` 只保留脱敏摘要。
@@ -431,3 +433,5 @@ pixflow:
 2026-06-28 / Codex: 根据实现前决策讨论，固化 file 模块的生产级落地口径：`asset_package.id` 统一为 `BIGINT` 以匹配 `StorageKeys.package*(long)`；删除采用软删优先、物理删除受限；新增 `asset_ingest_error` 保存逐图/文档解析失败明细；包内并发采用 `consumer-concurrency` 与 `intra-package-parallelism` 两级有界并发且默认保守；`ProgressNotifier` 作为 common SPI，app 级实现 WebSocket/STOMP 传输，state 只提供数据源不持连接。
 
 2026-06-29 / Codex: 同步 `harness/tools.md` 的新工具口径，将 agent 侧旧 `query_commerce_data` 依赖表述改为 `search` / `read`。
+
+2026-07-02 / Codex: 同步 `infra/mq.md` 的 RocketMQ 目标设计，将解压异步作业从 RabbitMQ 队列组改为 RocketMQ `pixflow-file` topic、`PACKAGE_EXTRACT` tag 与 `pixflow-file-extractor` consumer group；移除 prefetch / consumer_timeout 等 RabbitMQ 专属表述，保留 process-then-ack、幂等重投、投递缺口扫描与毒包 DLQ 的业务语义。
