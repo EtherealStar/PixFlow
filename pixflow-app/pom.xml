@@ -38,6 +38,10 @@
         </dependency>
         <dependency>
             <groupId>com.pixflow</groupId>
+            <artifactId>pixflow-infra-auth</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.pixflow</groupId>
             <artifactId>pixflow-infra-mq</artifactId>
         </dependency>
         <dependency>
@@ -91,6 +95,10 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.mysql</groupId>
+            <artifactId>mysql-connector-j</artifactId>
         </dependency>
     </dependencies>
 

@@ -37,6 +37,7 @@
         <module>pixflow-module-task</module>
         <module>pixflow-infra-storage</module>
         <module>pixflow-infra-cache</module>
+        <module>pixflow-infra-auth</module>
         <module>pixflow-infra-mq</module>
         <module>pixflow-infra-vector</module>
         <module>pixflow-infra-ai</module>
@@ -170,6 +171,11 @@
             <dependency>
                 <groupId>com.pixflow</groupId>
                 <artifactId>pixflow-infra-cache</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.pixflow</groupId>
+                <artifactId>pixflow-infra-auth</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
