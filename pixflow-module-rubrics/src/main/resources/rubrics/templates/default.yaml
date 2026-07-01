@@ -1,0 +1,93 @@
+id: default
+version: "1.0"
+name: Default PixFlow Rubric
+domains:
+  - key: IMAGE_QUALITY
+    name: Image Quality
+    weight: 0.6
+    dimensions:
+      - key: resolution_compliance
+        name: Resolution Compliance
+        weight: 0.25
+        verifier:
+          type: RULE
+          ruleClass: com.pixflow.module.rubrics.rule.ResolutionRuleVerifier
+          params:
+            minWidth: 800
+            minHeight: 800
+      - key: format_compliance
+        name: Format Compliance
+        weight: 0.15
+        verifier:
+          type: RULE
+          ruleClass: com.pixflow.module.rubrics.rule.FormatRuleVerifier
+          params:
+            allowed: [JPEG, PNG, WEBP]
+      - key: bg_cleanliness
+        name: Background Cleanliness
+        weight: 0.35
+        verifier:
+          type: LLM
+          prompt: "Judge whether the product image has a clean ecommerce-ready background. Return only PASS/FAIL confidence rationale evidence."
+      - key: product_visibility
+        name: Product Visibility
+        weight: 0.25
+        verifier:
+          type: LLM
+          prompt: "Judge whether the product is clearly visible and not cropped. Return only PASS/FAIL confidence rationale evidence."
+  - key: COPY_QUALITY
+    name: Copy Quality
+    weight: 0.1
+    dimensions:
+      - key: copy_fluency
+        name: Copy Fluency
+        weight: 0.6
+        verifier:
+          type: LLM
+          prompt: "Judge whether generated copy is fluent and useful for ecommerce operations."
+      - key: copy_specificity
+        name: Copy Specificity
+        weight: 0.4
+        verifier:
+          type: LLM
+          prompt: "Judge whether generated copy references concrete product attributes instead of generic filler."
+  - key: DECISION_QUALITY
+    name: Decision Quality
+    weight: 0.3
+    dimensions:
+      - key: proposal_data_backed
+        name: Proposal Data Backed
+        weight: 0.2
+        verifier:
+          type: LLM
+          prompt: "Judge whether the agent proposal is backed by relevant input data or trace evidence."
+      - key: hitl_smoothness
+        name: HITL Smoothness
+        weight: 0.15
+        verifier:
+          type: RULE
+          ruleClass: com.pixflow.module.rubrics.rule.HitlSmoothnessRuleVerifier
+      - key: coverage_completeness
+        name: Coverage Completeness
+        weight: 0.2
+        verifier:
+          type: RULE
+          ruleClass: com.pixflow.module.rubrics.rule.CoverageCompletenessRuleVerifier
+      - key: param_validity
+        name: Parameter Validity
+        weight: 0.15
+        verifier:
+          type: RULE
+          ruleClass: com.pixflow.module.rubrics.rule.ParamValidityRuleVerifier
+      - key: memory_utilization
+        name: Memory Utilization
+        weight: 0.15
+        verifier:
+          type: LLM
+          prompt: "Judge whether recalled memory was relevant and used in the final task decision."
+      - key: consistency
+        name: Historical Consistency
+        weight: 0.15
+        verifier:
+          type: LLM
+          prompt: "Judge whether task decisions are consistent with similar historical SKU processing."

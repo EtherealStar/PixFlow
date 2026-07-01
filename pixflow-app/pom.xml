@@ -82,6 +82,10 @@
         </dependency>
         <dependency>
             <groupId>com.pixflow</groupId>
+            <artifactId>pixflow-module-rubrics</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.pixflow</groupId>
             <artifactId>pixflow-conversation</artifactId>
         </dependency>
         <dependency>

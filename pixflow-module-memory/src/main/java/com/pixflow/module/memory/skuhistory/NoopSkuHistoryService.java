@@ -8,4 +8,9 @@ public class NoopSkuHistoryService implements SkuHistoryService {
     public List<MemoryItem> recallBySkuIds(List<String> skuIds, int maxItemsPerSku) {
         return List.of();
     }
+
+    @Override
+    public void appendRubricsScore(SkuHistoryRubricsScoreCommand command) {
+        // Noop implementation keeps rubrics feedback optional when memory persistence is unavailable.
+    }
 }

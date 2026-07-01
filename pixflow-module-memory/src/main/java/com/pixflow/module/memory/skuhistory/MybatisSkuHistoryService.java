@@ -3,6 +3,7 @@ package com.pixflow.module.memory.skuhistory;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.pixflow.module.memory.recall.MemoryItem;
 import com.pixflow.module.memory.recall.MemoryType;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -43,6 +44,19 @@ public class MybatisSkuHistoryService implements SkuHistoryService {
                 .toList();
     }
 
+    @Override
+    public void appendRubricsScore(SkuHistoryRubricsScoreCommand command) {
+        Objects.requireNonNull(command, "command");
+        SkuHistory history = new SkuHistory();
+        history.setSkuId(command.skuId());
+        history.setTaskId(command.taskId());
+        history.setParamsJson(command.paramsJson());
+        history.setRubricsScore(command.rubricsScore());
+        history.setMetricsAfter(renderEvidence(command.evidence()));
+        history.setCreatedAt(Instant.now());
+        mapper.insert(history);
+    }
+
     private static String render(SkuHistory history) {
         return "SKU " + history.getSkuId() + " 历史处理 task=" + valueOrEmpty(history.getTaskId())
                 + " params=" + valueOrEmpty(history.getParamsJson());
@@ -57,5 +71,12 @@ public class MybatisSkuHistoryService implements SkuHistoryService {
 
     private static String valueOrEmpty(String value) {
         return value == null ? "" : value;
+    }
+
+    private static String renderEvidence(Map<String, Object> evidence) {
+        if (evidence == null || evidence.isEmpty()) {
+            return "{}";
+        }
+        return evidence.toString();
     }
 }

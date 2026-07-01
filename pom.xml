@@ -35,6 +35,7 @@
         <module>pixflow-module-vision</module>
         <module>pixflow-module-imagegen</module>
         <module>pixflow-module-task</module>
+        <module>pixflow-module-rubrics</module>
         <module>pixflow-infra-storage</module>
         <module>pixflow-infra-cache</module>
         <module>pixflow-infra-auth</module>
@@ -161,6 +162,11 @@
             <dependency>
                 <groupId>com.pixflow</groupId>
                 <artifactId>pixflow-module-task</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.pixflow</groupId>
+                <artifactId>pixflow-module-rubrics</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
