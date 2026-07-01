@@ -38,7 +38,8 @@ public record ThirdPartyProperties(BgRemoval bgRemoval, Map<String, Provider> pr
             Response response,
             Polling polling,
             Limits limits,
-            ResilienceOverride resilienceOverride) {
+            ResilienceOverride resilienceOverride,
+            String modelType) {
         public Provider {
             auth = auth == null ? new Auth("none", Map.of()) : auth;
             request = request == null ? new Request("multipart-bytes", null, null, null, null, null) : request;

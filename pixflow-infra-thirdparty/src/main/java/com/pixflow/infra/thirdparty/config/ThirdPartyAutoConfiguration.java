@@ -7,6 +7,7 @@ import com.pixflow.infra.cache.semaphore.DistributedSemaphore;
 import com.pixflow.infra.thirdparty.bgremoval.BackgroundRemovalClient;
 import com.pixflow.infra.thirdparty.bgremoval.RoutingBackgroundRemovalClient;
 import com.pixflow.infra.thirdparty.bgremoval.provider.BackgroundRemovalProvider;
+import com.pixflow.infra.thirdparty.bgremoval.provider.aliyunmarket.AliyunMarketBackgroundRemovalProvider;
 import com.pixflow.infra.thirdparty.bgremoval.provider.async.AsyncPollingBackgroundRemovalProvider;
 import com.pixflow.infra.thirdparty.bgremoval.provider.configurable.ConfigurableHttpBackgroundRemovalProvider;
 import com.pixflow.infra.thirdparty.bgremoval.provider.removebg.RemoveBgBackgroundRemovalProvider;
@@ -116,6 +117,8 @@ public class ThirdPartyAutoConfiguration {
             String type = provider.type() == null ? "" : provider.type().trim().toLowerCase();
             if ("removebg".equals(type)) {
                 providers.add(new RemoveBgBackgroundRemovalProvider(providerId, provider, callTemplate, httpInvoker, authStrategy, errorMapper, metrics));
+            } else if ("aliyun-market-bgrem".equals(type) || "aliyun-market".equals(type)) {
+                providers.add(new AliyunMarketBackgroundRemovalProvider(providerId, provider, callTemplate, httpInvoker, authStrategy, errorMapper, metrics, objectMapper));
             } else if ("configurable-http".equals(type)) {
                 providers.add(new ConfigurableHttpBackgroundRemovalProvider(providerId, provider, callTemplate, httpInvoker, authStrategy, errorMapper, metrics, objectMapper));
             } else if ("async".equals(type) || "async-polling".equals(type)) {

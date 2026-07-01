@@ -9,6 +9,7 @@ import com.pixflow.infra.cache.key.CacheKey;
 import com.pixflow.infra.cache.key.CacheNamespace;
 import com.pixflow.infra.cache.key.DefaultCacheNamespace;
 import com.pixflow.infra.cache.semaphore.DistributedSemaphore;
+import com.pixflow.infra.thirdparty.bgremoval.provider.aliyunmarket.AliyunMarketBackgroundRemovalProvider;
 import com.pixflow.infra.thirdparty.bgremoval.provider.async.AsyncPollingBackgroundRemovalProvider;
 import com.pixflow.infra.thirdparty.bgremoval.provider.configurable.ConfigurableHttpBackgroundRemovalProvider;
 import com.pixflow.infra.thirdparty.bgremoval.provider.removebg.RemoveBgBackgroundRemovalProvider;
@@ -74,6 +75,7 @@ class BackgroundRemovalProviderHttpTest {
                     new ThirdPartyProperties.Response("json-base64-field", "data.image", null, null),
                     null,
                     null,
+                    null,
                     null);
             ConfigurableHttpBackgroundRemovalProvider client = new ConfigurableHttpBackgroundRemovalProvider(
                     "cloud", provider, callTemplate("cloud", provider), httpInvoker(), new DefaultThirdPartyAuthStrategy(), new ThirdPartyErrorMapper(), metrics(), new ObjectMapper());
@@ -102,6 +104,7 @@ class BackgroundRemovalProviderHttpTest {
                     new ThirdPartyProperties.Auth("none", Map.of()),
                     new ThirdPartyProperties.Request("multipart-bytes", "image", null, null, null, null),
                     new ThirdPartyProperties.Response("binary-body", null, null, null),
+                    null,
                     null,
                     null,
                     null);
@@ -138,6 +141,7 @@ class BackgroundRemovalProviderHttpTest {
                     null,
                     polling,
                     null,
+                    null,
                     null);
             AsyncPollingBackgroundRemovalProvider client = new AsyncPollingBackgroundRemovalProvider(
                     "async-cloud", provider, callTemplate("async-cloud", provider), httpInvoker(), new DefaultThirdPartyAuthStrategy(), new ThirdPartyErrorMapper(), metrics(), new ObjectMapper());
@@ -167,6 +171,7 @@ class BackgroundRemovalProviderHttpTest {
                 null,
                 polling,
                 null,
+                null,
                 null);
         AsyncPollingBackgroundRemovalProvider client = new AsyncPollingBackgroundRemovalProvider(
                 "async-cloud", provider, callTemplate("async-cloud", provider), httpInvoker(), new DefaultThirdPartyAuthStrategy(), new ThirdPartyErrorMapper(), metrics(), new ObjectMapper());
@@ -176,8 +181,73 @@ class BackgroundRemovalProviderHttpTest {
                 .hasMessageContaining("endpoint");
     }
 
+    @Test
+    void aliyunMarketProviderSubmitsAndPollsWithPostJsonAndDynamicNonce() throws Exception {
+        try (MockWebServer server = new MockWebServer()) {
+            server.enqueue(new MockResponse()
+                    .setResponseCode(200)
+                    .setHeader("Content-Type", "application/json")
+                    .setBody("{\"data\":{\"result_key\":\"rk-1\"}}"));
+            server.enqueue(new MockResponse()
+                    .setResponseCode(200)
+                    .setHeader("Content-Type", "application/json")
+                    .setBody("{\"data\":{\"status\":\"RUNNING\"}}"));
+            server.enqueue(new MockResponse()
+                    .setResponseCode(200)
+                    .setHeader("Content-Type", "application/json")
+                    .setBody("{\"data\":{\"status\":\"SUCCESS\",\"result_url\":\"https://cdn.example/out.png\"}}"));
+
+            ThirdPartyProperties.Polling polling = new ThirdPartyProperties.Polling(
+                    "/api/v1/bg-remove/submit",
+                    "/api/v1/bg-remove/query",
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    Duration.ofSeconds(2),
+                    Duration.ofMillis(10));
+            ThirdPartyProperties.Provider provider = new ThirdPartyProperties.Provider(
+                    "aliyun-market-bgrem",
+                    true,
+                    server.url("").toString(),
+                    new ThirdPartyProperties.Auth("header", Map.of("header", "Authorization", "value", "APPCODE app-code")),
+                    null,
+                    null,
+                    polling,
+                    null,
+                    null,
+                    "human");
+            AliyunMarketBackgroundRemovalProvider client = new AliyunMarketBackgroundRemovalProvider(
+                    "aliyun-market", provider, callTemplate("aliyun-market", provider), httpInvoker(), new DefaultThirdPartyAuthStrategy(), new ThirdPartyErrorMapper(), metrics(), new ObjectMapper());
+
+            BackgroundRemovalResult result = client.remove(new BackgroundRemovalRequest(null, null, java.net.URI.create("https://img.example/a.png"), null));
+
+            assertThat(result.contentType()).isEqualTo("text/plain");
+            assertThat(new String(result.image(), java.nio.charset.StandardCharsets.UTF_8)).isEqualTo("https://cdn.example/out.png");
+            RecordedRequest submit = server.takeRequest();
+            RecordedRequest firstQuery = server.takeRequest();
+            RecordedRequest secondQuery = server.takeRequest();
+            assertThat(submit.getMethod()).isEqualTo("POST");
+            assertThat(firstQuery.getMethod()).isEqualTo("POST");
+            assertThat(secondQuery.getMethod()).isEqualTo("POST");
+            assertThat(submit.getPath()).isEqualTo("/api/v1/bg-remove/submit");
+            assertThat(firstQuery.getPath()).isEqualTo("/api/v1/bg-remove/query");
+            assertThat(submit.getHeader("Authorization")).isEqualTo("APPCODE app-code");
+            assertThat(firstQuery.getHeader("Authorization")).isEqualTo("APPCODE app-code");
+            assertThat(submit.getHeader("X-Ca-Nonce")).isNotBlank();
+            assertThat(firstQuery.getHeader("X-Ca-Nonce")).isNotBlank();
+            assertThat(firstQuery.getHeader("X-Ca-Nonce")).isNotEqualTo(submit.getHeader("X-Ca-Nonce"));
+            assertThat(submit.getBody().readUtf8())
+                    .contains("\"image\":\"https://img.example/a.png\"")
+                    .contains("\"model_type\":\"human\"");
+            assertThat(firstQuery.getBody().readUtf8()).contains("\"result_key\":\"rk-1\"");
+        }
+    }
+
     private static ThirdPartyProperties.Provider provider(String type, String endpoint, ThirdPartyProperties.Auth auth) {
-        return new ThirdPartyProperties.Provider(type, true, endpoint, auth, null, null, null, null, null);
+        return new ThirdPartyProperties.Provider(type, true, endpoint, auth, null, null, null, null, null, null);
     }
 
     private static ThirdPartyCallTemplate callTemplate(String providerId, ThirdPartyProperties.Provider provider) {

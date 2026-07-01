@@ -74,7 +74,8 @@ infra/thirdparty/
 │   ├── RoutingBackgroundRemovalClient.java  # 按配置选 provider 的门面
 │   └── provider/
 │       ├── RemoveBgClient.java          # remove.bg：multipart 上传 bytes
-│       └── AliyunMattingClient.java     # 阿里云智能抠图：同步 RPC / 异步任务轮询封在同步接口后
+│       ├── AliyunMattingClient.java     # 阿里云智能抠图：同步 RPC / 异步任务轮询封在同步接口后
+│       └── AliyunMarketBackgroundRemovalProvider.java # 阿里云市场去背景：submit/query POST JSON + nonce
 ├── resilience/
 │   ├── ResilienceRegistry.java          # 每 provider 一套 Retry/CircuitBreaker/Bulkhead/RateLimiter/TimeLimiter
 │   └── ThirdPartyCallTemplate.java      # 信号量 acquire → Resilience4j 装饰 → 执行 → 错误映射
@@ -260,6 +261,7 @@ flowchart LR
 - **传输方式由 provider 适配器决定**：
   - remove.bg：`multipart/form-data` 上传图片字节。
   - 阿里云智能抠图：依其接口要求传 base64 或可公网访问的 URL；若需 URL，由调用方传入预签名 URL（thirdparty 仍不碰 MinIO，只转发），具体编码封在 `AliyunMattingClient` 内。
+  - 阿里云市场去背景：`POST /api/v1/bg-remove/submit` 提交公网图片 URL，读取 `result_key` 后用 `POST /api/v1/bg-remove/query` 轮询；每次请求由 provider 动态生成 `X-Ca-Nonce`，对上仍表现为一次同步 `BackgroundRemovalClient.remove(...)`。
 - **大小约束**：抠图源图为商品图，体积可控；provider 适配器对超过供应商上限的图片在源头构造 `THIRDPARTY_INVALID_REQUEST`（VALIDATION/TERMINATE），不发起无意义调用。
 
 ---
@@ -272,22 +274,38 @@ flowchart LR
 pixflow:
   thirdparty:
     bg-removal:
-      provider: removebg                 # removebg | aliyun，切供应商只动此处
+      default-provider: removebg          # removebg | aliyun-market，切供应商只动此处
+    providers:
       removebg:
+        type: removebg
+        enabled: true
         endpoint: https://api.remove.bg/v1.0/removebg
-        api-key: ${REMOVEBG_API_KEY:}     # 敏感：环境变量注入，禁止入日志
-      aliyun:
-        endpoint: ${ALIYUN_MATTING_ENDPOINT:}
-        access-key-id: ${ALIYUN_AK_ID:}
-        access-key-secret: ${ALIYUN_AK_SECRET:}
-      resilience:                         # 单实例 Resilience4j（本模块）
-        retry-max-attempts: 3
-        retry-base-delay: 500ms
-        retry-max-delay: 8s
-        cb-failure-rate-threshold: 50
-        cb-wait-duration-open: 30s
-        bulkhead-max-concurrent: 8
-        timeout: 30s
+        auth:
+          type: api-key
+          properties:
+            header: X-Api-Key
+            value: ${REMOVEBG_API_KEY:}   # 敏感：环境变量注入，禁止入日志
+      aliyun-market:
+        type: aliyun-market-bgrem
+        enabled: true
+        endpoint: https://bgrem.market.alicloudapi.com
+        auth:
+          type: header
+          properties:
+            header: Authorization
+            value: APPCODE ${ALIYUN_BGREM_APPCODE:}
+        model-type: general               # general | human
+        polling:
+          submit-path: /api/v1/bg-remove/submit
+          status-path: /api/v1/bg-remove/query
+          timeout: 30s
+          interval: 1s
+    resilience:                           # 单实例 Resilience4j（本模块）
+      max-attempts: 3
+      base-delay: 500ms
+      max-delay: 8s
+      bulkhead-max-concurrent: 8
+      timeout: 30s
     # 全局并发许可总数不在此处，而在 pixflow.cache.semaphore.bg-removal.permits（cache.md §十二）
 ```
 
@@ -338,7 +356,7 @@ pixflow:
 
 ## 十五、测试策略
 
-- **能力接口契约**：以 MockWebServer / WireMock 桩 provider HTTP，验证 `RemoveBgClient` / `AliyunMattingClient` 的请求投影（multipart / 编码）与响应映射为 `BackgroundRemovalResult`。
+- **能力接口契约**：以 MockWebServer / WireMock 桩 provider HTTP，验证 `RemoveBgClient` / `AliyunMattingClient` / `AliyunMarketBackgroundRemovalProvider` 的请求投影（multipart / 编码 / submit-query POST JSON + nonce）与响应映射为 `BackgroundRemovalResult`。
 - **路由**：`RoutingBackgroundRemovalClient` 按配置选对 provider；切配置切实现。
 - **韧性**：注入瞬时失败断言 `Retry` 重试后成功；持续失败断言 `CircuitBreaker` 打开后快速失败；`TimeLimiter` 超时触发；`Retry-After` 优先于退避公式。
 - **错误映射**：429/5xx/超时/鉴权/4xx 非法 → 对应 `ThirdPartyErrorCode` + category + recovery + retryAfter；熔断打开 → `THIRDPARTY_CIRCUIT_OPEN`(SKIP)。
