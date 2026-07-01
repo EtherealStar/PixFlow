@@ -1,27 +1,101 @@
-:root {
-  --color-bg: #ffffff;
-  --color-bg-soft: #f5f7fa;
-  --color-bg-mute: #ebeef5;
-  --color-border: #dcdfe6;
-  --color-text: #303133;
-  --color-text-mute: #909399;
-  --color-primary: #409eff;
-  --color-error: #f56c6c;
-  --color-warning: #e6a23c;
-  --color-success: #67c23a;
-  --sidebar-width: 280px;
-  --header-height: 48px;
+/**
+ * 全局样式
+ * 唯一权威来源：docs/design-docs/web.md §五
+ *
+ * 三层背景递进：
+ *   page   → 整页底色（最浅，stone-50）
+ *   sunken → 容器/凹陷区（stone-100）
+ *   panel  → 卡片/浮层/气泡（白底）
+ *
+ * 禁止：
+ * - 直接使用 hex 值（必须走 token / Tailwind 语义类）
+ * - 引入暗色分支（darkMode: false 已在 tailwind.config.ts 显式标注）
+ * - 使用 emoji 字符
+ */
+
+/* 1. tokens.css 必须先加载（CSS 变量定义） */
+@import './tokens.css';
+
+/* 2. Tailwind 三层：base 重置 + components 通用类 + utilities 工具类 */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 3. 基础重置 + 字体栈（与 web.md §5.2 fontFamily 一致） */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
 }
 
-* { box-sizing: border-box; }
-
-html, body, #app {
+html,
+body,
+#app {
   margin: 0;
   padding: 0;
   height: 100%;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif;
-  color: var(--color-text);
-  background: var(--color-bg-soft);
+  font-family:
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    'PingFang SC',
+    'Microsoft YaHei',
+    sans-serif;
+  color: var(--fg-primary);
+  background: var(--bg-page); /* 整页底色走 token，不硬编码 hex */
 }
 
-button { font-family: inherit; }
+button {
+  font-family: inherit;
+}
+
+/* 4. 滚动条样式（暖灰基调，与 token 一致） */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-sunken);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--fg-muted);
+}
+
+/* 5. 选区颜色（accent soft 主色淡化，避免突兀蓝） */
+::selection {
+  background-color: var(--accent-soft);
+  color: var(--fg-primary);
+}
+
+/* 6. 聚焦轮廓（无障碍要求，键盘可见） */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/*
+ * 7. R1 过渡期：旧 CSS 变量别名（仅用于 AppLayout 等 R4 才重写的文件）。
+ *    R4 阶段 AppLayout 重写后整段删除。
+ *    唯一权威来源仍是 web.md §5.2 的 token（见 tokens.css）。
+ */
+:root {
+  --color-bg: var(--bg-panel);
+  --color-bg-soft: var(--bg-sunken);
+  --color-bg-mute: var(--bg-sunken);
+  --color-border: var(--border);
+  --color-text: var(--fg-primary);
+  --color-text-mute: var(--fg-muted);
+  --color-primary: var(--accent);
+  --color-error: var(--danger);
+  --color-warning: var(--warning);
+  --color-success: var(--success);
+  --sidebar-width: 280px;
+  --header-height: 56px;
+}

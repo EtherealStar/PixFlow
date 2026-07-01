@@ -1,9 +1,31 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { computed, ref, shallowRef } from 'vue'
+import { createUploadJob, type UploadJobHandle } from '@/upload/uploadJob'
+import type { ApiError } from '@/types/api'
 import type { UploadJobState } from '@/types/upload'
 
+/**
+ * 上传任务管理。
+ *
+ * 行为：
+ * - Map<jobId, UploadJobState> 是事实源（响应式）；handle 引用单独保存以便 cancel/retry
+ * - activeJobs = 非终态（done/error/cancelled）的 job 列表，给 UI 渲染用
+ *
+ * 注：handles 用 shallowRef 以避免 Pinia 深度 unwrap Ref<UploadJobState>
+ */
 export const useUploadJobsStore = defineStore('uploadJobs', () => {
   const items = ref<Map<string, UploadJobState>>(new Map())
+  const handles = shallowRef<Map<string, UploadJobHandle>>(new Map())
+
+  const activeJobs = computed(() => {
+    const arr: UploadJobState[] = []
+    for (const j of items.value.values()) {
+      if (j.phase !== 'done' && j.phase !== 'error' && j.phase !== 'cancelled') {
+        arr.push(j)
+      }
+    }
+    return arr
+  })
 
   function add(state: UploadJobState): void {
     items.value.set(state.jobId, state)
@@ -21,7 +43,51 @@ export const useUploadJobsStore = defineStore('uploadJobs', () => {
 
   function remove(jobId: string): void {
     items.value.delete(jobId)
+    handles.value.delete(jobId)
   }
 
-  return { items, add, update, get, remove }
+  /**
+   * 创建并启动整文件上传。
+   * 失败时更新 phase=error；不抛出取消（取消是预期流）。
+   */
+  async function startWholeFile(file: File): Promise<void> {
+    const handle = createUploadJob({
+      file,
+      onProgress: (p) => {
+        update(handle.state.value.jobId, {
+          progress: {
+            hashed: p.hashed ?? 0,
+            uploaded: p.uploaded,
+            total: p.total,
+          },
+        })
+      },
+      onError: (err: ApiError) => {
+        update(handle.state.value.jobId, { error: err, phase: 'error' })
+      },
+      onDedup: () => {
+        // 后续可在此向 toast 推"已存在/正在上传"
+      },
+      onDone: () => {
+        update(handle.state.value.jobId, { phase: 'done' })
+      }
+    })
+    add(handle.state.value)
+    handles.value.set(handle.state.value.jobId, handle)
+    await handle.run()
+  }
+
+  async function cancel(jobId: string): Promise<void> {
+    const h = handles.value.get(jobId)
+    if (!h) return
+    await h.cancel()
+  }
+
+  async function retry(jobId: string): Promise<void> {
+    const h = handles.value.get(jobId)
+    if (!h) return
+    await h.retry()
+  }
+
+  return { items, handles, activeJobs, add, update, get, remove, startWholeFile, cancel, retry }
 })

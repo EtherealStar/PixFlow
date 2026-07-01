@@ -1,0 +1,48 @@
+/**
+ * CSS 变量层
+ * 唯一权威来源：docs/design-docs/web.md §5.2
+ *
+ * 为什么需要这一层：Tailwind 的语义类（bg-bg-page 等）在 SVG fill、第三方组件
+ * 内联样式、radix-vue 子元素 class 里不便直接使用。CSS 变量提供"颜色名 → hex"
+ * 的稳定桥接：与 Tailwind 完全同源，detail token 升级时一处改、全局一致。
+ *
+ * 用法：
+ *   <svg fill="var(--bg-panel)" stroke="var(--border)"> ... </svg>
+ *   <div :style="{ color: 'var(--fg-primary)' }" />
+ */
+:root {
+  /* 三层背景 */
+  --bg-page: #fafaf9;
+  --bg-sunken: #f5f5f4;
+  --bg-panel: #ffffff;
+
+  /* 边框 */
+  --border: #e7e5e4;
+  --border-strong: #d6d3d1;
+
+  /* 文本 */
+  --fg-primary: #1c1917;
+  --fg-secondary: #57534e;
+  --fg-muted: #a8a29e;
+  --fg-inverse: #ffffff;
+
+  /* 主色（indigo） */
+  --accent: #4f46e5;
+  --accent-hover: #6366f1;
+  --accent-soft: #eef2ff;
+
+  /* 状态色 */
+  --success: #10b981;
+  --success-soft: #ecfdf5;
+  --warning: #f59e0b;
+  --warning-soft: #fffbeb;
+  --danger: #ef4444;
+  --danger-soft: #fef2f2;
+  --info: #3b82f6;
+  --info-soft: #eff6ff;
+
+  /* 阴影（暖灰基调 28,25,23） */
+  --shadow-sm: 0 1px 2px rgba(28, 25, 23, 0.04), 0 1px 3px rgba(28, 25, 23, 0.06);
+  --shadow-md: 0 4px 12px rgba(28, 25, 23, 0.06), 0 2px 4px rgba(28, 25, 23, 0.04);
+  --shadow-lg: 0 12px 32px rgba(28, 25, 23, 0.08), 0 4px 8px rgba(28, 25, 23, 0.04);
+}

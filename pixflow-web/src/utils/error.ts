@@ -49,8 +49,10 @@ export function installDevConsoleGuard(): void {
 }
 
 /**
- * 把 13 种常见错误码映射到 Element Plus ElMessage 类型。
- * 见 web.md §十三。
+ * 把 13 种常见错误码映射到 UI 反馈类型（info / warning / error）。
+ * 见 web.md §二十二 错误处理与 traceId。
+ * R1 阶段：返回类型保持不变（info/warning/error 分类），错误码映射逻辑不变。
+ * R3 阶段：调用方从 console 改为 AppToast，分类语义保持兼容。
  */
 export function errorToMessage(err: ApiError): { type: 'info' | 'warning' | 'error'; message: string } {
   const m = err.message || err.errorCode
