@@ -3,7 +3,8 @@ package com.pixflow.module.file.config;
 import com.pixflow.common.progress.ProgressNotifier;
 import com.pixflow.infra.mq.MessagePublisher;
 import com.pixflow.infra.mq.consumer.ManagedListenerContainerFactory;
-import com.pixflow.infra.mq.topology.TopologyRegistrar;
+import com.pixflow.infra.mq.consumer.ManagedMessageContainer;
+import com.pixflow.infra.mq.destination.DestinationRegistrar;
 import com.pixflow.infra.storage.ObjectStorage;
 import com.pixflow.module.file.FileService;
 import com.pixflow.module.file.copydoc.AssetCopyMapper;
@@ -14,9 +15,8 @@ import com.pixflow.module.file.error.AssetIngestErrorMapper;
 import com.pixflow.module.file.image.AssetImageMapper;
 import com.pixflow.module.file.ingest.ExtractionConsumer;
 import com.pixflow.module.file.ingest.ExtractionErrorHandler;
-import com.pixflow.module.file.ingest.ExtractionMessage;
 import com.pixflow.module.file.ingest.ExtractionPublisher;
-import com.pixflow.module.file.ingest.ExtractionTopology;
+import com.pixflow.module.file.ingest.ExtractionDestination;
 import com.pixflow.module.file.ingest.ImageAdmission;
 import com.pixflow.module.file.ingest.PublishGapRescan;
 import com.pixflow.module.file.ingest.ZipExtractor;
@@ -31,7 +31,6 @@ import com.pixflow.module.file.pkg.PackageReferenceChecker;
 import com.pixflow.module.file.pkg.PackageReferenceResolver;
 import java.time.Clock;
 import org.springframework.scheduling.annotation.EnableScheduling;
-import org.springframework.amqp.rabbit.listener.MessageListenerContainer;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -195,23 +194,20 @@ public class FileAutoConfiguration {
     }
 
     @Bean
-    @ConditionalOnBean(TopologyRegistrar.class)
-    public Object fileExtractionTopologyRegistration(TopologyRegistrar registrar) {
-        registrar.register(ExtractionTopology.topology());
+    @ConditionalOnBean(DestinationRegistrar.class)
+    public Object fileExtractionDestinationRegistration(DestinationRegistrar registrar) {
+        registrar.register(ExtractionDestination.destination(0));
+        registrar.register(ExtractionDestination.binding());
         return new Object();
     }
 
     @Bean
     @ConditionalOnBean({ManagedListenerContainerFactory.class, ExtractionConsumer.class, ExtractionErrorHandler.class})
-    public MessageListenerContainer fileExtractionListenerContainer(
+    public ManagedMessageContainer fileExtractionListenerContainer(
             ManagedListenerContainerFactory factory,
             ExtractionConsumer consumer,
             ExtractionErrorHandler errorHandler) {
-        MessageListenerContainer container = factory.create(
-                ExtractionTopology.topology(),
-                ExtractionMessage.class,
-                consumer,
-                errorHandler);
+        ManagedMessageContainer container = factory.create(ExtractionDestination.binding(), consumer, errorHandler);
         container.start();
         return container;
     }

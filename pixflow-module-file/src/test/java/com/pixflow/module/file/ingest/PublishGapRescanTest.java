@@ -36,15 +36,14 @@ class PublishGapRescanTest {
         AssetPackage confirmed = packageRow(1L);
         AssetPackage failed = packageRow(2L);
         when(packageMapper.selectList(any(Wrapper.class))).thenReturn(List.of(confirmed, failed));
-        when(extractionPublisher.publish(1L)).thenReturn(PublishResult.confirmed("pixflow.file", "file.extract", "c1"));
+        when(extractionPublisher.publish(1L)).thenReturn(PublishResult.confirmed("pixflow-file", "PACKAGE_EXTRACT", "m1", "broker-a"));
         when(extractionPublisher.publish(2L)).thenReturn(PublishResult.failed(
-                "pixflow.file",
-                "file.extract",
-                "c2",
+                "pixflow-file",
+                "PACKAGE_EXTRACT",
+                "m2",
                 new com.pixflow.infra.mq.PublishFailure(
-                        com.pixflow.infra.mq.PublishFailureType.CONFIRM_TIMEOUT,
+                        com.pixflow.infra.mq.PublishFailureType.SEND_TIMEOUT,
                         "timeout",
-                        null,
                         null,
                         null)));
 

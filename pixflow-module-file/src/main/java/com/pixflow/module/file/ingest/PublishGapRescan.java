@@ -32,7 +32,7 @@ public class PublishGapRescan {
         this.properties = properties;
     }
 
-    // 只补投递缺口，不承担解压恢复；解压恢复交给 RabbitMQ 重投和幂等写入。
+    // 只补投递缺口，不承担解压恢复；解压恢复交给 RocketMQ 重投和幂等写入。
     @Scheduled(fixedDelayString = "${pixflow.file.publish-gap-rescan.interval:PT1M}")
     public void rescan() {
         Instant staleBefore = clock.instant().minus(properties.getPublishGapRescan().getStaleAfter());

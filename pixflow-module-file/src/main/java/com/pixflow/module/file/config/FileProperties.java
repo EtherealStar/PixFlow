@@ -62,7 +62,6 @@ public class FileProperties {
 
     public static class Extract {
         private int consumerConcurrency = 2;
-        private int prefetch = 1;
         private int intraPackageParallelism = 4;
         private Duration consumerTimeout = Duration.ofMinutes(30);
         private String tempDir = System.getProperty("java.io.tmpdir") + "/pixflow-extract";
@@ -75,13 +74,6 @@ public class FileProperties {
             this.consumerConcurrency = consumerConcurrency;
         }
 
-        public int getPrefetch() {
-            return prefetch;
-        }
-
-        public void setPrefetch(int prefetch) {
-            this.prefetch = prefetch;
-        }
 
         public int getIntraPackageParallelism() {
             return intraPackageParallelism;
