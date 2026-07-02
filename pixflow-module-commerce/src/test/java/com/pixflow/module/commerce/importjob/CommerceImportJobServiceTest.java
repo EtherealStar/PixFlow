@@ -62,10 +62,10 @@ class CommerceImportJobServiceTest {
         CommerceImportJobService service = service(
                 mapper.mapper,
                 publisher(jobId -> PublishResult.failed(
-                        CommerceImportTopology.EXCHANGE,
-                        CommerceImportTopology.ROUTING_KEY,
+                        CommerceImportDestination.TOPIC,
+                        CommerceImportDestination.TAG,
                         "corr-1",
-                        new PublishFailure(PublishFailureType.RETURNED, "token=secret publish failed", null, null, null))),
+                        new PublishFailure(PublishFailureType.BROKER_REJECTED, "token=secret publish failed", null, null))),
                 sourceWith(row("SKU001")),
                 countingImportService(),
                 properties());
@@ -171,7 +171,7 @@ class CommerceImportJobServiceTest {
     }
 
     private static CommerceApiImportPublisher successfulPublisher() {
-        return publisher(jobId -> PublishResult.confirmed(CommerceImportTopology.EXCHANGE, CommerceImportTopology.ROUTING_KEY, "corr-" + jobId));
+        return publisher(jobId -> PublishResult.confirmed(CommerceImportDestination.TOPIC, CommerceImportDestination.TAG, "msg-" + jobId, "broker-a"));
     }
 
     private static CommerceApiImportPublisher publisher(PublishBehavior behavior) {

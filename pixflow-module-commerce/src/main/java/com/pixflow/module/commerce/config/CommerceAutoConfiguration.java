@@ -3,7 +3,8 @@ package com.pixflow.module.commerce.config;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pixflow.infra.mq.MessagePublisher;
 import com.pixflow.infra.mq.consumer.ManagedListenerContainerFactory;
-import com.pixflow.infra.mq.topology.TopologyRegistrar;
+import com.pixflow.infra.mq.consumer.ManagedMessageContainer;
+import com.pixflow.infra.mq.destination.DestinationRegistrar;
 import com.pixflow.module.commerce.CommerceService;
 import com.pixflow.module.commerce.DefaultCommerceService;
 import com.pixflow.module.commerce.importer.CommerceFileParser;
@@ -12,11 +13,10 @@ import com.pixflow.module.commerce.importer.CsvCommerceParser;
 import com.pixflow.module.commerce.importer.ExcelCommerceParser;
 import com.pixflow.module.commerce.importer.RowValidator;
 import com.pixflow.module.commerce.importjob.CommerceApiImportConsumer;
-import com.pixflow.module.commerce.importjob.CommerceApiImportMessage;
 import com.pixflow.module.commerce.importjob.CommerceApiImportPublisher;
 import com.pixflow.module.commerce.importjob.CommerceImportErrorHandler;
 import com.pixflow.module.commerce.importjob.CommerceImportJobService;
-import com.pixflow.module.commerce.importjob.CommerceImportTopology;
+import com.pixflow.module.commerce.importjob.CommerceImportDestination;
 import com.pixflow.module.commerce.query.BenchmarkCalculator;
 import com.pixflow.module.commerce.query.CommerceQueryService;
 import com.pixflow.module.commerce.source.CommerceDataSource;
@@ -29,7 +29,6 @@ import com.pixflow.module.commerce.store.CommerceImportJobMapper;
 import java.time.Clock;
 import java.util.List;
 import org.mybatis.spring.annotation.MapperScan;
-import org.springframework.amqp.rabbit.listener.MessageListenerContainer;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -163,23 +162,20 @@ public class CommerceAutoConfiguration {
     }
 
     @Bean
-    @ConditionalOnBean(TopologyRegistrar.class)
-    public Object commerceImportTopologyRegistration(TopologyRegistrar registrar) {
-        registrar.register(CommerceImportTopology.topology());
+    @ConditionalOnBean(DestinationRegistrar.class)
+    public Object commerceImportDestinationRegistration(DestinationRegistrar registrar) {
+        registrar.register(CommerceImportDestination.destination(0));
+        registrar.register(CommerceImportDestination.binding());
         return new Object();
     }
 
     @Bean
     @ConditionalOnBean({ManagedListenerContainerFactory.class, CommerceApiImportConsumer.class, CommerceImportErrorHandler.class})
-    public MessageListenerContainer commerceImportListenerContainer(
+    public ManagedMessageContainer commerceImportListenerContainer(
             ManagedListenerContainerFactory factory,
             CommerceApiImportConsumer consumer,
             CommerceImportErrorHandler errorHandler) {
-        MessageListenerContainer container = factory.create(
-                CommerceImportTopology.topology(),
-                CommerceApiImportMessage.class,
-                consumer,
-                errorHandler);
+        ManagedMessageContainer container = factory.create(CommerceImportDestination.binding(), consumer, errorHandler);
         container.start();
         return container;
     }
