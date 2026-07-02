@@ -7,6 +7,9 @@ import com.pixflow.infra.cache.key.CacheNamespace;
 import com.pixflow.infra.cache.lock.LockTemplate;
 import com.pixflow.infra.cache.store.CacheStore;
 import com.pixflow.infra.mq.MessagePublisher;
+import com.pixflow.infra.mq.consumer.ManagedListenerContainerFactory;
+import com.pixflow.infra.mq.consumer.ManagedMessageContainer;
+import com.pixflow.infra.mq.destination.DestinationRegistrar;
 import com.pixflow.infra.storage.ObjectStorage;
 import com.pixflow.module.dag.exec.UnitExecutor;
 import com.pixflow.module.dag.expand.BranchExpander;
@@ -22,6 +25,8 @@ import com.pixflow.module.task.infra.cache.TaskIdempotencyStore;
 import com.pixflow.module.task.infra.cache.TaskProgressCounter;
 import com.pixflow.module.task.infra.lock.TaskLockManager;
 import com.pixflow.module.task.infra.metrics.TaskMetrics;
+import com.pixflow.module.task.infra.mq.TaskMessageDestination;
+import com.pixflow.module.task.infra.mq.TaskMessageErrorHandler;
 import com.pixflow.module.task.infra.mq.TaskMessageListener;
 import com.pixflow.module.task.infra.mq.TaskMessagePublisher;
 import com.pixflow.module.task.infra.persistence.ProcessResultMapper;
@@ -233,10 +238,37 @@ public class TaskAutoConfiguration {
     }
 
     @Bean
+    @ConditionalOnMissingBean
+    public TaskMessageErrorHandler taskMessageErrorHandler() {
+        return new TaskMessageErrorHandler();
+    }
+
+    @Bean
+    @ConditionalOnBean(DestinationRegistrar.class)
+    public Object taskMessageDestinationRegistration(DestinationRegistrar registrar, TaskProperties properties) {
+        registrar.register(TaskMessageDestination.destination(properties, "0"));
+        registrar.register(TaskMessageDestination.binding(properties));
+        return new Object();
+    }
+
+    @Bean
     @ConditionalOnBean(TaskWorker.class)
     @ConditionalOnMissingBean
     public TaskMessageListener taskMessageListener(TaskWorker worker) {
         return new TaskMessageListener(worker);
+    }
+
+    @Bean
+    @ConditionalOnBean({ManagedListenerContainerFactory.class, TaskMessageListener.class, TaskMessageErrorHandler.class})
+    @ConditionalOnMissingBean(name = "taskMessageContainer")
+    public ManagedMessageContainer taskMessageContainer(
+            ManagedListenerContainerFactory factory,
+            TaskMessageListener listener,
+            TaskMessageErrorHandler errorHandler,
+            TaskProperties properties) {
+        ManagedMessageContainer container = factory.create(TaskMessageDestination.binding(properties), listener, errorHandler);
+        container.start();
+        return container;
     }
 
     @Bean

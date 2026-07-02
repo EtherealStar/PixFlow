@@ -107,17 +107,17 @@ public class TaskProperties {
     }
 
     public static class Mq {
-        private String exchange = "pixflow.task";
-        private String routingKey = "task.execute";
-        private String queue = "pixflow.task.execute";
-        private Duration confirmTimeout = Duration.ofSeconds(5);
-        public String getExchange() { return exchange; }
-        public void setExchange(String exchange) { this.exchange = exchange; }
-        public String getRoutingKey() { return routingKey; }
-        public void setRoutingKey(String routingKey) { this.routingKey = routingKey; }
-        public String getQueue() { return queue; }
-        public void setQueue(String queue) { this.queue = queue; }
-        public Duration getConfirmTimeout() { return confirmTimeout; }
-        public void setConfirmTimeout(Duration confirmTimeout) { this.confirmTimeout = confirmTimeout; }
+        private String topic = "pixflow-task";
+        private String tag = "TASK_EXECUTE";
+        private String consumerGroup = "pixflow-task-worker";
+        private Duration sendTimeout = Duration.ofSeconds(5);
+        public String getTopic() { return topic; }
+        public void setTopic(String topic) { this.topic = topic; }
+        public String getTag() { return tag; }
+        public void setTag(String tag) { this.tag = tag; }
+        public String getConsumerGroup() { return consumerGroup; }
+        public void setConsumerGroup(String consumerGroup) { this.consumerGroup = consumerGroup; }
+        public Duration getSendTimeout() { return sendTimeout; }
+        public void setSendTimeout(Duration sendTimeout) { this.sendTimeout = sendTimeout; }
     }
 }
