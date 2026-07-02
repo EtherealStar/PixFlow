@@ -506,7 +506,7 @@ Body：分片原始字节。
 }
 ```
 
-> **complete 锁**：`POST /complete` 取 `Redisson 锁 lock:package-complete:{uploadId}`（短时锁，毫秒级，**不**启看门狗）。锁内做：(1) 校验分片总数 == `expectedChunks`；(2) 校验整包 hash（如果客户端传入）；(3) 调 MinIO `composeObject` 拼接分片为完整 zip 到 `packages/{packageId}/source.zip`；(4) 校验拼接结果大小与 hash；(5) 落 `asset_package(status=UPLOADED)` + `package_upload_session.status=READY`；(6) 发 RabbitMQ 解压消息；(7) 删 MinIO 临时桶 `tmp-uploads/{uploadId}/*`；(8) 释放锁。
+> **complete 锁**：`POST /complete` 取 `Redisson 锁 lock:package-complete:{uploadId}`（短时锁，毫秒级，**不**启看门狗）。锁内做：(1) 校验分片总数 == `expectedChunks`；(2) 校验整包 hash（如果客户端传入）；(3) 调 MinIO `composeObject` 拼接分片为完整 zip 到 `packages/{packageId}/source.zip`；(4) 校验拼接结果大小与 hash；(5) 落 `asset_package(status=UPLOADED)` + `package_upload_session.status=READY`；(6) 发 RocketMQ 解压消息；(7) 删 MinIO 临时桶 `tmp-uploads/{uploadId}/*`；(8) 释放锁。
 
 #### 5. 取消上传
 

@@ -61,6 +61,7 @@
         <twelvemonkeys.version>3.10.1</twelvemonkeys.version>
         <scrimage.version>4.3.0</scrimage.version>
         <testcontainers.version>1.21.3</testcontainers.version>
+        <rocketmq.version>5.3.0</rocketmq.version>
         <!--
             docker-java 版本覆盖：testcontainers-bom 默认管理 3.4.x 系列，
             该版本在 Docker Desktop 29.4.x 下读取 /info Labels 后会回填错误

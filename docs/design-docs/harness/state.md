@@ -332,7 +332,7 @@ flowchart TD
 
 - **可跳过 = MySQL 成功单元**。Redis 引用**不**进入"可跳过"判定——它只在"被判定为需重算的单元内部"用于避免重复 I/O（如某节点产物已在 MinIO，引用命中则复用），引用缺失就老老实实重算。这与 `design.md §9.4`"支路幂等：恢复时整条支路重跑（非节点级续传）"一致——支路是重算单元，引用只优化支路内节点。
 - **组支路一致**（`design.md §9.5` 恢复段）：组支路整体幂等重算，组结果 `process_result` 落库即视为整组完成，恢复时整组跳过。`UnitKind.GROUP` 的 `UnitKey` 天然表达这点。
-- **state 不触发重扫**：`@Scheduled` 扫 `status=执行中` 任务、重新入队 RabbitMQ 是 task 的职责；state 经 `CheckpointReadPort.listRunningTaskIds` 提供"哪些在执行中"的查询，但不持有调度器、不发 MQ 消息。
+- **state 不触发重扫**：`@Scheduled` 扫 `status=执行中` 任务、重新入队 RocketMQ 是 task 的职责；state 经 `CheckpointReadPort.listRunningTaskIds` 提供"哪些在执行中"的查询，但不持有调度器、不发 MQ 消息。
 
 ---
 

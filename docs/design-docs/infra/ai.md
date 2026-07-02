@@ -29,7 +29,7 @@
 
 ## 一、文档定位与设计原则
 
-`infra/ai` 在依赖 DAG 中处于 **Wave 1**，只依赖 `common`，被 `module/memory`、`module/dag`、`module/vision`、`module/imagegen`、`module/rubrics` 直接消费，并经它们间接服务 `harness/loop` 与 `agent`。它承载对模型供应商的**纯调用原语**，和 `infra/storage` 封装 MinIO、`infra/mq` 封装 RabbitMQ 是同一性质——把 Spring AI / Spring AI Alibaba 的调用细节收口成一组供应商无关、可替换的能力接口。
+`infra/ai` 在依赖 DAG 中处于 **Wave 1**，只依赖 `common`，被 `module/memory`、`module/dag`、`module/vision`、`module/imagegen`、`module/rubrics` 直接消费，并经它们间接服务 `harness/loop` 与 `agent`。它承载对模型供应商的**纯调用原语**，和 `infra/storage` 封装 MinIO、`infra/mq` 封装 RocketMQ 是同一性质——把 Spring AI / Spring AI Alibaba 的调用细节收口成一组供应商无关、可替换的能力接口。
 
 模块专属设计原则：
 

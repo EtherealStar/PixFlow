@@ -4,12 +4,6 @@ spring:
     username: pixflow
     password: pixflow
     driver-class-name: com.mysql.cj.jdbc.Driver
-  rabbitmq:
-    host: localhost
-    port: 5672
-    username: guest
-    password: guest
-
 pixflow:
   cache:
     address: redis://localhost:6379
@@ -23,9 +17,19 @@ pixflow:
     host: localhost
     port: 6334
   mq:
-    publish-confirm-timeout: 5s
-    prefetch: 1
-    consumer-concurrency: 4
+    namesrv-addr: localhost:9876
+    producer-group: pixflow-producer
+    send-timeout: 5s
+    consumer:
+      consume-thread-min: 2
+      consume-thread-max: 8
+      consume-timeout: 5m
+    in-process-retries: 2
+    max-retries: 5
+    retry-backoff: [5s, 30s, 2m, 10m, 30m]
+    retry-mode: broker
+    dlq-alert-threshold: 1
+    topic-auto-create: true
   ai:
     default-provider: dashscope
     dashscope:

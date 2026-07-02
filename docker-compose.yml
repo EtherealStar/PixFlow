@@ -34,19 +34,28 @@ services:
       timeout: 5s
       retries: 10
 
-  rabbitmq:
-    image: rabbitmq:3.13-management-alpine
-    container_name: pixflow-rabbitmq
+  rocketmq-namesrv:
+    image: apache/rocketmq:5.3.0
+    container_name: pixflow-rocketmq-namesrv
+    command: sh mqnamesrv
     ports:
-      - "5672:5672"
-      - "15672:15672"
+      - "9876:9876"
     volumes:
-      - rabbitmq_data:/var/lib/rabbitmq
-    healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
+      - rocketmq_namesrv_logs:/home/rocketmq/logs
+
+  rocketmq-broker:
+    image: apache/rocketmq:5.3.0
+    container_name: pixflow-rocketmq-broker
+    depends_on:
+      - rocketmq-namesrv
+    command: sh mqbroker -n rocketmq-namesrv:9876 -c /home/rocketmq/broker.conf
+    ports:
+      - "10909:10909"
+      - "10911:10911"
+    volumes:
+      - ./docker/rocketmq/broker.conf:/home/rocketmq/broker.conf:ro
+      - rocketmq_broker_data:/home/rocketmq/store
+      - rocketmq_broker_logs:/home/rocketmq/logs
 
   qdrant:
     image: qdrant/qdrant:v1.18.2
@@ -78,6 +87,8 @@ services:
 volumes:
   mysql_data:
   redis_data:
-  rabbitmq_data:
+  rocketmq_namesrv_logs:
+  rocketmq_broker_data:
+  rocketmq_broker_logs:
   qdrant_data:
   minio_data:

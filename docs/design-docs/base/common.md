@@ -277,7 +277,7 @@ data: { "code": "...", "message": "<safeMessage>", "traceId": "..." }
 
 `module/task` 的消费者 catch → `normalize` → 读 `recovery`：
 
-- `RETRY` → 抛出触发 Spring AMQP 重试，超限进 DLQ
+- `RETRY` → 返回 RocketMQ 重投决策，超限进 DLQ
 - `SKIP` → 当前支路 `process_result.status=2` + 脱敏 `error_msg`，ack，继续
 - `TERMINATE` → 任务终态失败，ack
 
@@ -380,7 +380,7 @@ flowchart TD
 
 - **基座**：Micrometer Tracing（Brave/OTel 桥接），自动生成 traceId/spanId、注入 MDC（日志 `%X{traceId}`）、自动覆盖同步 HTTP 链路与 `@Async`。
 - **手动透传的两个边界**（Micrometer 不自动覆盖）：
-  - **RabbitMQ**：生产时把 traceId 写入消息 header；消费时取出重建 span，使任务执行链与提交请求关联。
+  - **RocketMQ**：生产时把 traceId 写入 user properties；消费时取出重建 span，使任务执行链与提交请求关联。
   - **SSE/WebSocket**：长连接帧内携带 traceId。
 - **与业务回合维度并存**：`agent_trace.conversation_id + turn_no` 是「业务回合」维度（供 Rubrics/回放）；`traceId` 是「技术调用链」维度（供排障）。两者不合并。
 

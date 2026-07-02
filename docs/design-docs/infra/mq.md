@@ -4,7 +4,7 @@
 > 范围：领域无关的可靠消息设施——Topic / Tag / Consumer Group 命名规范、可靠投递、消费结果确认、分层重试 + DLQ、traceId 透传、可观测。本文不涉及 MVP 既有实现，从新架构需求重新推导。
 > 本模块只依赖 `common`（`module-dependency-dag-plan.md` 明确 mq 在 Wave 1，仅依赖 common），**不依赖任何业务模块**。「任务」语义属于 `module/task`（Wave 4），见 [§二](#二为什么-inframq-必须领域无关)。
 >
-> 迁移说明：本文将 `infra/mq` 的权威设计从 RabbitMQ 改为 RocketMQ。`design.md`、`module/task.md`、`module/file.md`、`module/vision.md`、`module-dependency-dag-plan.md` 已同步到 RocketMQ 口径；当前实现中的 RabbitMQ / Spring AMQP 类型需要由后续实现迁移计划清理。
+> 迁移说明：本文将 `infra/mq` 的权威设计从 RabbitMQ 改为 RocketMQ。`design.md`、`module/task.md`、`module/file.md`、`module/vision.md`、`module-dependency-dag-plan.md` 已同步到 RocketMQ 口径；`rabbitmq-to-rocketmq-refactor-plan.md` 已完成实现迁移，当前源码与运行配置不再保留 RabbitMQ / Spring AMQP 类型。
 
 ---
 
@@ -329,10 +329,10 @@ MQ 目标设计已切到 RocketMQ，设计文档同步状态如下：
 3. `module/task.md` 已把任务消费入口从 `@RabbitListener` 口径改为 RocketMQ consumer / `ConsumerBinding` / DLQ 处理器口径。
 4. `module/file.md` 已把解压作业从 RabbitMQ 队列组改为 `pixflow-file` topic、`PACKAGE_EXTRACT` tag 与 `pixflow-file-extractor` consumer group。
 5. `module/vision.md` 已把富化作业从 RabbitMQ 队列组改为 `pixflow-vision` topic、`COPY_ENRICH` tag 与 `pixflow-vision-enricher` consumer group。
-6. 当前代码中 `spring-boot-starter-amqp`、`RabbitTemplate`、`RabbitAdmin`、`RabbitListener`、`MessageListenerContainer` 仍需由实现迁移清理。
-7. Docker Compose / Testcontainers 仍需从 RabbitMQ 改为 RocketMQ NameServer + Broker。
+6. `rabbitmq-to-rocketmq-refactor-plan.md` 已清理当前代码中的 `spring-boot-starter-amqp`、`RabbitTemplate`、`RabbitAdmin`、`RabbitListener` 与 Spring AMQP `MessageListenerContainer`。
+7. Docker Compose 已从 RabbitMQ 改为 RocketMQ NameServer + Broker；测试侧保留 Docker 不可用时跳过集成测试的既有策略。
 
-本文先确立目标 MQ 设计；是否立即改代码应由单独 ExecPlan 承接，避免和 Wave 6 rubrics 实现互相污染。
+本文确立的 RocketMQ 目标设计已经由 `rabbitmq-to-rocketmq-refactor-plan.md` 落地到当前实现；后续模块应只依赖 `MessageDestination`、`ConsumerBinding`、`ManagedMessageContainer` 与 `MessagePublisher` 等 PixFlow MQ 抽象。
 
 ---
 

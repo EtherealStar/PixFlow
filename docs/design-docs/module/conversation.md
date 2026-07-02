@@ -631,7 +631,7 @@ SSE 走 `text/event-stream`，WebSocket 走 STOMP 独立 endpoint，二者互不
 - **第一阶段** `/confirm/{proposalId}/challenge`：根据提案 `expectedCount` 与 `properties.confirmation().batchThreshold()`（默认 50 张）比对——
   - `expectedCount <= threshold` → 直接签发 `ConfirmationToken`，前端收到 token 后立即发第二阶段 `/submit`，跳过 challenge。
   - `expectedCount > threshold` → 签发 `ConfirmationChallenge{challengeId, prompt}`，前端展示给用户，由用户回答（"按实际张数处理" / "漏传图片"）。
-- **第二阶段** `/confirm/{proposalId}/submit`：携带 `challengeAnswer`，校验通过后调 `ConfirmationTokenService.issueForChallenge(challenge)` 签发 `ConfirmationToken`，再触发 `module/dag` 或 `module/imagegen` 真实执行（`process_task` 入库 → RabbitMQ 派发 / 生图结果写 MinIO + `process_result`）。
+- **第二阶段** `/confirm/{proposalId}/submit`：携带 `challengeAnswer`，校验通过后调 `ConfirmationTokenService.issueForChallenge(challenge)` 签发 `ConfirmationToken`，再触发 `module/dag` 或 `module/imagegen` 真实执行（`process_task` 入库 → RocketMQ 派发 / 生图结果写 MinIO + `process_result`）。
 
 > 设计权衡：单端点自决方案（一个端点既签发 token 又决定 challenge）与双端点方案的对比见本计划的 Decision Log。下文专注双端点的实现细节。
 
@@ -767,7 +767,7 @@ public interface ProgressNotifier {
 @Component
 public final class ConversationProgressBridge implements ProgressNotifier {
     private final SimpMessagingTemplate stomp;
-    private final RedisMessageListenerContainer redisContainer;
+    private final Redis 消息监听容器 redisContainer;
 
     @Override
     public void notify(String conversationId, String taskId, ProgressEvent event) {
@@ -786,7 +786,7 @@ public final class ConversationProgressBridge implements ProgressNotifier {
 }
 ```
 
-`module/task` 通过两条路径发布进度：(a) `taskService.notify` 直接调用（同步路径）；(b) `ProgressAggregator` 写 Redis pub/sub / RabbitMQ topic，异步广播给所有订阅者（包括本模块的 `ConversationProgressBridge`）。本模块对两条路径的消费者使用同一 `SimpMessagingTemplate.convertAndSend` 转推到 STOMP 频道，前端订阅即可。
+`module/task` 通过两条路径发布进度：(a) `taskService.notify` 直接调用（同步路径）；(b) `ProgressAggregator` 写 Redis pub/sub / RocketMQ topic，异步广播给所有订阅者（包括本模块的 `ConversationProgressBridge`）。本模块对两条路径的消费者使用同一 `SimpMessagingTemplate.convertAndSend` 转推到 STOMP 频道，前端订阅即可。
 
 ### 11.3 取消 vs 取消锁的区别
 
@@ -848,7 +848,7 @@ public final class HistoryQueryService {
 | `module/file` | conversation 调 `PackageReferenceResolver.resolve(packageId).listImages()` 展开素材包引用；调 `FileService.getAssetImage(attachmentId)` 取图片元数据。不写 `asset_*` 表。 |
 | `module/dag` | conversation 调 `DagValidator.validate(dagJson)`（在 `/challenge` 第二阶段触发执行前再校验一次，作为 belt-and-suspenders）；调 `TaskService.createProcessTask(token, dagJson, packageId, ...) -> taskId` 触发确定性路径执行；调 `PendingPlanMapper.findByProposalId` 读提案（只读）。 |
 | `module/imagegen` | conversation 调 `PendingImagegenPlanMapper.findByProposalId`（只读）；调 `ImagegenExecutor.submit(token, proposal) -> taskId` 触发生成式路径执行。 |
-| `module/task` | conversation 调 `TaskService.requireOwnedTask(taskId, conversationId)` 校验归属；调 `TaskService.cancelTask(taskId)`（与 `module/task.md` 对齐）；订阅 `ProgressAggregator` Redis pub/sub / RabbitMQ topic 进度事件。 |
+| `module/task` | conversation 调 `TaskService.requireOwnedTask(taskId, conversationId)` 校验归属；调 `TaskService.cancelTask(taskId)`（与 `module/task.md` 对齐）；订阅 `ProgressAggregator` Redis pub/sub / RocketMQ topic 进度事件。 |
 | `harness/state` | conversation 调 `ProgressNotifier.notify` 接口实现进度推送；不直连 `state_store` Redis / MySQL 表（`state` 模块的运行态读模型对 web 层不可见）。 |
 | `harness/hooks` | conversation 不直接订阅 hook 事件（loop 在回合内派发；conversation 仅通过 SSE 帧把 hook 派发的影响透出，如 metadata 携带的 `compactTrigger`）；`RuntimeScope.main()` 由 conversation 构造并交给 loop。 |
 | `harness/tools` | conversation 不直接调 tools；仅在 `ConfirmationService` 触发执行时由 `module/dag.DagValidator` 间接触发。`tools.md §八.3` "工具集零令牌" 契约由本模块的 `/confirm/.../submit` 出口与 `permission.ConfirmationTokenService` 共同兑现。 |
@@ -1001,12 +1001,12 @@ pixflow:
 
 ### 17.2 端到端测试
 
-- **`MessageControllerE2ETest`**：用 Testcontainers（MySQL + Redis + MinIO + RabbitMQ + Qdrant），跑完整"开新会话 → POST /messages → 收到 assistant_delta 帧 → 收到 tool_result 帧（如 Agent 调用 search） → 收到 completed 帧 → 流关闭"链路；断言 `session.message` 表新增 message 条数与 SSE 事件一致；归档会话发消息返回 410。
+- **`MessageControllerE2ETest`**：用 Testcontainers（MySQL + Redis + MinIO + RocketMQ + Qdrant），跑完整"开新会话 → POST /messages → 收到 assistant_delta 帧 → 收到 tool_result 帧（如 Agent 调用 search） → 收到 completed 帧 → 流关闭"链路；断言 `session.message` 表新增 message 条数与 SSE 事件一致；归档会话发消息返回 410。
 - **`ConfirmationE2ETest`**：构造 `pending_plan` 行（`expectedCount=10` / `=100`）、调 `/challenge` 端点：
   - `10` 场景：返回 `token` 字段，无 challenge；
   - `100` 场景：返回 `challenge` 字段；
   - `/submit` 携带错误答案返回 400；
-  - `/submit` 携带正确答案返回 taskId，并断言 `module/task` 创建 `process_task` 入 RabbitMQ；
+  - `/submit` 携带正确答案返回 taskId，并断言 `module/task` 创建 `process_task` 入 RocketMQ；
   - 二次提交同 token 返回 401。
 - **`CancellationE2ETest`**：构造运行中 task，POST `/cancel` 端点，断言 Redis `cancel:task:{taskId}` 已写、task worker 在下一个工作单元优雅停、WebSocket 推送 `status=CANCELLED` 帧。
 - **`ConversationEndToEndIT`**（阶段 7 收尾）：跑"开新会话 → 发消息 → 流式接收 → 提交 DAG 提案 → challenge → submit → task 执行 → 进度推送 → 历史查询"全链路（与 `ConversationEndToEndIT.java` 一致，见 exec-plans 阶段 7）。
@@ -1083,7 +1083,7 @@ mvn -pl pixflow-conversation -am verify -Dtest='ConversationEndToEndIT'
 
 - **会话级锁** `lock:turn:{conversationId}` 是 conversation 模块的责任（design.md §五 隐含但未细化）。
 - **确认 REST 边界**（challenge + submit 两个端点）由 conversation 拥有；design.md §6.3 仅描述"确认边界在工具外"，本模块给出具体端点形态。
-- **取消 / 进度**入站归 conversation，task 模块通过 Redis pub/sub / RabbitMQ topic 解耦。
+- **取消 / 进度**入站归 conversation，task 模块通过 Redis pub/sub / RocketMQ topic 解耦。
 - **ATTACHMENT 投影**责任在 `harness/context` 的 `AttachmentContextPreparer`，conversation 只负责把 attachment 写到 message 表。
 
 ---

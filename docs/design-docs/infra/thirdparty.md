@@ -54,7 +54,7 @@
 | 背景去除（抠图）API（remove.bg / 阿里云智能抠图） | **infra/thirdparty** | 无 Spring AI 抽象的纯 HTTP 服务 |
 | 文本 LLM / 多模态 VLLM / 生图 / 嵌入 / 重排 | `infra/ai` | 走 Spring AI + Spring AI Alibaba，有自己的 `ModelRetryRunner` |
 | 电商平台店铺数据 API | `module/commerce` | 业务数据接入，适配器在 commerce（design §8） |
-| MinIO / RabbitMQ / Redis / Qdrant | 各自 infra 模块 | 各有专门封装 |
+| MinIO / RocketMQ / Redis / Qdrant | 各自 infra 模块 | 各有专门封装 |
 
 所以本期 thirdparty 的**唯一具体集成是抠图**。模块设计成「非模型第三方 HTTP 集成框架 + 抠图首个落地」，结构上为未来新增同类第三方留位，但**不为想象中的扩展过度设计**。
 
