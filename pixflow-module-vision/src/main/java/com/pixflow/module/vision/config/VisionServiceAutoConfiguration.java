@@ -4,7 +4,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pixflow.infra.ai.vision.VisionModelClient;
 import com.pixflow.infra.image.pipeline.ImagePipeline;
 import com.pixflow.infra.mq.consumer.ManagedListenerContainerFactory;
-import com.pixflow.infra.mq.topology.TopologyRegistrar;
+import com.pixflow.infra.mq.consumer.ManagedMessageContainer;
+import com.pixflow.infra.mq.destination.DestinationRegistrar;
 import com.pixflow.infra.storage.ObjectStorage;
 import com.pixflow.module.vision.DefaultVisionService;
 import com.pixflow.module.vision.VisionService;
@@ -15,8 +16,7 @@ import com.pixflow.module.vision.enrich.AssetCopyWriteMapper;
 import com.pixflow.module.vision.enrich.AssetImageReadMapper;
 import com.pixflow.module.vision.enrich.CopyEnrichmentConsumer;
 import com.pixflow.module.vision.enrich.CopyEnrichmentErrorHandler;
-import com.pixflow.module.vision.enrich.CopyEnrichmentMessage;
-import com.pixflow.module.vision.enrich.CopyEnrichmentTopology;
+import com.pixflow.module.vision.enrich.CopyEnrichmentDestination;
 import com.pixflow.module.vision.enrich.CopyFillPolicy;
 import com.pixflow.module.vision.enrich.ProductCopyExtractor;
 import com.pixflow.module.vision.image.VisionImagePreprocessor;
@@ -26,7 +26,6 @@ import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.apache.ibatis.session.SqlSessionFactory;
 import org.mybatis.spring.annotation.MapperScan;
-import org.springframework.amqp.rabbit.listener.MessageListenerContainer;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
@@ -127,23 +126,20 @@ public class VisionServiceAutoConfiguration {
     }
 
     @Bean
-    @ConditionalOnBean(TopologyRegistrar.class)
-    public Object visionCopyEnrichmentTopologyRegistration(TopologyRegistrar registrar) {
-        registrar.register(CopyEnrichmentTopology.topology());
+    @ConditionalOnBean(DestinationRegistrar.class)
+    public Object visionCopyEnrichmentDestinationRegistration(DestinationRegistrar registrar) {
+        registrar.register(CopyEnrichmentDestination.destination(0));
+        registrar.register(CopyEnrichmentDestination.binding());
         return new Object();
     }
 
     @Bean
     @ConditionalOnBean({ManagedListenerContainerFactory.class, CopyEnrichmentConsumer.class, CopyEnrichmentErrorHandler.class})
-    public MessageListenerContainer visionCopyEnrichmentListenerContainer(
+    public ManagedMessageContainer visionCopyEnrichmentListenerContainer(
             ManagedListenerContainerFactory factory,
             CopyEnrichmentConsumer consumer,
             CopyEnrichmentErrorHandler errorHandler) {
-        MessageListenerContainer container = factory.create(
-                CopyEnrichmentTopology.topology(),
-                CopyEnrichmentMessage.class,
-                consumer,
-                errorHandler);
+        ManagedMessageContainer container = factory.create(CopyEnrichmentDestination.binding(), consumer, errorHandler);
         container.start();
         return container;
     }

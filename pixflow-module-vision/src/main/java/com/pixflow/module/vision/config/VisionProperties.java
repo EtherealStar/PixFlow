@@ -99,7 +99,6 @@ public class VisionProperties {
         private int imagesPerSku = 2;
         private FillPolicy fillPolicy = FillPolicy.GAP_ONLY;
         private int consumerConcurrency = 2;
-        private int prefetch = 1;
         private int intraPackageParallelism = 4;
         private Duration consumerTimeout = Duration.ofMinutes(30);
         private boolean expose = false;
@@ -128,13 +127,6 @@ public class VisionProperties {
             this.consumerConcurrency = consumerConcurrency;
         }
 
-        public int getPrefetch() {
-            return prefetch;
-        }
-
-        public void setPrefetch(int prefetch) {
-            this.prefetch = prefetch;
-        }
 
         public int getIntraPackageParallelism() {
             return intraPackageParallelism;
