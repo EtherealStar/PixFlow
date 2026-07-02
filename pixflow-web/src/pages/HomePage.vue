@@ -71,8 +71,8 @@ const cards: Array<{
   <section class="home-page flex flex-col h-full relative">
     <div class="p-6 md:p-10 max-w-5xl mx-auto w-full flex-1 overflow-y-auto">
     <header class="mb-8">
-      <h1 class="text-2xl font-semibold text-fg-primary mb-2">PixFlow</h1>
-      <p class="text-sm text-fg-secondary">智能素材处理 · 上传 → 处理 → 评分一站式</p>
+      <h1 class="text-2xl font-semibold text-fg-primary mb-2">PixFlow · 专属于你的AI电商运营助手</h1>
+      <p class="text-sm text-fg-secondary">精准解析自然语言指令，智能编排图片处理，沉淀高效经营洞察</p>
     </header>
 
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
