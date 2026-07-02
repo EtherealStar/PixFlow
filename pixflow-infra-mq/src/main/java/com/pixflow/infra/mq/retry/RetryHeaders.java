@@ -8,27 +8,20 @@ import java.util.Map;
 
 public final class RetryHeaders {
     public static final String RETRY_COUNT = "x-retry-count";
-    public static final String ORIGINAL_EXCHANGE = "x-original-exchange";
-    public static final String ORIGINAL_ROUTING_KEY = "x-original-routing-key";
+    public static final String ORIGINAL_TOPIC = "x-original-topic";
+    public static final String ORIGINAL_TAG = "x-original-tag";
     public static final String FIRST_FAILURE_AT = "x-first-failure-at";
     public static final String LAST_ERROR_CODE = "x-last-error-code";
     public static final String LAST_ERROR_MESSAGE = "x-last-error-message";
     public static final String TRACE_ID = "x-trace-id";
 
-    private RetryHeaders() {
-    }
+    private RetryHeaders() {}
 
     public static int retryCount(Map<String, Object> headers) {
         Object raw = headers == null ? null : headers.get(RETRY_COUNT);
-        if (raw instanceof Number number) {
-            return number.intValue();
-        }
+        if (raw instanceof Number number) return number.intValue();
         if (raw instanceof String value) {
-            try {
-                return Integer.parseInt(value);
-            } catch (NumberFormatException ignored) {
-                return 0;
-            }
+            try { return Integer.parseInt(value); } catch (NumberFormatException ignored) { return 0; }
         }
         return 0;
     }
@@ -40,10 +33,10 @@ public final class RetryHeaders {
         return copy;
     }
 
-    public static Map<String, Object> withOriginalRoute(Map<String, Object> headers, String exchange, String routingKey) {
+    public static Map<String, Object> withOriginalDestination(Map<String, Object> headers, String topic, String tag) {
         Map<String, Object> copy = copy(headers);
-        copy.putIfAbsent(ORIGINAL_EXCHANGE, exchange);
-        copy.putIfAbsent(ORIGINAL_ROUTING_KEY, routingKey);
+        copy.putIfAbsent(ORIGINAL_TOPIC, topic);
+        copy.putIfAbsent(ORIGINAL_TAG, tag);
         return copy;
     }
 

@@ -5,9 +5,8 @@ import java.util.Objects;
 public record PublishFailure(
         PublishFailureType type,
         String reason,
-        Integer replyCode,
-        String returnedExchange,
-        String returnedRoutingKey) {
+        Integer brokerCode,
+        String brokerMessage) {
     public PublishFailure {
         Objects.requireNonNull(type, "type must not be null");
         if (reason == null || reason.isBlank()) {

@@ -1,12 +1,10 @@
 package com.pixflow.infra.mq.consumer;
 
-import com.pixflow.infra.mq.topology.QueueTopology;
-import org.springframework.amqp.rabbit.listener.MessageListenerContainer;
+import com.pixflow.infra.mq.destination.ConsumerBinding;
 
 public interface ManagedListenerContainerFactory {
-    MessageListenerContainer create(
-            QueueTopology topology,
-            Class<?> payloadType,
+    ManagedMessageContainer create(
+            ConsumerBinding binding,
             ManagedMessageHandler<?> handler,
             ConsumerErrorHandler errorHandler);
 }

@@ -7,72 +7,49 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 
 @ConfigurationProperties(prefix = "pixflow.mq")
 public class MqProperties {
-    private Duration publishConfirmTimeout = Duration.ofSeconds(5);
-    private int prefetch = 1;
-    private int consumerConcurrency = 4;
+    private String namesrvAddr = "localhost:9876";
+    private String producerGroup = "pixflow-producer";
+    private Duration sendTimeout = Duration.ofSeconds(5);
+    private final Consumer consumer = new Consumer();
     private int inProcessRetries = 2;
     private int maxRetries = 5;
     private List<Duration> retryBackoff = new ArrayList<>(List.of(
-            Duration.ofSeconds(5),
-            Duration.ofSeconds(30),
-            Duration.ofMinutes(2),
-            Duration.ofMinutes(10),
-            Duration.ofMinutes(30)));
+            Duration.ofSeconds(5), Duration.ofSeconds(30), Duration.ofMinutes(2), Duration.ofMinutes(10), Duration.ofMinutes(30)));
+    private RetryMode retryMode = RetryMode.BROKER;
     private int dlqAlertThreshold = 1;
+    private boolean topicAutoCreate;
 
-    public Duration getPublishConfirmTimeout() {
-        return publishConfirmTimeout;
+    public String getNamesrvAddr() { return namesrvAddr; }
+    public void setNamesrvAddr(String namesrvAddr) { this.namesrvAddr = namesrvAddr; }
+    public String getProducerGroup() { return producerGroup; }
+    public void setProducerGroup(String producerGroup) { this.producerGroup = producerGroup; }
+    public Duration getSendTimeout() { return sendTimeout; }
+    public void setSendTimeout(Duration sendTimeout) { this.sendTimeout = sendTimeout; }
+    public Consumer getConsumer() { return consumer; }
+    public int getInProcessRetries() { return inProcessRetries; }
+    public void setInProcessRetries(int inProcessRetries) { this.inProcessRetries = inProcessRetries; }
+    public int getMaxRetries() { return maxRetries; }
+    public void setMaxRetries(int maxRetries) { this.maxRetries = maxRetries; }
+    public List<Duration> getRetryBackoff() { return retryBackoff; }
+    public void setRetryBackoff(List<Duration> retryBackoff) { this.retryBackoff = retryBackoff; }
+    public RetryMode getRetryMode() { return retryMode; }
+    public void setRetryMode(RetryMode retryMode) { this.retryMode = retryMode; }
+    public int getDlqAlertThreshold() { return dlqAlertThreshold; }
+    public void setDlqAlertThreshold(int dlqAlertThreshold) { this.dlqAlertThreshold = dlqAlertThreshold; }
+    public boolean isTopicAutoCreate() { return topicAutoCreate; }
+    public void setTopicAutoCreate(boolean topicAutoCreate) { this.topicAutoCreate = topicAutoCreate; }
+
+    public static class Consumer {
+        private int consumeThreadMin = 2;
+        private int consumeThreadMax = 8;
+        private Duration consumeTimeout = Duration.ofMinutes(5);
+        public int getConsumeThreadMin() { return consumeThreadMin; }
+        public void setConsumeThreadMin(int consumeThreadMin) { this.consumeThreadMin = consumeThreadMin; }
+        public int getConsumeThreadMax() { return consumeThreadMax; }
+        public void setConsumeThreadMax(int consumeThreadMax) { this.consumeThreadMax = consumeThreadMax; }
+        public Duration getConsumeTimeout() { return consumeTimeout; }
+        public void setConsumeTimeout(Duration consumeTimeout) { this.consumeTimeout = consumeTimeout; }
     }
 
-    public void setPublishConfirmTimeout(Duration publishConfirmTimeout) {
-        this.publishConfirmTimeout = publishConfirmTimeout;
-    }
-
-    public int getPrefetch() {
-        return prefetch;
-    }
-
-    public void setPrefetch(int prefetch) {
-        this.prefetch = prefetch;
-    }
-
-    public int getConsumerConcurrency() {
-        return consumerConcurrency;
-    }
-
-    public void setConsumerConcurrency(int consumerConcurrency) {
-        this.consumerConcurrency = consumerConcurrency;
-    }
-
-    public int getInProcessRetries() {
-        return inProcessRetries;
-    }
-
-    public void setInProcessRetries(int inProcessRetries) {
-        this.inProcessRetries = inProcessRetries;
-    }
-
-    public int getMaxRetries() {
-        return maxRetries;
-    }
-
-    public void setMaxRetries(int maxRetries) {
-        this.maxRetries = maxRetries;
-    }
-
-    public List<Duration> getRetryBackoff() {
-        return retryBackoff;
-    }
-
-    public void setRetryBackoff(List<Duration> retryBackoff) {
-        this.retryBackoff = retryBackoff;
-    }
-
-    public int getDlqAlertThreshold() {
-        return dlqAlertThreshold;
-    }
-
-    public void setDlqAlertThreshold(int dlqAlertThreshold) {
-        this.dlqAlertThreshold = dlqAlertThreshold;
-    }
+    public enum RetryMode { BROKER, EXPLICIT_DELAY }
 }

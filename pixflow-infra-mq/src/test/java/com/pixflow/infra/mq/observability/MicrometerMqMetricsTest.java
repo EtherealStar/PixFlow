@@ -13,24 +13,24 @@ class MicrometerMqMetricsTest {
         SimpleMeterRegistry registry = new SimpleMeterRegistry();
         MicrometerMqMetrics metrics = new MicrometerMqMetrics(registry);
 
-        metrics.recordPublishConfirmed("pixflow.test", "test.submit");
-        metrics.recordPublishFailed("pixflow.test", "bad.route", PublishFailureType.RETURNED);
-        metrics.recordConsumeAck("pixflow.test.q");
-        metrics.recordConsumeRetry("pixflow.test.q", 2);
-        metrics.recordConsumeDeadLetter("pixflow.test.q");
-        metrics.recordConsumeAckDrop("pixflow.test.q");
+        metrics.recordPublishConfirmed("pixflow-test", "TEST_SUBMIT");
+        metrics.recordPublishFailed("pixflow-test", "BAD_ROUTE", PublishFailureType.BROKER_REJECTED);
+        metrics.recordConsumeAck("pixflow-test", "pixflow-test-worker");
+        metrics.recordConsumeRetry("pixflow-test", "pixflow-test-worker", 2);
+        metrics.recordConsumeDeadLetter("pixflow-test", "pixflow-test-worker");
+        metrics.recordConsumeAckDrop("pixflow-test", "pixflow-test-worker");
 
-        assertThat(registry.counter("pixflow.mq.publish", "exchange", "pixflow.test", "routingKey", "test.submit", "result", "confirmed").count())
+        assertThat(registry.counter("pixflow.mq.publish", "topic", "pixflow-test", "tag", "TEST_SUBMIT", "result", "confirmed").count())
                 .isEqualTo(1);
-        assertThat(registry.counter("pixflow.mq.publish", "exchange", "pixflow.test", "routingKey", "bad.route", "result", "failed", "failureType", "RETURNED").count())
+        assertThat(registry.counter("pixflow.mq.publish", "topic", "pixflow-test", "tag", "BAD_ROUTE", "result", "failed", "failureType", "BROKER_REJECTED").count())
                 .isEqualTo(1);
-        assertThat(registry.counter("pixflow.mq.consume", "queue", "pixflow.test.q", "result", "ack").count())
+        assertThat(registry.counter("pixflow.mq.consume", "topic", "pixflow-test", "consumerGroup", "pixflow-test-worker", "result", "ack").count())
                 .isEqualTo(1);
-        assertThat(registry.counter("pixflow.mq.consume", "queue", "pixflow.test.q", "result", "retry").count())
+        assertThat(registry.counter("pixflow.mq.consume", "topic", "pixflow-test", "consumerGroup", "pixflow-test-worker", "result", "retry").count())
                 .isEqualTo(1);
-        assertThat(registry.counter("pixflow.mq.consume", "queue", "pixflow.test.q", "result", "dead_letter").count())
+        assertThat(registry.counter("pixflow.mq.consume", "topic", "pixflow-test", "consumerGroup", "pixflow-test-worker", "result", "dead_letter").count())
                 .isEqualTo(1);
-        assertThat(registry.counter("pixflow.mq.consume", "queue", "pixflow.test.q", "result", "ack_drop").count())
+        assertThat(registry.counter("pixflow.mq.consume", "topic", "pixflow-test", "consumerGroup", "pixflow-test-worker", "result", "ack_drop").count())
                 .isEqualTo(1);
     }
 }

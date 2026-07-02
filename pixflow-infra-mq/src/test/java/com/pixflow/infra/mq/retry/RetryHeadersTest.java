@@ -18,16 +18,16 @@ class RetryHeadersTest {
     }
 
     @Test
-    void storesOriginalRouteAndSanitizedFailure() {
+    void storesOriginalDestinationAndSanitizedFailure() {
         PixFlowException error = new PixFlowException(CommonErrorCode.DEPENDENCY_UNAVAILABLE, "failed at D:\\secret\\token.txt");
 
-        Map<String, Object> headers = RetryHeaders.withOriginalRoute(
+        Map<String, Object> headers = RetryHeaders.withOriginalDestination(
                 RetryHeaders.withFailure(Map.of(), error),
-                "pixflow.test",
-                "test.submit");
+                "pixflow-test",
+                "TEST_SUBMIT");
 
-        assertThat(headers).containsEntry(RetryHeaders.ORIGINAL_EXCHANGE, "pixflow.test");
-        assertThat(headers).containsEntry(RetryHeaders.ORIGINAL_ROUTING_KEY, "test.submit");
+        assertThat(headers).containsEntry(RetryHeaders.ORIGINAL_TOPIC, "pixflow-test");
+        assertThat(headers).containsEntry(RetryHeaders.ORIGINAL_TAG, "TEST_SUBMIT");
         assertThat(headers).containsEntry(RetryHeaders.LAST_ERROR_CODE, "DEPENDENCY_UNAVAILABLE");
         assertThat((String) headers.get(RetryHeaders.LAST_ERROR_MESSAGE)).contains("<external>");
     }
