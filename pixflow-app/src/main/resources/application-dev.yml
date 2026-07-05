@@ -2,7 +2,7 @@ spring:
   datasource:
     url: jdbc:mysql://localhost:3306/pixflow?useUnicode=true&characterEncoding=utf8&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
     username: pixflow
-    password: pixflow
+    password: pixflow_dev_20260705
     driver-class-name: com.mysql.cj.jdbc.Driver
 pixflow:
   cache:
