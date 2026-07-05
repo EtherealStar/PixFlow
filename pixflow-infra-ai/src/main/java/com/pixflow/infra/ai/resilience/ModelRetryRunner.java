@@ -8,7 +8,9 @@ import com.pixflow.infra.ai.model.ModelRole;
 import java.time.Duration;
 import java.util.Objects;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
 /**
@@ -23,6 +25,26 @@ public final class ModelRetryRunner {
 
     public Flux<ChatStreamEvent> run(ModelRole role, Function<Integer, Flux<ChatStreamEvent>> attemptSupplier) {
         return Flux.defer(() -> tryAttempt(role, attemptSupplier, 1, false));
+    }
+
+    public <T> Mono<T> runBlocking(ModelRole role, Supplier<Mono<T>> attemptSupplier) {
+        Objects.requireNonNull(attemptSupplier, "attemptSupplier");
+        return Mono.defer(() -> tryBlocking(role, attemptSupplier, 1));
+    }
+
+    private <T> Mono<T> tryBlocking(ModelRole role, Supplier<Mono<T>> attemptSupplier, int attempt) {
+        return attemptSupplier.get()
+                .onErrorResume(error -> {
+                    PixFlowException normalized = normalize(role, error);
+                    if (!isRetryable(normalized)
+                            || normalized.category() == com.pixflow.common.error.ErrorCategory.CONTEXT_LIMIT
+                            || attempt >= retryPolicy.maxRetries() + 1) {
+                        return Mono.error(normalized);
+                    }
+                    Duration delay = retryPolicy.delayForAttempt(attempt, normalized.retryAfter());
+                    return Mono.defer(() -> tryBlocking(role, attemptSupplier, attempt + 1))
+                            .delaySubscription(delay, Schedulers.boundedElastic());
+                });
     }
 
     private Flux<ChatStreamEvent> tryAttempt(
