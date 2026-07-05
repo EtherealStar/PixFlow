@@ -1,19 +1,17 @@
 package com.pixflow.harness.tools;
 
 import com.pixflow.harness.hooks.HookRegistry;
-import com.pixflow.harness.permission.PermissionContext;
-import com.pixflow.harness.permission.PermissionPolicy;
 import com.pixflow.harness.tools.plan.PlanModeView;
-import com.pixflow.harness.tools.result.ToolResultStorage;
 import com.pixflow.harness.tools.result.ToolTraceSink;
+import com.pixflow.infra.storage.toolresult.ToolResultStorage;
 import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 
 public record ToolExecutionContext(
-        PermissionPolicy permissionPolicy,
-        PermissionContext permissionContext,
+        com.pixflow.harness.permission.PermissionPolicy permissionPolicy,
+        com.pixflow.harness.permission.PermissionContext permissionContext,
         HookRegistry hookRegistry,
         ToolResultStorage resultStorage,
         ToolTraceSink traceSink,

@@ -7,17 +7,14 @@ import com.pixflow.harness.hooks.HookRegistry;
 import com.pixflow.harness.hooks.HookResult;
 import com.pixflow.harness.hooks.payload.ToolUsePayload;
 import com.pixflow.harness.permission.PermissionAction;
-import com.pixflow.harness.permission.PermissionContext;
 import com.pixflow.harness.permission.PermissionDecision;
-import com.pixflow.harness.permission.PermissionPolicy;
 import com.pixflow.harness.permission.PermissionSource;
 import com.pixflow.harness.permission.PermissionSubject;
 import com.pixflow.harness.tools.error.ToolErrorFactory;
 import com.pixflow.harness.tools.plan.PlanModeView;
-import com.pixflow.harness.tools.result.ToolResultStorage;
 import com.pixflow.harness.tools.result.ToolTraceSink;
-import com.pixflow.infra.storage.ObjectRef;
-import java.nio.charset.StandardCharsets;
+import com.pixflow.infra.storage.toolresult.StoredToolResultReference;
+import com.pixflow.infra.storage.toolresult.ToolResultStorage;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -29,7 +26,7 @@ import java.util.concurrent.ExecutorService;
 
 public class RegistryToolExecutor implements ToolExecutor {
     private final ToolRegistry toolRegistry;
-    private final PermissionPolicy permissionPolicy;
+    private final com.pixflow.harness.permission.PermissionPolicy permissionPolicy;
     private final HookRegistry hookRegistry;
     private final ToolResultStorage resultStorage;
     private final ToolTraceSink traceSink;
@@ -38,7 +35,7 @@ public class RegistryToolExecutor implements ToolExecutor {
 
     public RegistryToolExecutor(
             ToolRegistry toolRegistry,
-            PermissionPolicy permissionPolicy,
+            com.pixflow.harness.permission.PermissionPolicy permissionPolicy,
             HookRegistry hookRegistry,
             ToolResultStorage resultStorage,
             ToolTraceSink traceSink,
@@ -201,13 +198,17 @@ public class RegistryToolExecutor implements ToolExecutor {
             metadata.put("original_size_chars", length);
             return ToolExecutionResult.success(call.toolCallId(), call.toolName(), preview, metadata);
         }
-        ToolResultStorage.StoredToolResult stored = resultStorage.store(call.toolCallId(), call.toolName(), content);
+        StoredToolResultReference stored = resultStorage.write(call.toolCallId(), content, policy.previewChars());
         metadata.put("result_truncated", true);
         metadata.put("original_size_chars", length);
         metadata.put("max_result_size_chars", policy.maxResultSizeChars());
-        metadata.put("stored_ref", stored.ref());
-        metadata.put("stored_object", stored.objectRef());
+        metadata.put("stored_ref", storedRef(stored));
+        metadata.put("stored_reference", stored);
         return ToolExecutionResult.success(call.toolCallId(), call.toolName(), stored.preview().isEmpty() ? preview : stored.preview(), metadata);
+    }
+
+    private static String storedRef(StoredToolResultReference reference) {
+        return "tool-results://" + reference.bucket().toLowerCase() + "/" + reference.key();
     }
 
     private void validateArgs(ToolDescriptor descriptor, Map<String, Object> args) {
@@ -227,7 +228,10 @@ public class RegistryToolExecutor implements ToolExecutor {
     }
 
     private PermissionDecision evaluatePermission(
-            ToolCall call, ToolDescriptor descriptor, ToolCallClassification classification, PermissionContext context) {
+            ToolCall call,
+            ToolDescriptor descriptor,
+            ToolCallClassification classification,
+            com.pixflow.harness.permission.PermissionContext context) {
         PermissionSubject subject = new PermissionSubject(
                 descriptor.name(),
                 classification.readOnly(),

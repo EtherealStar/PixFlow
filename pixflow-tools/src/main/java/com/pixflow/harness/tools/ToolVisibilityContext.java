@@ -1,12 +1,11 @@
 package com.pixflow.harness.tools;
 
-import com.pixflow.harness.permission.PermissionContext;
 import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.Set;
 
 public record ToolVisibilityContext(
-        PermissionContext permissionContext,
+        com.pixflow.harness.permission.PermissionContext permissionContext,
         boolean planMode,
         Set<String> hiddenTools) {
 
