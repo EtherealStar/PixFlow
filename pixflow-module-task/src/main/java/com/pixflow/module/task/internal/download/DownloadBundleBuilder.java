@@ -27,17 +27,27 @@ public class DownloadBundleBuilder {
     }
 
     public ObjectRef build(long taskId, List<ProcessResult> results) {
+        List<BundleSource> sources = results.stream()
+                .filter(result -> result.getOutputMinioKey() != null)
+                .map(result -> {
+                    BucketType bucket = result.getKind() == UnitKind.GENERATIVE ? BucketType.GENERATED : BucketType.RESULTS;
+                    return new BundleSource(entryName(result), ObjectLocation.of(bucket, result.getOutputMinioKey()));
+                })
+                .toList();
+        return build("task-downloads/" + taskId + ".zip", sources);
+    }
+
+    public ObjectRef build(String archiveKey, List<BundleSource> sources) {
         long maxBytes = properties.getDownload().getMaxBundleBytes();
         try (ByteArrayOutputStream bytes = new ByteArrayOutputStream();
              ZipOutputStream zip = new ZipOutputStream(bytes)) {
             int index = 0;
-            for (ProcessResult result : results) {
-                if (result.getOutputMinioKey() == null) {
+            for (BundleSource source : sources) {
+                if (source == null || source.location() == null) {
                     continue;
                 }
-                BucketType bucket = result.getKind() == UnitKind.GENERATIVE ? BucketType.GENERATED : BucketType.RESULTS;
-                try (InputStream in = objectStorage.getStream(ObjectLocation.of(bucket, result.getOutputMinioKey()))) {
-                    zip.putNextEntry(new ZipEntry(entryName(++index, result)));
+                try (InputStream in = objectStorage.getStream(source.location())) {
+                    zip.putNextEntry(new ZipEntry(entryName(++index, source.entryName())));
                     in.transferTo(zip);
                     zip.closeEntry();
                 }
@@ -49,7 +59,7 @@ public class DownloadBundleBuilder {
             if (bytes.size() > maxBytes) {
                 throw tooLarge(maxBytes);
             }
-            ObjectLocation location = ObjectLocation.of(BucketType.TMP, "task-downloads/" + taskId + ".zip");
+            ObjectLocation location = ObjectLocation.of(BucketType.TMP, archiveKey);
             return objectStorage.put(location, new ByteArrayInputStream(bytes.toByteArray()),
                     bytes.size(), "application/zip");
         } catch (IOException e) {
@@ -57,15 +67,32 @@ public class DownloadBundleBuilder {
         }
     }
 
-    private static String entryName(int index, ProcessResult result) {
+    private static String entryName(ProcessResult result) {
         String member = result.getGroupKey() != null ? result.getGroupKey() : result.getImageId();
         String safeMember = member == null ? "result" : member.replaceAll("[^A-Za-z0-9_.-]", "_");
         String branch = result.getBranchId() == null ? "default" : result.getBranchId().replaceAll("[^A-Za-z0-9_.-]", "_");
-        return "%03d_%s_%s".formatted(index, safeMember, branch);
+        return "%s_%s".formatted(safeMember, branch);
+    }
+
+    private static String entryName(int index, String entryName) {
+        String fallback = entryName == null || entryName.isBlank() ? "image" : entryName;
+        String safe = fallback.replace('\\', '/');
+        int slash = safe.lastIndexOf('/');
+        if (slash >= 0) {
+            safe = safe.substring(slash + 1);
+        }
+        safe = safe.replaceAll("[^A-Za-z0-9_.-]", "_");
+        if (safe.isBlank()) {
+            safe = "image";
+        }
+        return "%03d_%s".formatted(index, safe);
     }
 
     private static PixFlowException tooLarge(long maxBytes) {
         return new PixFlowException(TaskErrorCode.TASK_DOWNLOAD_BUNDLE_TOO_LARGE,
                 "download bundle exceeds max bytes: " + maxBytes);
+    }
+
+    public record BundleSource(String entryName, ObjectLocation location) {
     }
 }

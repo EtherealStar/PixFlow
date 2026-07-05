@@ -52,6 +52,7 @@ import com.pixflow.module.task.internal.worker.TaskWorker;
 import com.pixflow.module.task.internal.worker.WorkerRouter;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Clock;
+import org.apache.ibatis.annotations.Mapper;
 import org.mybatis.spring.annotation.MapperScan;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
@@ -64,14 +65,8 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 @AutoConfiguration
 @EnableScheduling
 @EnableConfigurationProperties(TaskProperties.class)
-@MapperScan("com.pixflow.module.task.infra.persistence")
+@MapperScan(value = "com.pixflow.module.task.infra.persistence", annotationClass = Mapper.class)
 public class TaskAutoConfiguration {
-    @Bean
-    @ConditionalOnMissingBean(name = "taskClock")
-    public Clock taskClock() {
-        return Clock.systemUTC();
-    }
-
     @Bean
     @ConditionalOnMissingBean
     public TaskMetrics taskMetrics(MeterRegistry registry) {
@@ -134,8 +129,8 @@ public class TaskAutoConfiguration {
     @ConditionalOnBean({TaskCancelFlag.class, ProcessTaskMapper.class})
     @ConditionalOnMissingBean
     public CancellationService cancellationService(ProcessTaskMapper mapper, TaskCancelFlag flag,
-                                                   TaskMetrics metrics, Clock taskClock) {
-        return new CancellationService(mapper, flag, metrics, taskClock);
+                                                   TaskMetrics metrics, Clock clock) {
+        return new CancellationService(mapper, flag, metrics, clock);
     }
 
     @Bean
@@ -150,8 +145,8 @@ public class TaskAutoConfiguration {
     public ProgressAggregator progressAggregator(TaskProgressCounter counter,
                                                  ApplicationEventPublisher publisher,
                                                  TaskMetrics metrics,
-                                                 Clock taskClock) {
-        return new ProgressAggregator(counter, publisher, metrics, taskClock);
+                                                 Clock clock) {
+        return new ProgressAggregator(counter, publisher, metrics, clock);
     }
 
     @Bean
@@ -161,8 +156,8 @@ public class TaskAutoConfiguration {
                                            ProgressAggregator progress,
                                            ErrorNormalizer normalizer,
                                            TaskMetrics metrics,
-                                           Clock taskClock) {
-        return new FailureIsolator(mapper, progress, normalizer, metrics, taskClock);
+                                           Clock clock) {
+        return new FailureIsolator(mapper, progress, normalizer, metrics, clock);
     }
 
     @Bean
@@ -173,8 +168,8 @@ public class TaskAutoConfiguration {
                                                  CancellationService cancellationService,
                                                  TaskEventPublisher publisher,
                                                  TaskMetrics metrics,
-                                                 Clock taskClock) {
-        return new TerminalStateJudge(taskMapper, resultMapper, cancellationService, publisher, metrics, taskClock);
+                                                 Clock clock) {
+        return new TerminalStateJudge(taskMapper, resultMapper, cancellationService, publisher, metrics, clock);
     }
 
     @Bean
@@ -203,9 +198,9 @@ public class TaskAutoConfiguration {
                                        FailureIsolator failure,
                                        CancellationService cancellation,
                                        TaskMetrics metrics,
-                                       Clock taskClock) {
+                                       Clock clock) {
         return new ProcessWorker(objectMapper, branchExpander, unitExecutor, assetReader,
-                resultMapper, memberMapper, progress, failure, cancellation, metrics, taskClock);
+                resultMapper, memberMapper, progress, failure, cancellation, metrics, clock);
     }
 
     @Bean
@@ -215,9 +210,9 @@ public class TaskAutoConfiguration {
                                          TaskAssetReader assetReader, ProcessResultMapper resultMapper,
                                          ProgressAggregator progress, FailureIsolator failure,
                                          CancellationService cancellation, TaskMetrics metrics,
-                                         Clock taskClock) {
+                                         Clock clock) {
         return new ImageGenWorker(objectMapper, executor, assetReader, resultMapper,
-                progress, failure, cancellation, metrics, taskClock);
+                progress, failure, cancellation, metrics, clock);
     }
 
     @Bean
@@ -233,8 +228,8 @@ public class TaskAutoConfiguration {
     public TaskWorker taskWorker(ProcessTaskMapper taskMapper, ProcessResultMapper resultMapper,
                                  WorkerRouter router, WorkUnitScheduler scheduler,
                                  TerminalStateJudge terminal, TaskLockManager lock,
-                                 TaskMetrics metrics, TaskProperties properties, Clock taskClock) {
-        return new TaskWorker(taskMapper, resultMapper, router, scheduler, terminal, lock, metrics, properties, taskClock);
+                                 TaskMetrics metrics, TaskProperties properties, Clock clock) {
+        return new TaskWorker(taskMapper, resultMapper, router, scheduler, terminal, lock, metrics, properties, clock);
     }
 
     @Bean
@@ -281,8 +276,8 @@ public class TaskAutoConfiguration {
                                                     CancellationService cancellation,
                                                     TaskEventPublisher events,
                                                     TaskMetrics metrics,
-                                                    Clock taskClock) {
-        return new CreateTaskServiceImpl(taskMapper, publisher, idempotency, cancellation, events, metrics, taskClock);
+                                                    Clock clock) {
+        return new CreateTaskServiceImpl(taskMapper, publisher, idempotency, cancellation, events, metrics, clock);
     }
 
     @Bean
@@ -297,8 +292,8 @@ public class TaskAutoConfiguration {
     @ConditionalOnMissingBean
     public DownloadService downloadService(ProcessResultMapper resultMapper, ObjectStorage storage,
                                            DownloadBundleBuilder bundleBuilder,
-                                           TaskProperties properties, TaskMetrics metrics, Clock taskClock) {
-        return new DownloadService(resultMapper, storage, bundleBuilder, properties, metrics, taskClock);
+                                           TaskProperties properties, TaskMetrics metrics, Clock clock) {
+        return new DownloadService(resultMapper, storage, bundleBuilder, properties, metrics, clock);
     }
 
     @Bean
@@ -306,8 +301,9 @@ public class TaskAutoConfiguration {
     @ConditionalOnMissingBean(TaskQueryService.class)
     public TaskQueryServiceImpl taskQueryService(ProcessTaskMapper taskMapper,
                                                  ProcessResultMapper resultMapper,
-                                                 DownloadService downloadService) {
-        return new TaskQueryServiceImpl(taskMapper, resultMapper, downloadService);
+                                                 DownloadService downloadService,
+                                                 Clock clock) {
+        return new TaskQueryServiceImpl(taskMapper, resultMapper, downloadService, clock);
     }
 
     @Bean
@@ -321,14 +317,14 @@ public class TaskAutoConfiguration {
     @ConditionalOnBean({ProcessTaskMapper.class, TaskMessagePublisher.class})
     @ConditionalOnMissingBean
     public RecoveryService recoveryService(ProcessTaskMapper taskMapper, TaskMessagePublisher publisher,
-                                           TaskProperties properties, TaskMetrics metrics, Clock taskClock) {
-        return new RecoveryService(taskMapper, publisher, properties, metrics, taskClock);
+                                           TaskProperties properties, TaskMetrics metrics, Clock clock) {
+        return new RecoveryService(taskMapper, publisher, properties, metrics, clock);
     }
 
     @Bean
     @ConditionalOnBean(ProcessTaskMapper.class)
     @ConditionalOnMissingBean
-    public HeartbeatWriter heartbeatWriter(ProcessTaskMapper taskMapper, Clock taskClock) {
-        return new HeartbeatWriter(taskMapper, taskClock);
+    public HeartbeatWriter heartbeatWriter(ProcessTaskMapper taskMapper, Clock clock) {
+        return new HeartbeatWriter(taskMapper, clock);
     }
 }

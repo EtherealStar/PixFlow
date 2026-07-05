@@ -41,7 +41,7 @@ public class DownloadService {
 
     public DownloadHandle download(long taskId, ResultSelector selector) {
         if (selector.bundle()) {
-            var results = resultMapper.findByTaskIdAndStatus(taskId, ResultStatus.SUCCESS);
+            var results = resultMapper.findVisibleByTaskIdAndStatus(taskId, ResultStatus.SUCCESS);
             if (results.isEmpty()) {
                 metrics.recordDownload("bundle", "not_ready");
                 throw new PixFlowException(TaskErrorCode.TASK_DOWNLOAD_NOT_READY, "no successful result to bundle");
@@ -54,14 +54,22 @@ public class DownloadService {
                     "application/zip", ref.size());
         }
         ProcessResult result = selectResult(taskId, selector);
+        return downloadResult(result, "single");
+    }
+
+    public DownloadHandle downloadResult(ProcessResult result) {
+        return downloadResult(result, "single");
+    }
+
+    private DownloadHandle downloadResult(ProcessResult result, String metricType) {
         if (result == null || result.getStatus() != ResultStatus.SUCCESS || result.getOutputMinioKey() == null) {
-            metrics.recordDownload("single", "not_ready");
+            metrics.recordDownload(metricType, "not_ready");
             throw new PixFlowException(TaskErrorCode.TASK_DOWNLOAD_NOT_READY, "result is not ready for download");
         }
         BucketType bucket = result.getKind() == UnitKind.GENERATIVE ? BucketType.GENERATED : BucketType.RESULTS;
         URL url = objectStorage.presignGet(ObjectLocation.of(bucket, result.getOutputMinioKey()),
                 properties.getDownload().getSingleUrlExpiry());
-        metrics.recordDownload("single", "ok");
+        metrics.recordDownload(metricType, "ok");
         return new DownloadHandle(url, clock.instant().plus(properties.getDownload().getSingleUrlExpiry()),
                 "application/octet-stream", result.getBytesOut() == null ? -1L : result.getBytesOut());
     }

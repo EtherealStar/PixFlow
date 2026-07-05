@@ -18,6 +18,7 @@ public class ProcessResult {
     private String branchId;
     private String sourcePath;
     private String outputMinioKey;
+    private String displayName;
     private String generatedCopy;
     private ResultStatus status;
     private String errorCode;
@@ -28,6 +29,7 @@ public class ProcessResult {
     private Long bytesIn;
     private Long bytesOut;
     private String workerRunId;
+    private Instant deletedAt;
     private Instant createdAt;
 
     public Long getId() { return id; }
@@ -50,6 +52,8 @@ public class ProcessResult {
     public void setSourcePath(String sourcePath) { this.sourcePath = sourcePath; }
     public String getOutputMinioKey() { return outputMinioKey; }
     public void setOutputMinioKey(String outputMinioKey) { this.outputMinioKey = outputMinioKey; }
+    public String getDisplayName() { return displayName; }
+    public void setDisplayName(String displayName) { this.displayName = displayName; }
     public String getGeneratedCopy() { return generatedCopy; }
     public void setGeneratedCopy(String generatedCopy) { this.generatedCopy = generatedCopy; }
     public ResultStatus getStatus() { return status; }
@@ -70,6 +74,8 @@ public class ProcessResult {
     public void setBytesOut(Long bytesOut) { this.bytesOut = bytesOut; }
     public String getWorkerRunId() { return workerRunId; }
     public void setWorkerRunId(String workerRunId) { this.workerRunId = workerRunId; }
+    public Instant getDeletedAt() { return deletedAt; }
+    public void setDeletedAt(Instant deletedAt) { this.deletedAt = deletedAt; }
     public Instant getCreatedAt() { return createdAt; }
     public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
 }
