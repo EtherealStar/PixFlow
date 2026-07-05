@@ -13,6 +13,8 @@ public enum FileErrorCode implements ErrorCode {
     COPY_DOC_PARSE_FAILED(ErrorCategory.VALIDATION),
     UPLOAD_TOO_LARGE(ErrorCategory.VALIDATION),
     PACKAGE_ALREADY_REFERENCED(ErrorCategory.BUSINESS_RULE),
+    ASSET_IMAGE_NOT_FOUND(ErrorCategory.NOT_FOUND),
+    ASSET_IMAGE_NAME_INVALID(ErrorCategory.VALIDATION),
     MESSAGE_PUBLISH_FAILED(ErrorCategory.DEPENDENCY);
 
     private final ErrorCategory category;

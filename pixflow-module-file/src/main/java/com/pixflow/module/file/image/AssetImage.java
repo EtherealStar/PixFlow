@@ -15,6 +15,8 @@ public class AssetImage {
     private String viewId;
     private String minioKey;
     private String originalPath;
+    private String displayName;
+    private Instant deletedAt;
     private Instant createdAt;
 
     public Long getId() {
@@ -71,6 +73,22 @@ public class AssetImage {
 
     public void setOriginalPath(String originalPath) {
         this.originalPath = originalPath;
+    }
+
+    public String getDisplayName() {
+        return displayName;
+    }
+
+    public void setDisplayName(String displayName) {
+        this.displayName = displayName;
+    }
+
+    public Instant getDeletedAt() {
+        return deletedAt;
+    }
+
+    public void setDeletedAt(Instant deletedAt) {
+        this.deletedAt = deletedAt;
     }
 
     public Instant getCreatedAt() {

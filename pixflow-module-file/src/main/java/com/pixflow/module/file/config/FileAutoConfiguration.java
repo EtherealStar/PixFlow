@@ -1,11 +1,14 @@
 package com.pixflow.module.file.config;
 
+import com.baomidou.mybatisplus.autoconfigure.MybatisPlusAutoConfiguration;
 import com.pixflow.common.progress.ProgressNotifier;
 import com.pixflow.infra.mq.MessagePublisher;
 import com.pixflow.infra.mq.consumer.ManagedListenerContainerFactory;
 import com.pixflow.infra.mq.consumer.ManagedMessageContainer;
 import com.pixflow.infra.mq.destination.DestinationRegistrar;
+import com.pixflow.infra.mq.config.MqAutoConfiguration;
 import com.pixflow.infra.storage.ObjectStorage;
+import com.pixflow.infra.storage.config.StorageAutoConfiguration;
 import com.pixflow.module.file.FileService;
 import com.pixflow.module.file.copydoc.AssetCopyMapper;
 import com.pixflow.module.file.copydoc.CopyDocParser;
@@ -13,6 +16,7 @@ import com.pixflow.module.file.copydoc.CsvCopyDocParser;
 import com.pixflow.module.file.copydoc.ExcelCopyDocParser;
 import com.pixflow.module.file.error.AssetIngestErrorMapper;
 import com.pixflow.module.file.image.AssetImageMapper;
+import com.pixflow.module.file.image.DefaultSourceImageReader;
 import com.pixflow.module.file.ingest.ExtractionConsumer;
 import com.pixflow.module.file.ingest.ExtractionErrorHandler;
 import com.pixflow.module.file.ingest.ExtractionPublisher;
@@ -29,7 +33,10 @@ import com.pixflow.module.file.pkg.DefaultPackageReferenceChecker;
 import com.pixflow.module.file.pkg.DefaultPackageReferenceResolver;
 import com.pixflow.module.file.pkg.PackageReferenceChecker;
 import com.pixflow.module.file.pkg.PackageReferenceResolver;
+import com.pixflow.module.file.web.FileController;
+import com.pixflow.module.imagegen.port.SourceImageReader;
 import java.time.Clock;
+import org.apache.ibatis.annotations.Mapper;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
@@ -38,17 +45,17 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean;
 import org.mybatis.spring.annotation.MapperScan;
 
-@AutoConfiguration
+@AutoConfiguration(after = {
+        StorageAutoConfiguration.class,
+        MqAutoConfiguration.class,
+        MybatisPlusAutoConfiguration.class
+})
 @EnableConfigurationProperties(FileProperties.class)
 @EnableScheduling
-@MapperScan("com.pixflow.module.file")
+@MapperScan(
+        basePackageClasses = {AssetPackageMapper.class, AssetImageMapper.class, AssetIngestErrorMapper.class, AssetCopyMapper.class},
+        annotationClass = Mapper.class)
 public class FileAutoConfiguration {
-
-    @Bean
-    @ConditionalOnMissingBean
-    public Clock fileClock() {
-        return Clock.systemUTC();
-    }
 
     @Bean
     @ConditionalOnMissingBean
@@ -95,7 +102,6 @@ public class FileAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    @ConditionalOnBean({AssetPackageService.class, AssetImageMapper.class})
     public PackageReferenceResolver packageReferenceResolver(
             AssetPackageService packageService,
             AssetImageMapper imageMapper) {
@@ -104,7 +110,12 @@ public class FileAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    @ConditionalOnBean({AssetPackageMapper.class, ObjectStorage.class})
+    public SourceImageReader sourceImageReader(AssetImageMapper imageMapper) {
+        return new DefaultSourceImageReader(imageMapper);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
     public AssetPackageService assetPackageService(
             AssetPackageMapper packageMapper,
             PackageReferenceChecker referenceChecker,
@@ -122,25 +133,34 @@ public class FileAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    @ConditionalOnBean({AssetPackageService.class, AssetPackageMapper.class, AssetIngestErrorMapper.class, ObjectStorage.class, ExtractionPublisher.class})
     public FileService fileService(
             AssetPackageService packageService,
             AssetPackageMapper packageMapper,
+            AssetImageMapper imageMapper,
             AssetIngestErrorMapper errorMapper,
             AssetCopyMapper copyMapper,
             CsvCopyDocParser csvCopyDocParser,
             ExcelCopyDocParser excelCopyDocParser,
             ObjectStorage objectStorage,
-            ExtractionPublisher extractionPublisher) {
+            ExtractionPublisher extractionPublisher,
+            Clock clock) {
         return new FileService(
                 packageService,
                 packageMapper,
+                imageMapper,
                 errorMapper,
                 copyMapper,
                 csvCopyDocParser,
                 excelCopyDocParser,
                 objectStorage,
-                extractionPublisher);
+                extractionPublisher,
+                clock);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public FileController fileController(FileService fileService) {
+        return new FileController(fileService);
     }
 
     @Bean

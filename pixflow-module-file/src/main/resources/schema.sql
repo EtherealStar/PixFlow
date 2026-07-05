@@ -20,9 +20,12 @@ CREATE TABLE IF NOT EXISTS asset_image (
     view_id VARCHAR(128),
     minio_key VARCHAR(512),
     original_path VARCHAR(512) NOT NULL,
+    display_name VARCHAR(255),
+    deleted_at TIMESTAMP NULL,
     created_at TIMESTAMP NOT NULL,
     CONSTRAINT uk_asset_image_package_path UNIQUE (package_id, original_path)
 );
+CREATE INDEX idx_asset_image_package_visible ON asset_image (package_id, deleted_at, id);
 
 CREATE TABLE IF NOT EXISTS asset_copy (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
