@@ -4,13 +4,13 @@ import com.pixflow.infra.image.ImageCodec;
 import com.pixflow.infra.image.impl.DefaultImageCodec;
 import com.pixflow.infra.image.pipeline.DefaultImagePipeline;
 import com.pixflow.infra.image.pipeline.ImagePipeline;
+import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
 
-@Configuration
+@AutoConfiguration
 @ConditionalOnClass(name = {
         "com.sksamuel.scrimage.ImmutableImage",
         "com.sksamuel.scrimage.webp.WebpWriter",
