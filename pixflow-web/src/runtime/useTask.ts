@@ -8,7 +8,7 @@ import type { ApiError } from '@/types/api'
  * 见 web.md §九。
  *
  *  - 初始快照：GET /api/tasks/{id}
- *  - 实时更新：WS 订阅 /topic/task-progress/{cid}/{tid}
+ *  - 实时更新：WS 订阅 /topic/task-progress-{cid}-{tid}
  *  - 断线补偿：WS 重连后先 GET 拉一次最新，按 (updatedAt) 取较大者
  *  - 取消：乐观更新为 cancelled；WS 推送真 cancelled 帧幂等处理
  */
@@ -24,7 +24,7 @@ export type TaskPhase =
 export interface TaskState {
   taskId: string
   phase: TaskPhase
-  progress: { done: number; total: number; failed: number }
+  progress: { done: number; total: number; failed: number; skipped: number }
   updatedAt: number
   /** 后端 taskType（V1 仅展示用） */
   taskType?: 'IMAGE_PROCESS' | 'IMAGE_GEN'
@@ -32,7 +32,18 @@ export interface TaskState {
   createdAt?: string
   startedAt?: string
   finishedAt?: string
+  lastError?: string | null
   error?: ApiError
+}
+
+export interface TaskProgressFrame {
+  taskId: string
+  status?: TaskStatusView['status']
+  done?: number
+  total?: number
+  failed?: number
+  skipped?: number
+  occurredAt?: string
 }
 
 function statusToPhase(s: TaskStatusView['status']): TaskPhase {
@@ -57,7 +68,7 @@ export function createTask(opts: { taskId: string; conversationId: string }) {
   const state: Ref<TaskState> = ref({
     taskId: opts.taskId,
     phase: 'queued',
-    progress: { done: 0, total: 0, failed: 0 },
+    progress: { done: 0, total: 0, failed: 0, skipped: 0 },
     updatedAt: 0
   })
   const error: Ref<ApiError | null> = ref(null)
@@ -74,29 +85,37 @@ export function createTask(opts: { taskId: string; conversationId: string }) {
     state.value = {
       ...state.value,
       phase: statusToPhase(s.status),
-      progress: s.progress ?? { done: 0, total: 0, failed: 0 },
+      progress: {
+        done: s.progress?.done ?? 0,
+        total: s.progress?.total ?? 0,
+        failed: s.progress?.failed ?? 0,
+        skipped: s.skipped ?? 0
+      },
       taskType: s.taskType,
       createdAt: s.createdAt,
       startedAt: s.startedAt,
       finishedAt: s.finishedAt,
+      lastError: s.lastError ?? null,
       updatedAt: ts || Date.now()
     }
   }
 
-  function applyWsFrame(frame: { taskId: string; status?: string; done?: number; total?: number; failed?: number; completedAt?: string; cancelledAt?: string }): void {
+  function applyWsFrame(frame: TaskProgressFrame): void {
     if (frame.taskId !== opts.taskId) return
     const next: TaskState = { ...state.value }
     if (typeof frame.done === 'number') next.progress = { ...next.progress, done: frame.done }
     if (typeof frame.total === 'number') next.progress = { ...next.progress, total: frame.total }
     if (typeof frame.failed === 'number') next.progress = { ...next.progress, failed: frame.failed }
+    if (typeof frame.skipped === 'number') next.progress = { ...next.progress, skipped: frame.skipped }
     if (frame.status) {
       // 取消帧幂等：若已 cancelled，不再变
       if (frame.status === 'CANCELLED' && state.value.phase === 'cancelled') return
-      next.phase = statusToPhase(frame.status as TaskStatusView['status'])
-      if (frame.completedAt) next.finishedAt = frame.completedAt
-      if (frame.cancelledAt) next.finishedAt = frame.cancelledAt
+      next.phase = statusToPhase(frame.status)
+      if (['COMPLETED', 'FAILED', 'CANCELLED', 'PARTIAL'].includes(frame.status) && frame.occurredAt) {
+        next.finishedAt = frame.occurredAt
+      }
     }
-    next.updatedAt = Date.now()
+    next.updatedAt = parseTimestamp(frame.occurredAt) || Date.now()
     state.value = next
   }
 
@@ -120,8 +139,8 @@ export function createTask(opts: { taskId: string; conversationId: string }) {
       const wsUrl = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws/progress`
       stomp = getStompConnection({ url: wsUrl })
     }
-    const dest = `/topic/task-progress/${encodeURIComponent(opts.conversationId)}/${encodeURIComponent(opts.taskId)}`
-    subscription = stomp.subscribe(dest, (msg: Parameters<typeof applyWsFrame>[0]) => applyWsFrame(msg))
+    const dest = `/topic/task-progress-${encodeURIComponent(opts.conversationId)}-${encodeURIComponent(opts.taskId)}`
+    subscription = stomp.subscribe(dest, (msg: TaskProgressFrame) => applyWsFrame(msg))
   }
 
   function unsubscribeWS(): void {
@@ -133,7 +152,7 @@ export function createTask(opts: { taskId: string; conversationId: string }) {
 
   async function cancel(): Promise<void> {
     // 乐观更新
-    state.value = { ...state.value, phase: 'cancelled' }
+    state.value = { ...state.value, phase: 'cancelled', updatedAt: Date.now() }
     try {
       await cancelTask(opts.conversationId, opts.taskId)
     } catch (e) {

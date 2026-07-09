@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import type { ApiError } from '@/types/api'
+import { getAccessToken } from '@/transport/authToken'
 import { newTraceId } from '@/utils/id'
 
 /**
@@ -77,6 +78,10 @@ export function createSseClient(opts: SseClientOptions): { close: () => void } {
     Accept: 'text/event-stream',
     'X-Trace-Id': traceId,
     ...(opts.headers ?? {})
+  }
+  const token = getAccessToken()
+  if (token && !headers.Authorization) {
+    headers.Authorization = `Bearer ${token}`
   }
   let body: BodyInit | undefined
   if (opts.body !== undefined) {

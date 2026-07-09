@@ -1,5 +1,6 @@
 import { Client, type IMessage, type StompSubscription } from '@stomp/stompjs'
 import type { ApiError } from '@/types/api'
+import { getAccessToken } from '@/transport/authToken'
 import { newTraceId } from '@/utils/id'
 
 /**
@@ -39,8 +40,8 @@ export class StompConnection {
     this.client = new Client({
       brokerURL: opts.url,
       connectHeaders: {
-        'X-Auth-Token': '',
         'X-Trace-Id': this.traceId,
+        ...(getAccessToken() ? { Authorization: `Bearer ${getAccessToken()}` } : {}),
         ...(opts.headers ?? {})
       },
       reconnectDelay: 0, // 自定义退避表

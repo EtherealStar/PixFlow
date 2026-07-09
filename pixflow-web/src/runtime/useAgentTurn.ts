@@ -1,7 +1,7 @@
 import { ref, type Ref } from 'vue'
 import { z } from 'zod'
 import { createSseClient } from '@/transport/sse'
-import { submit as submitConfirm } from '@/api/confirm'
+import { challenge as challengeConfirm, submit as submitConfirm } from '@/api/confirm'
 import { getIdempotencyKey, setIdempotencyKey } from '@/utils/idempotencyStore'
 import { newId, newUuid } from '@/utils/id'
 import type { ApiError } from '@/types/api'
@@ -9,7 +9,9 @@ import type {
   AgentTurnPhase,
   AgentTurnSummary,
   AssistantDeltaPayload,
+  AssistantMessageCompletedPayload,
   ChallengeOrToken,
+  ConfirmationChallenge,
   CompletedPayload,
   ErrorEventPayload,
   Proposal,
@@ -37,8 +39,13 @@ interface PendingProposal {
 }
 
 export interface SendAttachments {
-  attachments?: Array<{ type: 'PACKAGE_REFERENCE'; packageId: number } | { type: 'UPLOAD_IMAGE'; attachmentId: string }>
-  packageBinding?: { packageId: number }
+  attachments?: Array<{ type: 'UPLOAD_IMAGE'; attachmentId?: string; sourceRef: string; metadata?: Record<string, unknown> | null }>
+  packageId?: string
+}
+
+export interface ConfirmResult {
+  taskId: string
+  challenge?: ConfirmationChallenge
 }
 
 export function createAgentTurn(opts: { conversationId: string }) {
@@ -95,10 +102,16 @@ export function createAgentTurn(opts: { conversationId: string }) {
             deltas.value += p.text ?? ''
             break
           }
+          case 'assistant_message_completed': {
+            const p = ev.data as AssistantMessageCompletedPayload
+            // 后端会单独发消息完成事件；只记录可用元数据，不把它当成终态。
+            if (p.traceId) summary.value.traceId = p.traceId
+            break
+          }
           case 'tool_call_ready': {
             const p = ev.data as ToolCallReadyPayload
             // 工具调用：可记录到 UI；本计划不展开工具 UI
-            if (__DEV__) console.debug('[agent] tool_call_ready', p.toolName, p.toolCallId)
+            if (__DEV__ && (p.toolName || p.toolCallId)) console.debug('[agent] tool_call_ready', p.toolName, p.toolCallId)
             break
           }
           case 'tool_started': {
@@ -156,6 +169,9 @@ export function createAgentTurn(opts: { conversationId: string }) {
       await new Promise((r) => setTimeout(r, 50))
     }
     sse?.close()
+    if (phase.value === 'error' && summary.value.error) {
+      throw summary.value.error
+    }
   }
 
   function setProposal(p: Proposal): void {
@@ -183,7 +199,7 @@ export function createAgentTurn(opts: { conversationId: string }) {
    * @param proposalId 待确认提案
    * @param challengeAnswer 仅在 needChallenge=true 时需要回答
    */
-  async function confirm(proposalId: string, challengeAnswer?: string): Promise<{ taskId: string }> {
+  async function confirm(proposalId: string, challengeAnswer?: string): Promise<ConfirmResult> {
     if (!pending || pending.proposal.proposalId !== proposalId) {
       throw {
         status: 400,
@@ -192,10 +208,13 @@ export function createAgentTurn(opts: { conversationId: string }) {
         traceId: ''
       } as ApiError
     }
+    if (challengeAnswer && pending.challengeId) {
+      return await doSubmit(proposalId, challengeAnswer)
+    }
     setPhase('awaiting_challenge')
     let ct: ChallengeOrToken
     try {
-      ct = await import('@/api/confirm').then((m) => m.challenge(opts.conversationId, proposalId, challengeAnswer ? { answer: challengeAnswer } : undefined))
+      ct = await challengeConfirm(opts.conversationId, proposalId)
     } catch (e) {
       const err = e as ApiError
       if (err.errorCode === 'PROPOSAL_CHALLENGE_FAILED') {
@@ -216,19 +235,19 @@ export function createAgentTurn(opts: { conversationId: string }) {
       }
       pending.challengeId = ct.challenge.challengeId
       // 等用户在 UI 输入答案（ChallengeDialog 调 confirm(proposalId, answer) 再走一次）
-      return { taskId: '' }
+      return { taskId: '', challenge: ct.challenge }
     }
     if (!ct.token) {
       const err: ApiError = { status: 500, errorCode: 'INTERNAL_ERROR', message: 'challenge 响应缺 token 字段', traceId: '' }
       setPhase('error', { error: err })
       throw err
     }
-    pending.token = ct.token.token
+    pending.token = typeof ct.token === 'string' ? ct.token : ct.token.token
     return await doSubmit(proposalId)
   }
 
-  async function doSubmit(proposalId: string): Promise<{ taskId: string }> {
-    if (!pending || !pending.token) {
+  async function doSubmit(proposalId: string, challengeAnswer?: string): Promise<ConfirmResult> {
+    if (!pending || (!pending.token && !pending.challengeId)) {
       throw {
         status: 400,
         errorCode: 'CONFIRMATION_TOKEN_INVALID',
@@ -243,7 +262,10 @@ export function createAgentTurn(opts: { conversationId: string }) {
       const r = await submitConfirm(
         opts.conversationId,
         proposalId,
-        { challengeAnswer: undefined },
+        {
+          challengeId: pending.challengeId,
+          challengeAnswer
+        },
         idemp
       )
       setPhase('completed', { taskId: r.taskId })
@@ -284,12 +306,18 @@ export type AgentTurn = ReturnType<typeof createAgentTurn>
 /** 工具：从 SSE 事件负载 schema 校验（仅供测试 / 调试）。 */
 export const sseEventDataSchemas = {
   assistant_delta: z.object({ text: z.string() }),
+  assistant_message_completed: z.object({
+    finalText: z.string(),
+    messageId: z.string().optional(),
+    traceId: z.string().optional(),
+    turnNo: z.number().optional()
+  }),
   tool_call_ready: z.object({ toolName: z.string(), toolCallId: z.string(), toolInput: z.record(z.string(), z.unknown()) }),
   tool_started: z.object({ toolCallId: z.string() }),
   tool_result: z.object({ toolCallId: z.string(), content: z.string(), externalized: z.boolean() }),
   transition: z.object({ reason: z.string() }),
-  completed: z.object({ finalText: z.string(), traceId: z.string(), turnNo: z.number() }),
-  error: z.object({ errorCode: z.string(), message: z.string(), traceId: z.string() })
+  completed: z.object({ finalText: z.string(), traceId: z.string().optional(), turnNo: z.number().optional() }),
+  error: z.object({ message: z.string(), errorCode: z.string().optional(), traceId: z.string().optional() })
 }
 
 /** 内部使用：标记 proposal 接受（同 useAgentTurn.rejected 列表）。 */
