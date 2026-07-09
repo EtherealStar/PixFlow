@@ -10,7 +10,9 @@ public final class AuthContextHolder {
 
     public static Optional<AuthPrincipal> current() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        if (authentication != null && authentication.getPrincipal() instanceof AuthPrincipal principal) {
+        if (authentication != null
+                && authentication.isAuthenticated()
+                && authentication.getPrincipal() instanceof AuthPrincipal principal) {
             return Optional.of(principal);
         }
         return Optional.empty();

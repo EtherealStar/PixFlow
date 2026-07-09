@@ -1,13 +1,26 @@
 package com.pixflow.infra.auth.config;
 
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.AssertTrue;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import java.time.Duration;
+import java.nio.charset.StandardCharsets;
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.validation.annotation.Validated;
 
 @ConfigurationProperties(prefix = "pixflow.auth")
+@Validated
 public class AuthProperties {
+    @Valid
     private final Jwt jwt = new Jwt();
+    @Valid
     private final Refresh refresh = new Refresh();
+    @Valid
     private final Password password = new Password();
+    @Valid
     private final Throttle throttle = new Throttle();
 
     public Jwt getJwt() {
@@ -27,9 +40,13 @@ public class AuthProperties {
     }
 
     public static class Jwt {
+        @NotBlank
         private String issuer = "pixflow";
-        private String secret = "pixflow-dev-secret-change-me-with-at-least-32-bytes";
+        @NotBlank
+        private String secret;
+        @NotNull
         private Duration accessTtl = Duration.ofMinutes(15);
+        @NotNull
         private Duration clockSkew = Duration.ofSeconds(30);
 
         public String getIssuer() {
@@ -63,14 +80,33 @@ public class AuthProperties {
         public void setClockSkew(Duration clockSkew) {
             this.clockSkew = clockSkew;
         }
+
+        @AssertTrue(message = "jwt.secret must be at least 32 UTF-8 bytes")
+        public boolean isSecretStrong() {
+            return secret != null && !secret.isBlank() && secret.getBytes(StandardCharsets.UTF_8).length >= 32;
+        }
+
+        @AssertTrue(message = "jwt.access-ttl must be positive")
+        public boolean isAccessTtlPositive() {
+            return accessTtl != null && !accessTtl.isZero() && !accessTtl.isNegative();
+        }
+
+        @AssertTrue(message = "jwt.clock-skew must not be negative")
+        public boolean isClockSkewNotNegative() {
+            return clockSkew != null && !clockSkew.isNegative();
+        }
     }
 
     public static class Refresh {
+        @NotNull
         private Duration ttl = Duration.ofDays(30);
+        @NotBlank
         private String cookieName = "PIXFLOW_REFRESH";
+        @NotBlank
         private String cookiePath = "/";
+        @NotBlank
         private String cookieSameSite = "Lax";
-        private boolean cookieSecure;
+        private boolean cookieSecure = true;
 
         public Duration getTtl() {
             return ttl;
@@ -111,9 +147,16 @@ public class AuthProperties {
         public void setCookieSecure(boolean cookieSecure) {
             this.cookieSecure = cookieSecure;
         }
+
+        @AssertTrue(message = "refresh.ttl must be positive")
+        public boolean isTtlPositive() {
+            return ttl != null && !ttl.isZero() && !ttl.isNegative();
+        }
     }
 
     public static class Password {
+        @Min(10)
+        @Max(14)
         private int bcryptStrength = 12;
 
         public int getBcryptStrength() {
@@ -126,8 +169,11 @@ public class AuthProperties {
     }
 
     public static class Throttle {
+        @Min(1)
         private int maxFailures = 5;
+        @NotNull
         private Duration window = Duration.ofMinutes(10);
+        @NotNull
         private Duration blockTtl = Duration.ofMinutes(10);
 
         public int getMaxFailures() {
@@ -152,6 +198,16 @@ public class AuthProperties {
 
         public void setBlockTtl(Duration blockTtl) {
             this.blockTtl = blockTtl;
+        }
+
+        @AssertTrue(message = "throttle.window must be positive")
+        public boolean isWindowPositive() {
+            return window != null && !window.isZero() && !window.isNegative();
+        }
+
+        @AssertTrue(message = "throttle.block-ttl must be positive")
+        public boolean isBlockTtlPositive() {
+            return blockTtl != null && !blockTtl.isZero() && !blockTtl.isNegative();
         }
     }
 }

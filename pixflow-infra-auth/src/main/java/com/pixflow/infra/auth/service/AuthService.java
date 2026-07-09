@@ -26,6 +26,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.regex.Pattern;
+import org.springframework.dao.DuplicateKeyException;
 
 public class AuthService {
     private static final Pattern USERNAME_PATTERN = Pattern.compile("^[a-z0-9_]{3,32}$");
@@ -62,6 +63,9 @@ public class AuthService {
     }
 
     public AuthTokenResponse register(RegisterRequest request) {
+        if (request == null) {
+            throw new AuthException(AuthErrorCode.AUTH_USERNAME_INVALID, "注册请求不能为空");
+        }
         String username = normalizeUsername(request.username());
         validatePassword(request.password());
         if (findByUsername(username).isPresent()) {
@@ -77,45 +81,48 @@ public class AuthService {
         entity.setCreatedAt(now);
         entity.setUpdatedAt(now);
         entity.setPasswordUpdatedAt(now);
-        userMapper.insert(entity);
+        try {
+            userMapper.insert(entity);
+        } catch (DuplicateKeyException ex) {
+            throw new AuthException(AuthErrorCode.AUTH_USERNAME_TAKEN, "用户名已被占用");
+        }
         return issueTokens(entity);
     }
 
     public AuthTokenResponse login(LoginRequest request, String ipAddress) {
+        if (request == null) {
+            throw new AuthException(AuthErrorCode.AUTH_INVALID_CREDENTIALS, "登录请求不能为空");
+        }
         String username = normalizeUsername(request.username());
         throttleService.assertAllowed(username, ipAddress);
         UserAccountEntity entity = findByUsername(username).orElse(null);
         if (entity == null || !passwordHasher.matches(request.password(), entity.getPasswordHash())) {
-            throttleService.recordFailure(username, ipAddress);
+            throttleService.recordFailureAndAssert(username, ipAddress);
             throw new AuthException(AuthErrorCode.AUTH_INVALID_CREDENTIALS, "用户名或密码错误");
         }
         ensureActive(entity);
         entity.setLastLoginAt(clock.instant());
         entity.setUpdatedAt(clock.instant());
         userMapper.updateById(entity);
-        throttleService.clear(username, ipAddress);
+        throttleService.clearUsername(username);
         return issueTokens(entity);
     }
 
     public AuthTokenResponse refresh(String refreshTokenValue) {
         RefreshTokenParts parts = parseRefreshToken(refreshTokenValue);
-        AuthSession session = sessionStore.find(parts.jwtId())
+        AuthSession session = sessionStore.consume(parts.jwtId())
                 .orElseThrow(() -> new AuthException(AuthErrorCode.AUTH_REFRESH_EXPIRED, "refresh session 已失效"));
         if (!TokenHashing.sha256(parts.token()).equals(session.tokenHash())) {
-            sessionStore.delete(parts.jwtId());
             throw new AuthException(AuthErrorCode.AUTH_REFRESH_INVALID, "refresh token 校验失败");
         }
         if (session.expiresAt().isBefore(clock.instant())) {
-            sessionStore.delete(parts.jwtId());
             throw new AuthException(AuthErrorCode.AUTH_REFRESH_EXPIRED, "refresh token 已过期");
         }
         UserAccountEntity entity = userMapper.selectById(session.userId());
         if (entity == null) {
-            sessionStore.delete(parts.jwtId());
             throw new AuthException(AuthErrorCode.AUTH_REFRESH_INVALID, "refresh token 用户不存在");
         }
         ensureActive(entity);
-        sessionStore.delete(parts.jwtId());
         return issueTokens(entity);
     }
 
@@ -130,7 +137,10 @@ public class AuthService {
         if (accessTokenValue != null && !accessTokenValue.isBlank()) {
             try {
                 AccessTokenClaims claims = jwtTokenService.parse(accessTokenValue);
-                blacklist.revoke(claims.jwtId(), Duration.ofSeconds(jwtTokenService.remainingTtlSeconds(claims)));
+                long ttlSeconds = jwtTokenService.remainingTtlSeconds(claims);
+                if (ttlSeconds > 0) {
+                    blacklist.revoke(claims.jwtId(), Duration.ofSeconds(ttlSeconds));
+                }
             } catch (AuthException ignored) {
                 // Invalid access tokens do not prevent cookie clearing.
             }

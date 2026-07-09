@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -25,8 +26,13 @@ import com.pixflow.infra.auth.token.RefreshTokenGenerator;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.dao.DuplicateKeyException;
 
 class AuthServiceTest {
     private final Clock clock = Clock.fixed(Instant.parse("2026-07-01T00:00:00Z"), ZoneOffset.UTC);
@@ -93,6 +99,48 @@ class AuthServiceTest {
         assertThat(refreshed.accessToken()).isNotEqualTo(registered.accessToken());
         assertThat(refreshed.refreshToken()).isNotEqualTo(registered.refreshToken());
         assertThat(sessionStore.size()).isEqualTo(1);
+    }
+
+    @Test
+    void refreshTokenCanOnlyBeConsumedOnceConcurrently() throws Exception {
+        var registered = authService.register(new RegisterRequest("alice", "password-1", "Alice"));
+        AtomicInteger successCount = new AtomicInteger();
+        AtomicInteger failureCount = new AtomicInteger();
+        CountDownLatch start = new CountDownLatch(1);
+        var executor = Executors.newFixedThreadPool(2);
+        try {
+            Runnable refresh = () -> {
+                try {
+                    start.await();
+                    authService.refresh(registered.refreshToken());
+                    successCount.incrementAndGet();
+                } catch (Exception ex) {
+                    failureCount.incrementAndGet();
+                }
+            };
+            executor.submit(refresh);
+            executor.submit(refresh);
+            start.countDown();
+            executor.shutdown();
+            assertThat(executor.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+        } finally {
+            executor.shutdownNow();
+        }
+
+        assertThat(successCount.get()).isEqualTo(1);
+        assertThat(failureCount.get()).isEqualTo(1);
+        assertThat(sessionStore.size()).isEqualTo(1);
+    }
+
+    @Test
+    void registerConvertsDuplicateKeyToUsernameTaken() {
+        doThrow(new DuplicateKeyException("duplicate"))
+                .when(userMapper)
+                .insert(any(UserAccountEntity.class));
+
+        assertThatThrownBy(() -> authService.register(new RegisterRequest("alice", "password-1", "Alice")))
+                .isInstanceOfSatisfying(AuthException.class, ex ->
+                        assertThat(ex.code()).isEqualTo(AuthErrorCode.AUTH_USERNAME_TAKEN));
     }
 
     @Test

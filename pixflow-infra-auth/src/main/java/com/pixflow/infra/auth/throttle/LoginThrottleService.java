@@ -29,15 +29,17 @@ public class LoginThrottleService {
         }
     }
 
-    public void recordFailure(String username, String ipAddress) {
-        Duration ttl = properties.getThrottle().getWindow();
-        counter.incrementBy(namespace.key("auth", "fail", username), 1, ttl);
-        counter.incrementBy(namespace.key("auth", "fail-ip", keySafe(ipAddress)), 1, ttl);
+    public void recordFailureAndAssert(String username, String ipAddress) {
+        Duration ttl = properties.getThrottle().getBlockTtl();
+        long userFailures = counter.incrementBy(namespace.key("auth", "fail", username), 1, ttl);
+        long ipFailures = counter.incrementBy(namespace.key("auth", "fail-ip", keySafe(ipAddress)), 1, ttl);
+        if (userFailures >= properties.getThrottle().getMaxFailures() || ipFailures >= properties.getThrottle().getMaxFailures()) {
+            throw new AuthException(AuthErrorCode.AUTH_TOO_MANY_ATTEMPTS, "登录失败次数过多，请稍后再试", properties.getThrottle().getBlockTtl());
+        }
     }
 
-    public void clear(String username, String ipAddress) {
+    public void clearUsername(String username) {
         counter.reset(namespace.key("auth", "fail", username));
-        counter.reset(namespace.key("auth", "fail-ip", keySafe(ipAddress)));
     }
 
     private static String keySafe(String value) {

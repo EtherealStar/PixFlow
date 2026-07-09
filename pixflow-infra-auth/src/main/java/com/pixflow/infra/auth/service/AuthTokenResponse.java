@@ -8,4 +8,14 @@ public record AuthTokenResponse(
         UserView user,
         String refreshToken,
         Instant refreshTokenExpiresAt) {
+    @Override
+    public String toString() {
+        return "AuthTokenResponse[accessToken=<redacted>, accessTokenExpiresAt="
+                + accessTokenExpiresAt
+                + ", user="
+                + user
+                + ", refreshToken=<redacted>, refreshTokenExpiresAt="
+                + refreshTokenExpiresAt
+                + "]";
+    }
 }

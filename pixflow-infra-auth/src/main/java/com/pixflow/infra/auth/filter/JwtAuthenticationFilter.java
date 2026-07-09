@@ -8,6 +8,7 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -25,6 +26,20 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     public JwtAuthenticationFilter(AuthService authService, SecurityErrorWriter errorWriter) {
         this.authService = authService;
         this.errorWriter = errorWriter;
+    }
+
+    @Override
+    protected boolean shouldNotFilter(HttpServletRequest request) {
+        String path = servletPath(request);
+        return isAnonymousAuthEndpoint(request, path)
+                || HttpMethod.OPTIONS.matches(request.getMethod())
+                || path.equals("/actuator/health")
+                || path.equals("/ws")
+                || path.startsWith("/ws/")
+                || path.equals("/")
+                || path.equals("/index.html")
+                || path.startsWith("/assets/")
+                || path.equals("/favicon.ico");
     }
 
     @Override
@@ -54,7 +69,24 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         if (StringUtils.hasText(authorization) && authorization.startsWith(BEARER_PREFIX)) {
             return authorization.substring(BEARER_PREFIX.length()).trim();
         }
+        if (StringUtils.hasText(authorization)) {
+            return null;
+        }
         String fallback = request.getHeader(X_AUTH_TOKEN);
         return StringUtils.hasText(fallback) ? fallback.trim() : null;
+    }
+
+    private static boolean isAnonymousAuthEndpoint(HttpServletRequest request, String path) {
+        return HttpMethod.POST.matches(request.getMethod())
+                && (path.equals("/api/auth/register")
+                || path.equals("/api/auth/login")
+                || path.equals("/api/auth/refresh"));
+    }
+
+    private static String servletPath(HttpServletRequest request) {
+        String servletPath = request.getServletPath();
+        String pathInfo = request.getPathInfo();
+        String path = (servletPath == null ? "" : servletPath) + (pathInfo == null ? "" : pathInfo);
+        return path.isEmpty() ? "/" : path;
     }
 }

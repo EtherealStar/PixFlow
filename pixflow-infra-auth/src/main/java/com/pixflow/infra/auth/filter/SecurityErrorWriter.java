@@ -16,6 +16,9 @@ public class SecurityErrorWriter {
     }
 
     public void write(HttpServletResponse response, PixFlowException error) throws IOException {
+        if (response.isCommitted()) {
+            return;
+        }
         response.setStatus(error.code().httpStatus().value());
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
         response.setCharacterEncoding("UTF-8");

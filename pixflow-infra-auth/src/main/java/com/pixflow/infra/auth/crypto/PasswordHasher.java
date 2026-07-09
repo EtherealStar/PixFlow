@@ -6,6 +6,9 @@ public class PasswordHasher {
     private final BCryptPasswordEncoder encoder;
 
     public PasswordHasher(int strength) {
+        if (strength < 10 || strength > 14) {
+            throw new IllegalArgumentException("bcrypt strength must be between 10 and 14");
+        }
         this.encoder = new BCryptPasswordEncoder(strength);
     }
 

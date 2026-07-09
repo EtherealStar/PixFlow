@@ -17,11 +17,11 @@ class NoopLoginThrottleService extends LoginThrottleService {
     }
 
     @Override
-    public void recordFailure(String username, String ipAddress) {
+    public void recordFailureAndAssert(String username, String ipAddress) {
     }
 
     @Override
-    public void clear(String username, String ipAddress) {
+    public void clearUsername(String username) {
     }
 
     private static class NoopCounter implements AtomicCounter {

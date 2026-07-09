@@ -10,11 +10,20 @@ class InMemoryAccessTokenBlacklist implements AccessTokenBlacklist {
 
     @Override
     public void revoke(String jwtId, Duration ttl) {
+        if (jwtId == null || jwtId.isBlank()) {
+            throw new IllegalArgumentException("jwtId must not be blank");
+        }
+        if (ttl == null || ttl.isZero() || ttl.isNegative()) {
+            throw new IllegalArgumentException("ttl must be positive");
+        }
         revoked.add(jwtId);
     }
 
     @Override
     public boolean isRevoked(String jwtId) {
+        if (jwtId == null || jwtId.isBlank()) {
+            throw new IllegalArgumentException("jwtId must not be blank");
+        }
         return revoked.contains(jwtId);
     }
 }
