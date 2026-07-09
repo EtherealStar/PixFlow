@@ -26,8 +26,10 @@ import com.pixflow.module.commerce.source.FreshnessPolicy;
 import com.pixflow.module.commerce.source.PlatformApiClient;
 import com.pixflow.module.commerce.store.CommerceDataMapper;
 import com.pixflow.module.commerce.store.CommerceImportJobMapper;
+import com.pixflow.module.commerce.web.CommerceController;
 import java.time.Clock;
 import java.util.List;
+import org.apache.ibatis.annotations.Mapper;
 import org.mybatis.spring.annotation.MapperScan;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
@@ -37,14 +39,10 @@ import org.springframework.context.annotation.Bean;
 
 @AutoConfiguration
 @EnableConfigurationProperties(CommerceProperties.class)
-@MapperScan("com.pixflow.module.commerce")
+@MapperScan(
+        basePackages = "com.pixflow.module.commerce.store",
+        annotationClass = Mapper.class)
 public class CommerceAutoConfiguration {
-    @Bean
-    @ConditionalOnMissingBean
-    public Clock commerceClock() {
-        return Clock.systemUTC();
-    }
-
     @Bean
     @ConditionalOnMissingBean
     public CsvCommerceParser csvCommerceParser() {
@@ -59,8 +57,8 @@ public class CommerceAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public RowValidator commerceRowValidator(Clock commerceClock) {
-        return new RowValidator(commerceClock);
+    public RowValidator commerceRowValidator(Clock clock) {
+        return new RowValidator(clock);
     }
 
     @Bean
@@ -74,14 +72,14 @@ public class CommerceAutoConfiguration {
     public CommerceDataSource externalPlatformSource(
             PlatformApiClient platformApiClient,
             CommerceProperties properties,
-            Clock commerceClock) {
-        return new ExternalPlatformSource(platformApiClient, properties, commerceClock);
+            Clock clock) {
+        return new ExternalPlatformSource(platformApiClient, properties, clock);
     }
 
     @Bean
     @ConditionalOnMissingBean
-    public FreshnessPolicy freshnessPolicy(CommerceProperties properties, Clock commerceClock) {
-        return new FreshnessPolicy(properties, commerceClock);
+    public FreshnessPolicy freshnessPolicy(CommerceProperties properties, Clock clock) {
+        return new FreshnessPolicy(properties, clock);
     }
 
     @Bean
@@ -92,7 +90,6 @@ public class CommerceAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    @ConditionalOnBean(CommerceDataMapper.class)
     public CommerceImportService commerceImportService(
             CommerceDataMapper mapper,
             CsvCommerceParser csvParser,
@@ -105,14 +102,12 @@ public class CommerceAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    @ConditionalOnBean(MessagePublisher.class)
     public CommerceApiImportPublisher commerceApiImportPublisher(MessagePublisher publisher) {
         return new CommerceApiImportPublisher(publisher);
     }
 
     @Bean
     @ConditionalOnMissingBean
-    @ConditionalOnBean({CommerceImportJobMapper.class, CommerceApiImportPublisher.class, CommerceImportService.class})
     public CommerceImportJobService commerceImportJobService(
             CommerceImportJobMapper mapper,
             CommerceApiImportPublisher publisher,
@@ -120,13 +115,12 @@ public class CommerceAutoConfiguration {
             CommerceImportService importService,
             ObjectMapper objectMapper,
             CommerceProperties properties,
-            Clock commerceClock) {
-        return new CommerceImportJobService(mapper, publisher, externalSource, importService, objectMapper, properties, commerceClock);
+            Clock clock) {
+        return new CommerceImportJobService(mapper, publisher, externalSource, importService, objectMapper, properties, clock);
     }
 
     @Bean
     @ConditionalOnMissingBean
-    @ConditionalOnBean({CommerceDataMapper.class, CommerceImportService.class})
     public CommerceQueryService commerceQueryService(
             CommerceDataMapper mapper,
             CommerceDataSource externalSource,
@@ -134,18 +128,23 @@ public class CommerceAutoConfiguration {
             FreshnessPolicy freshnessPolicy,
             BenchmarkCalculator benchmarkCalculator,
             CommerceProperties properties,
-            Clock commerceClock) {
-        return new CommerceQueryService(mapper, externalSource, importService, freshnessPolicy, benchmarkCalculator, properties, commerceClock);
+            Clock clock) {
+        return new CommerceQueryService(mapper, externalSource, importService, freshnessPolicy, benchmarkCalculator, properties, clock);
     }
 
     @Bean
     @ConditionalOnMissingBean
-    @ConditionalOnBean({CommerceImportService.class, CommerceImportJobService.class, CommerceQueryService.class})
     public CommerceService commerceService(
             CommerceImportService importService,
             CommerceImportJobService jobService,
             CommerceQueryService queryService) {
         return new DefaultCommerceService(importService, jobService, queryService);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public CommerceController commerceController(CommerceService commerceService) {
+        return new CommerceController(commerceService);
     }
 
     @Bean

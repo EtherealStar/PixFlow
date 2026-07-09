@@ -24,6 +24,7 @@ import com.pixflow.module.vision.image.VisionImageResolver;
 import com.pixflow.module.vision.metrics.VisionMetrics;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.session.SqlSessionFactory;
 import org.mybatis.spring.annotation.MapperScan;
 import org.springframework.beans.factory.ObjectProvider;
@@ -146,7 +147,9 @@ public class VisionServiceAutoConfiguration {
 
     @org.springframework.context.annotation.Configuration(proxyBeanMethods = false)
     @ConditionalOnBean(SqlSessionFactory.class)
-    @MapperScan("com.pixflow.module.vision.enrich")
+    @MapperScan(
+            basePackageClasses = {AssetImageReadMapper.class, AssetCopyWriteMapper.class},
+            annotationClass = Mapper.class)
     static class VisionEnrichMapperConfiguration {
     }
 }
