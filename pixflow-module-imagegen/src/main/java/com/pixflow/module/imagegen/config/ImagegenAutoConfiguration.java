@@ -1,10 +1,15 @@
 package com.pixflow.module.imagegen.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.pixflow.contracts.proposal.PendingPlanPort;
 import com.pixflow.module.imagegen.confirm.ImagegenConfirmationSupport;
 import com.pixflow.module.imagegen.confirm.ImagegenPayloadHasher;
+import com.pixflow.harness.tools.ToolDescriptor;
 import com.pixflow.module.imagegen.metrics.ImagegenMetrics;
+import com.pixflow.module.imagegen.proposal.ImagegenPlanService;
+import com.pixflow.module.imagegen.proposal.ImagegenPlanToolHandler;
 import com.pixflow.module.imagegen.proposal.ImagegenPlanValidator;
+import java.time.Clock;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -28,7 +33,7 @@ import org.springframework.context.annotation.Bean;
  *       {@code NoSuchBeanDefinitionException}</li>
  * </ul>
  */
-@AutoConfiguration
+@AutoConfiguration(afterName = "com.pixflow.module.dag.config.DagAutoConfiguration")
 @EnableConfigurationProperties(ImagegenProperties.class)
 public class ImagegenAutoConfiguration {
 
@@ -54,17 +59,36 @@ public class ImagegenAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     public ImagegenConfirmationSupport imagegenConfirmationSupport(
-            com.pixflow.module.imagegen.port.PendingPlanPort port,
+            PendingPlanPort port,
             ImagegenPayloadHasher hasher,
             ObjectMapper objectMapper,
             ImagegenMetrics metrics) {
         return new ImagegenConfirmationSupport(port, hasher, objectMapper, metrics);
     }
 
-    /**
-     * ImagegenPlanToolHandler / ImagegenPlanDescriptor 的 @Bean 由 handler 类自身暴露
-     * (与 dag 的 SubmitImagePlanHandler 同款写法,handler 自己 @Bean 提供给 harness/tools 收集)。
-     */
+    @Bean
+    @ConditionalOnMissingBean
+    public ImagegenPlanService imagegenPlanService(
+            ImagegenPlanValidator validator,
+            PendingPlanPort pendingPlanPort,
+            ImagegenPayloadHasher payloadHasher,
+            ObjectMapper objectMapper,
+            Clock clock,
+            ImagegenMetrics metrics) {
+        return new ImagegenPlanService(validator, pendingPlanPort, payloadHasher, objectMapper, clock, metrics);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public ImagegenPlanToolHandler imagegenPlanToolHandler(ImagegenPlanService service, ObjectMapper objectMapper) {
+        return new ImagegenPlanToolHandler(service, objectMapper);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(name = "submitImagegenPlanDescriptor")
+    public ToolDescriptor submitImagegenPlanDescriptor(ImagegenPlanToolHandler handler) {
+        return handler.submitImagegenPlanDescriptor();
+    }
 
     /**
      * 装配开关:仅当显式设置 {@code pixflow.imagegen.executor.expose=true} 时,

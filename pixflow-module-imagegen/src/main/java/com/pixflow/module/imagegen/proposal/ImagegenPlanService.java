@@ -3,11 +3,11 @@ package com.pixflow.module.imagegen.proposal;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pixflow.common.error.PixFlowException;
+import com.pixflow.contracts.proposal.PendingPlanPort;
+import com.pixflow.contracts.proposal.PendingPlanProposal;
 import com.pixflow.module.imagegen.confirm.ImagegenPayloadHasher;
 import com.pixflow.module.imagegen.error.ImagegenErrorCode;
 import com.pixflow.module.imagegen.metrics.ImagegenMetrics;
-import com.pixflow.module.imagegen.port.PendingPlanPort;
-import com.pixflow.module.imagegen.port.PendingPlanProposal;
 import io.micrometer.core.instrument.Timer;
 import java.time.Clock;
 import java.time.Instant;
@@ -23,7 +23,7 @@ import org.springframework.stereotype.Service;
  * <ol>
  *   <li>序列化 {@link ImagegenPlan} 为 payload JSON</li>
  *   <li>调 {@link ImagegenPayloadHasher} 计算 payloadHash</li>
- *   <li>调 {@link PendingPlanPort#enqueue} 入队(同 conversationId+toolCallId 幂等)</li>
+ *   <li>调 {@link PendingPlanPort#enqueue} 入队(同 toolCallId 幂等)</li>
  *   <li>记录 metrics(proposal result=ok / reject)</li>
  *   <li>返回 planId</li>
  * </ol>
@@ -96,7 +96,7 @@ public class ImagegenPlanService {
                 throw new IllegalStateException("序列化 ImagegenPlan 失败", e);
             }
 
-            // 3. 入队(幂等:同 (conversationId, toolCallId) 不产生新 plan)
+            // 3. 入队(幂等:同 toolCallId 不产生新 plan)
             PendingPlanProposal proposal = new PendingPlanProposal(
                 PLAN_TYPE_IMAGEGEN,
                 payloadJson,

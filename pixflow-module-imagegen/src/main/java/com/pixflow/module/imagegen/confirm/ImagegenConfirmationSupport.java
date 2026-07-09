@@ -2,10 +2,10 @@ package com.pixflow.module.imagegen.confirm;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pixflow.common.error.PixFlowException;
+import com.pixflow.contracts.proposal.PendingPlanPort;
+import com.pixflow.contracts.proposal.PendingPlanProposal;
 import com.pixflow.module.imagegen.error.ImagegenErrorCode;
 import com.pixflow.module.imagegen.metrics.ImagegenMetrics;
-import com.pixflow.module.imagegen.port.PendingPlanPort;
-import com.pixflow.module.imagegen.port.PendingPlanProposal;
 import com.pixflow.module.imagegen.proposal.ImagegenPlan;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

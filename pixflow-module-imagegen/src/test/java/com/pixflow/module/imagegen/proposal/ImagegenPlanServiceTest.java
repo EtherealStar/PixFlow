@@ -6,12 +6,12 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pixflow.common.error.PixFlowException;
 import com.pixflow.common.sanitize.Sanitizer;
+import com.pixflow.contracts.proposal.PendingPlanPort;
+import com.pixflow.contracts.proposal.PendingPlanProposal;
 import com.pixflow.module.imagegen.confirm.ImagegenPayloadHasher;
 import com.pixflow.module.imagegen.config.ImagegenProperties;
 import com.pixflow.module.imagegen.error.ImagegenErrorCode;
 import com.pixflow.module.imagegen.metrics.ImagegenMetrics;
-import com.pixflow.module.imagegen.port.PendingPlanPort;
-import com.pixflow.module.imagegen.port.PendingPlanProposal;
 import com.pixflow.module.imagegen.port.SourceImageInfo;
 import com.pixflow.module.imagegen.port.SourceImageReader;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -88,7 +88,7 @@ class ImagegenPlanServiceTest {
 
         // 第一次
         String planId1 = service.enqueue(inputs, "tc-dup", "conv-1", "pkg-1");
-        // 模拟 port 的幂等行为:同 (conversationId, toolCallId) 返回已存在 planId
+        // 模拟 port 的幂等行为:同 toolCallId 返回已存在 planId
         port.simulateIdempotent("tc-dup", "conv-1", planId1);
         // 第二次
         String planId2 = service.enqueue(inputs, "tc-dup", "conv-1", "pkg-1");

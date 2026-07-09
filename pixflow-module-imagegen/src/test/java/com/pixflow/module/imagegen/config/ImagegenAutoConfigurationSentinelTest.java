@@ -3,6 +3,9 @@ package com.pixflow.module.imagegen.config;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.pixflow.common.time.TimeAutoConfiguration;
+import com.pixflow.contracts.proposal.PendingPlanPort;
+import com.pixflow.contracts.proposal.PendingPlanProposal;
 import com.pixflow.infra.ai.imagegen.ImageGenClient;
 import com.pixflow.infra.storage.ObjectStorage;
 import com.pixflow.module.imagegen.exec.DefaultImageGenExecutor;
@@ -28,6 +31,7 @@ class ImagegenAutoConfigurationSentinelTest {
     private final ApplicationContextRunner defaultRunner = new ApplicationContextRunner()
         .withConfiguration(AutoConfigurations.of(
             JacksonAutoConfiguration.class,
+            TimeAutoConfiguration.class,
             ImagegenAutoConfiguration.class))
         // Provide MeterRegistry + SPI / 基础设施 mock bean so the context can be built
         // (test isolates only executor exposure)
@@ -41,6 +45,17 @@ class ImagegenAutoConfigurationSentinelTest {
             // 但 DefaultImageGenExecutor 必须不在容器内
             assertThatThrownBy(() -> ctx.getBean(DefaultImageGenExecutor.class))
                 .isInstanceOf(NoSuchBeanDefinitionException.class);
+        });
+    }
+
+    @Test
+    @DisplayName("默认(Default):imagegen 服务消费 contracts PendingPlanPort")
+    void default_imagegenServices_useContractsPendingPlanPort() {
+        defaultRunner.run(ctx -> {
+            assertThat(ctx).hasSingleBean(PendingPlanPort.class);
+            assertThat(ctx).hasSingleBean(com.pixflow.module.imagegen.proposal.ImagegenPlanService.class);
+            assertThat(ctx).hasSingleBean(com.pixflow.module.imagegen.confirm.ImagegenConfirmationSupport.class);
+            assertThat(ctx).hasBean("submitImagegenPlanDescriptor");
         });
     }
 
@@ -113,12 +128,12 @@ class ImagegenAutoConfigurationSentinelTest {
         }
 
         @Bean
-        com.pixflow.module.imagegen.port.PendingPlanPort pendingPlanPort() {
-            return new com.pixflow.module.imagegen.port.PendingPlanPort() {
-                @Override public String enqueue(com.pixflow.module.imagegen.port.PendingPlanProposal proposal) {
+        PendingPlanPort pendingPlanPort() {
+            return new PendingPlanPort() {
+                @Override public String enqueue(PendingPlanProposal proposal) {
                     return "test-plan-id";
                 }
-                @Override public java.util.Optional<com.pixflow.module.imagegen.port.PendingPlanProposal> find(String planId) {
+                @Override public java.util.Optional<PendingPlanProposal> find(String planId) {
                     return java.util.Optional.empty();
                 }
             };

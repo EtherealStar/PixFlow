@@ -5,10 +5,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pixflow.common.error.PixFlowException;
+import com.pixflow.contracts.proposal.PendingPlanPort;
+import com.pixflow.contracts.proposal.PendingPlanProposal;
 import com.pixflow.module.imagegen.error.ImagegenErrorCode;
 import com.pixflow.module.imagegen.metrics.ImagegenMetrics;
-import com.pixflow.module.imagegen.port.PendingPlanPort;
-import com.pixflow.module.imagegen.port.PendingPlanProposal;
 import com.pixflow.module.imagegen.proposal.ImagegenPlan;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
