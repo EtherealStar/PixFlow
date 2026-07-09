@@ -1,7 +1,7 @@
 # agent —— Agent 决策层装配（Wave 5 决策层编排）
 
 > 本文是 PixFlow 完整重写阶段 `agent` 模块的设计文档，对应 `design.md` 第六章「Agent 决策层」、第十章「子 Agent 设计」、`module-dependency-dag-plan.md` 的 **Wave 5 Agent 决策层**。
-> 范围：手写 think-act-observe 主循环之上的**业务装配层**——动态 Prompt 组装与 section 缓存、Skill 工具化与渐进式披露、自动记忆（用户偏好 / SKU 历史 / 分析结论）的 RRF 召回与注入、Session Memory 累积提取、Subagent Runner（`agent` 工具 / destructive compaction 摘要 / Session Memory 提取三处复用）、`SummarizationPort` / `SessionMemoryPort` SPI 实现、Plan 模式控制、Agent Orchestrator 入口、HITL 提案事件接出、与 tools / context / session / hooks / eval / permission / state / loop / memory / commerce / dag / imagegen / vision / conversation / file 的接缝契约。本文不涉及 MVP 既有实现，从新架构需求重新推导。
+> 范围：手写 think-act-observe 主循环之上的**业务装配层**——动态 Prompt 组装与 section 缓存、Skill 工具化与渐进式披露、自动记忆（用户偏好 / SKU 历史 / 分析结论）的同步召回注入、Session Memory 累积提取、Subagent Runner（`agent` 工具 / destructive compaction 摘要 / Session Memory 提取三处复用）、`SummarizationPort` / `SessionMemoryPort` SPI 实现、Plan 模式控制、Agent Orchestrator 入口、HITL 提案事件接出、与 tools / context / session / hooks / eval / permission / state / loop / memory / commerce / dag / imagegen / vision / conversation / file 的接缝契约。本文不涉及 MVP 既有实现，从新架构需求重新推导。
 > 思路参考 `docs/references/prompt-architecture.md`、`subagent-architecture.md`、`compaction-architecture.md`、`context-architecture.md`、`error-handling-architecture.md`、`core-runtime-architecture.md`（Python/OneCode / TypeScript 生产参考），但**仅借鉴「薄装配 + section cache + subagent fork + Session Memory 累积 + 工具化 skill 披露」的设计理念，存储模型、并发模型、类型契约、压缩策略分层全部以 Java 17 + Spring Boot 3 重新设计**。
 
 ---
@@ -63,7 +63,7 @@
 | Prompt 组装 | `DynamicPromptAssembler` + `PromptSectionCache` 完整复刻 | **同**——全量借鉴 section cache 机制（[第四章](#四prompt-动态组装--section-缓存)） |
 | Skill 机制 | 文本提及 + agent 主动 + attachment 投影 | **工具化接入**（每个 skill = 一个 `skill__<name>` 工具），schema 渐进披露（[第五章](#五skill-机制工具化接入--渐进式披露)） |
 | Session memory | 单文件 `.onecode/sessions/<id>/session-memory.md` + 提取子 Agent + 写文件 | **MySQL `session_memory` 表 + Redis 缓存**（[第七章](#七session-memory-累积提取)）；**阈值不入 transcript** |
-| 记忆召回 | `startRelevantMemoryPrefetch`（回合入口预取）+ 后台 settled 后消费 | **每轮 buildForModel 前同步召回**（RRF 融合，多通道） |
+| 记忆召回 | `startRelevantMemoryPrefetch`（回合入口预取）+ 后台 settled 后消费 | **每轮 buildForModel 前同步调用 `MemoryService.prepareContext(...)`** |
 | Subagent 接入 | `services/subagents/` 独立包 + `tools/agent/` 包装 | **`SubagentRunner` 单一类** + **三处复用**（`agent` 工具 / `SummarizationPort` / `SessionMemoryExtractionService`） |
 | Fork 机制 | `subagent_type is None` 触发 fork | **本期不引入 fork 模式**——child runtime 一律 clean（type 必填 vision/explore） |
 | Compaction 摘要 | loop 内联调 subagent_runner fork | `SummarizationPort` SPI 倒置给 agent 层，context 调用，**agent 提供实现**（[第九章](#九summarizationport-实现destructive-compaction-备份路径)） |
@@ -76,7 +76,7 @@
 
 **必须重写的内核**：
 - Session memory 文件 → MySQL 表 + Redis 缓存；阈值状态从入库改为运行时计算
-- 记忆召回从 prefetch 改为同步 RRF 融合（更精确，无 prefetch settledAt 复杂状态）
+- 记忆召回从 prefetch 改为同步准备 `MemoryContext`（无 prefetch settledAt 复杂状态；具体 RRF/混合召回归 module-memory）
 - Skill 从 prompt section 暴露改为 tool descriptor 暴露（渐进披露 + 命名空间化）
 - Subagent fork 模式本期不做（`subagent_type is None` 不支持），child runtime 全部 clean 装配
 - 压缩策略主次关系重排：Session Memory 为主，auto compact 为备
@@ -93,7 +93,7 @@ agent/
 ├── prompt/
 │   ├── DynamicPromptAssembler.java     # 渲染 + section 缓存
 │   ├── PromptSection.java              # record (key/title/body/fingerprint/cacheable)
-│   ├── PromptRuntimeContext.java       # 装载 state + visibleTools + memoryRecall + sessionMemory + activeSkills
+│   ├── PromptRuntimeContext.java       # 装载 state + visibleTools + MemoryContext + sessionMemory + activeSkills
 │   ├── PromptSectionCache.java         # (key, fingerprint) 缓存
 │   ├── PromptSummary.java              # 给 eval / trace 用的摘要视图（不暴露完整 prompt）
 │   ├── PromptProvider.java             # SPI（loop 调用）：systemPrompt + toolSchemas
@@ -104,7 +104,7 @@ agent/
 │       ├── VerificationSection.java    # 固定
 │       ├── PreferenceSection.java      # 用户偏好画像
 │       ├── SessionMemorySection.java   # Session Memory 累积要点
-│       ├── LongTermMemorySection.java  # SKU 历史 + 分析结论（RRF 融合）
+│       ├── LongTermMemorySection.java  # SKU 历史 + 分析结论（消费 module-memory renderedText）
 │       ├── ActiveSkillsSection.java    # 已加载 skill 列表（仅目录，body 由 skill__<name> 工具按需取）
 │       ├── WorkspaceStateSection.java  # 当前素材包 / 会话上下文 / Plan 模式标记
 │       └── ToolPromptSection.java      # 工具 prompt 汇总（与 schema 同源）
@@ -114,11 +114,8 @@ agent/
 │   ├── SkillToolRegistrar.java         # 把 skill 动态注册成 skill__<name> tool descriptor
 │   └── SkillFrontmatter.java           # SKILL.md frontmatter 解析（name/description/when_to_use/version）
 ├── memory/
-│   ├── MemoryRecallPlanner.java        # 召回规划：信号→通道→结果
-│   ├── MemoryRecallResult.java         # RRF 融合产物
-│   ├── SkuMentionExtractor.java        # 从 assistant message 抽取 SKU 列表（规则 + LLM 兜底）
-│   ├── RrfMerger.java                  # 多通道 RRF 融合 + token 上限裁剪
-│   └── RecallChannel.java              # enum: PREFERENCE / SKU_HISTORY / INSIGHT_VECTOR / INSIGHT_FULLTEXT
+│   ├── MemoryRecallPlanner.java        # 薄适配：MemoryRecallSignal → MemoryContextRequest → MemoryService.prepareContext
+│   └── MemoryRecallSignal.java         # Agent 回合入口传给 module-memory 的召回上下文字段
 ├── sessionmemory/
 │   ├── SessionMemoryService.java       # 实现 context.SessionMemoryPort
 │   ├── SessionMemoryRepository.java    # MySQL 读写（事实源）
@@ -175,7 +172,7 @@ agent ──► common + contracts
 - `agent → session`：agent 实现 `context.SessionMemoryPort` SPI 时，session 模型可见性需要（agent 不直接写 `message` 表，但 `SessionMemoryExtractor` 读 message 序列时需要与 session 协同）—— **agent 不直连 MySQL message 表**，经 `context.MessageStore.currentMessages()` 读
 - `agent → hooks`：agent 提供多个 `HookCallback` 实现，订阅 `TURN_STOPPED` / `ASSISTANT_MESSAGE_COMPLETED` / `PRE_COMPACT` 事件
 - `agent → tools`：agent 提供 `agent` / `plan` / `plan_exit` 三个工具的 handler + 描述符 bean
-- `agent → memory`：agent 调用 `MemoryService.recall(signal)` 消费，`module/memory` 实现该 SPI
+- `agent → memory`：agent 调用 `MemoryService.prepareContext(MemoryContextRequest)` 消费统一 `MemoryContext`
 
 ---
 
@@ -194,9 +191,9 @@ agent ──► common + contracts
 | 3 | `engineering_practices` | 固定 | 资源文件 | 是 | section_version |
 | 4 | `risk_and_safety` | 固定（含 HITL 强规则） | 资源文件 | 是 | section_version |
 | 5 | `verification_and_reporting` | 固定 | 资源文件 | 是 | section_version |
-| 6 | `instruction_memory` | 动态 | `module/memory` 用户偏好画像 | 是 | `preferenceDigest`（user_preference 全表哈希） |
+| 6 | `instruction_memory` | 动态 | `MemoryContext.user_preferences.renderedText` | 是 | section name + tokenEstimate + renderedText + trace |
 | 7 | `session_memory` | 动态 | `SessionMemoryService`（见 [第七章](#七session-memory-累积提取)） | 是 | `lastSummarizedSeq + contentHash` |
-| 8 | `long_term_memory` | 动态 | `MemoryRecallPlanner`（[第六章](#六自动记忆召回与注入)） | 是 | `recallPlanId + recallDigest` |
+| 8 | `long_term_memory` | 动态 | `MemoryContext.sku_history` + `MemoryContext.analysis_insights` | 是 | renderedText + recallTrace |
 | 9 | `workspace_state` | 动态 | 当前素材包 / 会话上下文 / Plan 模式 | 是 | `(packageId, turnCount, planMode)` |
 | 10 | `available_skills` | 动态 | 全部已注册 skill 的 name + description + when_to_use | 是 | `sortedSkillNames + descriptionHash + whenToUseHash` |
 | 11 | `available_tools` | 动态 | `tools.registry.visibleDescriptors(state)`（与 schema 同源） | 是 | `sortedVisibleToolNames + promptHash` |
@@ -264,7 +261,7 @@ public record PromptRuntimeContext(
     List<String> recentAssistantMessageIds,// 最近 N 轮 assistant message id（用于回溯）
     String userMessage,                    // 当次用户输入
     PlanModeState planMode,                // 当前是否 Plan 模式
-    MemoryRecallResult recall,             // 召回结果（已 RRF 融合）
+    MemoryContext memoryContext,           // module-memory 统一产出的可注入记忆上下文
     SessionMemoryContent sessionMemory,    // Session Memory 累积要点
     List<ToolDescriptor> visibleTools      // 与 schema 同源
 ) {}
@@ -492,131 +489,71 @@ when_to_use: 涉及服装类目图片处理时
 
 ## 六、自动记忆召回与注入
 
-记忆召回**不是 Agent 工具**——这是关键边界。`module/memory` 提供 SPI，agent 装配层在每轮 `buildForModel` 前**自动同步触发**，结果注入 `long_term_memory` section。
+记忆召回**不是 Agent 工具**——这是关键边界。`module/memory` 提供正式门面 `MemoryService.prepareContext(MemoryContextRequest)`，agent 装配层在每轮 `buildForModel` 前**自动同步触发**，拿到 `MemoryContext` 后只负责把结果注入 Prompt。偏好召回、SKU 历史召回、分析结论向量/FULLTEXT 混合召回、RRF 融合、衰减排序、降级和 trace 都归 `module-memory`。
 
-### 6.1 召回输入信号
+### 6.1 Agent 侧输入
 
-```
-Signal A: userMessage                        # 当次用户输入（用于全文检索 query）
-Signal B: attachedPackageId                  # 附件素材包（如果存在）
-Signal C: currentPackageSkuIds              # 当前素材包内所有 SKU（来自 module/file）
-Signal D: recentAssistantMessages[N]         # 最近 N 轮 assistant message（按 turn 倒序，默认 N=3）
-Signal E: mentionedSkuIds                    # 从 D 解析出的 SKU 列表（见 6.4）
-```
-
-### 6.2 召回通道与触发条件
-
-| 通道 | 来源 | 触发条件 | 用途 |
-|---|---|---|---|
-| 0. 用户偏好画像 | `user_preference` 表（MySQL） | **永远**（每轮都全量） | 注入 `instruction_memory` section |
-| 1. SKU 处理历史（精确） | `sku_history` 表（MySQL） | Signal C 或 E 非空 | 注入 `long_term_memory.sku_history` 子段 |
-| 2. 类目级分析结论（向量） | Qdrant `analysis_insight` | Signal C 或 E 非空时构造类目 filter；否则纯向量召回 | 注入 `long_term_memory.insights.vector` 子段 |
-| 3. 类目级分析结论（全文） | MySQL `analysis_insight.text` FULLTEXT | 永远（用 Signal A 作 query） | 注入 `long_term_memory.insights.fulltext` 子段 |
-
-**类目 filter 当前是软约束**（仅当 SKU 有 `category` 字段时构造；本期数据导入不带 `category`，所以实际是"全类目向量召回"——见 6.5）。
-
-### 6.3 RRF 融合 + token 上限裁剪
-
-各通道召回后**各自排序**（含各自的 score），由 `RrfMerger` 融合：
+agent 侧只把回合上下文整理成 `MemoryContextRequest`：
 
 ```java
-List<RecallItem> all = [
-  ...channel1,  // SKU 历史，按 recency 排序
-  ...channel2,  // 向量，按 similarity score 排序
-  ...channel3   // 全文，按 FULLTEXT score 排序
-];
-List<RecallItem> fused = rrfMerge(all, k=60);  // 标准 RRF
-List<RecallItem> topK = fused.stream()
-    .limit(maxItems)  // 默认 50
-    .collect(toList());
-String rendered = renderByTokenBudget(topK, maxTokens);  // jtokkit 估算，截断到 maxTokens
+new MemoryContextRequest(
+    conversationId,
+    turnNo,
+    traceId,
+    userPrompt,
+    attachments,
+    packageId,
+    taskId,
+    skuIds,
+    categoryHints,
+    metadata,
+    tokenBudget
+)
 ```
 
-**关键**：
-- **RRF k=60**（业界默认；可配 `pixflow.agent.memory.recall.rrf-k`）
-- **maxItems 默认 50**（防止召回爆量）
-- **token 预算默认 4000**（防止 long_term_memory section 占满 context；可配 `pixflow.agent.memory.recall.max-tokens`）
-- **超过预算裁剪**：按 RRF 顺序保留前 N 个直到 token 累计达到预算；剩余丢弃
-- **未超过预算全部保留**
+其中 `attachments` 是已解析出的 durable 引用和元数据，`skuIds` 来自当前素材包或上游上下文，`metadata` 可带最近 assistant 文本等辅助信号。agent 不再在本模块内解析 SKU、不直接读取 `PreferenceService` / `SkuHistoryService` / `InsightDocMapper`，也不持有 RRF 实现。
 
-### 6.4 SKU 列表解析
+### 6.2 module-memory 输出
 
-从 Signal D（最近 N=3 轮 assistant message）解析出 SKU 列表，是召回的**关键输入**。
+`MemoryService.prepareContext(...)` 返回 `MemoryContext`，其中固定 section 名如下：
 
-#### 6.4.1 解析策略（两阶段）
+| section | Prompt 注入位置 | 说明 |
+|---|---|---|
+| `user_preferences` | `instruction_memory` | 用户偏好画像；由 module-memory 组织为 `renderedText` |
+| `sku_history` | `long_term_memory` 的 `SKU 处理历史` 子段 | 当前相关 SKU 的历史处理事实 |
+| `analysis_insights` | `long_term_memory` 的 `分析结论` 子段 | module-memory 已融合后的分析结论，不暴露 vector/fulltext 内部边界 |
 
-```
-Stage 1: 规则抽取（regex）
-  - 匹配 SKU 命名模式：
-    - SKU\d+
-    - [A-Z]{2,}\d{4,}
-    - 业务方约定的 sku_id 前缀（配置：pixflow.agent.memory.sku-patterns）
-  - 去重 + 限制上限（默认 20 个）
-  - 命中数 ≥ 3 → 直接返回（不调 LLM）
+### 6.3 Prompt 渲染
 
-Stage 2: LLM 兜底
-  - 命中数 < 3 → 调 LLM 解析：
-    prompt = "从以下文本中提取提到的 SKU 列表。返回 JSON 数组。"
-    input = recent assistant messages
-  - 解析 LLM 输出 JSON 数组
-  - 缓存 LLM 解析结果（按 message 内容 hash；同一 message 不重复解析）
-```
-
-#### 6.4.2 LLM 解析的代价控制
-
-- 缓存键：`md5(message_content) + extraction_model_version`
-- 缓存值：`List<String> skuIds`
-- 缓存位置：Redis `pixflow:agent:sku_extract:{messageHash}`，TTL 24h
-- **同 message 不重复调 LLM**
-
-#### 6.4.3 N 的取值
-
-- `pixflow.agent.memory.recall.recent-assistant-turns` 默认 3
-- 范围 1-10
-- 3 轮约对应 6-15 个 assistant message（取决于 think-act-observe 迭代次数），覆盖 1-3 个完整决策点
-
-### 6.5 类目 filter 现状
-
-**本期**：`commerce_data` / `asset_copy` 表**没有结构化 `category` 字段**（design.md §十六 暂不考虑真实平台对接）。所以类目级召回实际是**全类目向量召回**，filter 留接口不实现。
-
-**未来**：真实电商平台 API 接入后，给 `commerce_data` 加 `category` 字段；Qdrant payload 加 `category` 索引；`MemoryRecallPlanner` 构造 `filter=must([FieldCondition("category", in, [topCategories])])`。
-
-### 6.6 召回结果的 Prompt 渲染
+`PreferenceSection` 直接读取 `ctx.memoryContext().section("user_preferences").renderedText()`。`LongTermMemorySection` 只读取 `sku_history` 与 `analysis_insights`，示例：
 
 ```markdown
 ## 长期记忆
 
 ### SKU 处理历史
-- SKU-A: 2026-06-15 白底处理后点击率 +18%（来源 sku_history, 置信度 高）
-- SKU-B: 2026-06-10 蓝底场景图转化率最佳（来源 sku_history, 置信度 中）
+SKU历史:
+- SKU-A: 2026-06-15 白底处理后点击率 +18%
 
-### 分析结论（类目级）
-- 夏季连衣裙白底图转化率高于场景图 30%（来源 analysis_insight #142, confidence 0.85, importance 0.7）
-- 美妆品类主图建议模特正脸 + 留白 15%（来源 analysis_insight #156, confidence 0.78, importance 0.6）
-
-（按 RRF 融合排序；超出 token 预算时尾部截断）
+### 分析结论
+分析结论:
+- 夏季连衣裙白底图转化率高于场景图 30%
 ```
 
-**fingerprint**：`"{recallPlanId}.{totalTokens}"`，`recallPlanId = UUID`（每轮 buildForModel 一次，标识本次召回计划）。
+向量召回与 FULLTEXT 召回的候选、RRF 分数、衰减和降级信息保留在 `MemoryContext.recallTrace()`，不作为 agent prompt section 名暴露给模型。
 
-### 6.7 不暴露为 Agent 工具
+### 6.4 不暴露为 Agent 工具
 
 **关键设计**：`module/memory` 的召回路径**完全在 agent 装配层自动完成**，模型不能主动调 "search memory"。
 
 理由：
 - 避免「模型忘记召回了」
 - 避免「模型过度召回爆上下文」
-- 召回规划是确定性逻辑，模型决策无附加值
-- 与 design.md §七「系统自动规划 + 混合检索 + RRF + 衰减排序」一致
+- 召回规划和降级是系统确定性逻辑，模型决策无附加值
+- 与 `module/memory.md` 的「系统自动规划 + 混合检索 + 衰减排序」边界一致
 
-### 6.8 召回的可观测
+### 6.5 召回的可观测
 
-新增 Micrometer 指标：
-- `pixflow.agent.memory.recall{channel, result}`：各通道召回数（hit/miss）
-- `pixflow.agent.memory.rrf.fused.total`：RRF 融合后总数
-- `pixflow.agent.memory.rrf.truncated{token_budget}`：是否触发 token 截断
-- `pixflow.agent.sku_extract{source=rule|llm|cache}`：SKU 解析来源分布
-- `pixflow.agent.sku_extract.latency`：LLM 解析耗时
+agent 侧记录 `MemoryContext.degraded()`、section 数量和 `recallTrace` 摘要。具体候选数量、召回 query、filters、RRF、衰减和降级指标由 module-memory 负责产出并进入 eval trace。
 
 ---
 
@@ -1481,7 +1418,7 @@ agent 自治码 `AgentErrorCode`（`enum implements ErrorCode`）：
 | `harness/eval` | agent 不写 trace；loop 持有的 `TurnTrace` 句柄由 loop 转投 eval；agent 提供 `PromptSummary` 视图供 trace 抽取 |
 | `harness/state` | agent 不直接消费 state（任务进度查询归 module/task）；Plan 模式标记是会话级，归 `RuntimeState.metadata`，不归 state |
 | `harness/permission` | agent 不评估权限；权限评估在 tools 执行管线（deny-first）；agent 提供 `PlanModeController` 影响 PermissionContext |
-| `module/memory` | agent 调 `MemoryService.recall(signal)` 消费；module/memory 实现该 SPI；agent 装配层做召回规划与 RRF 融合 |
+| `module/memory` | agent 调 `MemoryService.prepareContext(MemoryContextRequest)` 消费；module-memory 负责召回规划、混合检索、RRF、衰减、降级和 trace；agent 只注入返回的 `MemoryContext` |
 | `module/vision` | vision service 由 `agent(type=vision)` 工具通过 `SubagentRunner` 间接调（不是直连） |
 | `module/imagegen` | 生图不走 agent——`submit_imagegen_plan` 提案入确认队列，确认后由 `module/conversation` REST 边界触发 |
 | `module/dag` | DAG 提案由 `submit_image_plan` 工具入队；agent 不直连 dag；DAG 异常检测 hook 归 `module/dag` 实现 |
@@ -1491,7 +1428,7 @@ agent 自治码 `AgentErrorCode`（`enum implements ErrorCode`）：
 | `infra/ai` | agent 不直接持有 `ModelClient`——经 `AgentLoop` 注入；subagent runner 复用父的 `ModelClient` |
 | `infra/storage` | skill body 大结果外置经 `ToolResultStorage`（与其它 tool 一致）；session memory content 大时也走外置 |
 | `infra/cache` | agent 经 `SessionMemoryCache` 读 session memory；Redisson 会话级锁防并发回合 |
-| `infra/vector` | agent 不直连 Qdrant——经 `MemoryService.recall` 间接调 |
+| `infra/vector` | agent 不直连 Qdrant——经 `MemoryService.prepareContext(...)` 间接调 |
 | `infra/thirdparty` | subagent 跑 VLLM 调第三方 API 经 Resilience4j 包装（与其它第三方调用一致） |
 | `common` | agent 自治错误用 `AgentErrorCode`（`enum implements ErrorCode`）；文案经 `common.Sanitizer` 脱敏；订阅 `common.ErrorRecorder` 不写（由 eval 实现） |
 | `contracts` | agent 不签确认令牌（`submit_image_plan` 工具层零令牌；确认令牌归 `permission.ConfirmationTokenService` + `infra/cache`） |
@@ -1527,15 +1464,7 @@ pixflow:
     # 自动记忆召回
     memory:
       recall:
-        recent-assistant-turns: 3         # N：最近 N 轮 assistant 消息
-        rrf-k: 60                         # RRF k 参数
-        max-items: 50                     # RRF 融合后上限
-        max-tokens: 4000                  # long_term_memory section token 上限
-        sku-patterns:                     # 自定义 SKU 命名模式（regex）
-          - "^SKU\\d+$"
-          - "^[A-Z]{2,}\\d{4,}$"
-        sku-llm-fallback: true            # 规则解析 < 3 时是否调 LLM 兜底
-        category-filter-enabled: false    # 类目 filter（等真实平台 API 接入）
+        max-tokens: 4000                  # 传给 MemoryContextRequest 的 tokenBudget；具体召回/RRF/过滤配置归 pixflow.memory.*
 
     # Session Memory
     session-memory:
@@ -1593,11 +1522,10 @@ pixflow:
 
 #### 15.1.3 记忆召回
 
-- `pixflow.agent.memory.recall{channel, result}`：各通道召回数（hit/miss）
-- `pixflow.agent.memory.rrf.fused.total`：RRF 融合后总数
-- `pixflow.agent.memory.rrf.truncated`：是否触发 token 截断
-- `pixflow.agent.sku_extract{source=rule|llm|cache}`：SKU 解析来源分布
-- `pixflow.agent.sku_extract.latency`：LLM 解析耗时
+- `pixflow.agent.memory.prepare_context{result=ok|degraded|failed}`：同步调用 `MemoryService.prepareContext` 的结果
+- `pixflow.agent.memory.sections.count`：本轮 `MemoryContext.sections` 数量
+- `pixflow.agent.memory.degraded`：本轮 memory context 是否降级
+- 具体通道命中、RRF、SKU 抽取和混合召回指标归 `module-memory`
 
 #### 15.1.4 Session Memory
 
@@ -1656,18 +1584,14 @@ loop 的 `TraceFanout` 在 `recordInput` 时把上述视图一并投递。
   - stats 正确性
 
 - **`MemoryRecallPlanner`**：
-  - 多通道触发条件
-  - RRF 融合单调性
-  - token 预算截断
+  - 同步调用 `MemoryService.prepareContext(...)`
+  - `MemoryContextRequest` 包含 conversationId、turnNo、traceId、userPrompt、attachments、packageId、taskId、skuIds、categoryHints、metadata、tokenBudget
+  - 不依赖 `module-memory` 内部 service / mapper / recall 包
 
-- **`SkuMentionExtractor`**：
-  - 规则解析优先
-  - LLM 兜底触发条件
-  - LLM 解析缓存命中
-
-- **`RrfMerger`**：
-  - 已知输入的 RRF 输出（属性测试）
-  - token 截断边界
+- **`PreferenceSection` / `LongTermMemorySection`**：
+  - `user_preferences.renderedText` 注入 `instruction_memory`
+  - `sku_history` 与 `analysis_insights` 注入 `long_term_memory`
+  - 空 section 跳过；不渲染 `insights.vector` / `insights.fulltext`
 
 - **`ForkChildSummarizationPort`**：
   - 正常路径返回 summary
@@ -1732,7 +1656,7 @@ loop 的 `TraceFanout` 在 `recordInput` 时把上述视图一并投递。
 - `AgentOrchestrator` 不持有 `ModelClient` / `MessageStore` 实现（仅持有接口）
 - `SkillToolRegistrar` 不在运行时修改 `ToolDescriptor` 集合（启动期一次性注册）
 - `SessionMemoryService` 不直连 MySQL（经 Repository 抽象）
-- `MemoryRecallPlanner` 不持有 Spring AI `VectorStore`（经 `MemoryService` SPI）
+- `MemoryRecallPlanner` 只依赖 `MemoryService` 与 `com.pixflow.module.memory.context..`，不依赖 `preference..`、`skuhistory..`、`insight..`、`recall..` 等 module-memory 内部包
 
 ### 16.4 属性测试
 
@@ -1769,3 +1693,9 @@ loop 的 `TraceFanout` 在 `recordInput` 时把上述视图一并投递。
 - 2026-06-30 / Codex: 新建 `agent` 设计文档。确立 agent 为 `harness/loop` 之上的薄装配层：手写 think-act-observe 主循环之外的所有业务装配。引入 Skill 工具化（每个 skill = 一个 `skill__<name>` 工具，渐进披露 schema→prompt→body 三层）、Session Memory 累积提取（MySQL + Redis 缓存，**阈值不入 transcript**，重入会话时重算）、压缩策略三层金字塔（cheap pipeline / Session Memory / auto compact，主次关系为 Session Memory 主、auto compact 备）、SubagentRunner 单一类三处复用（`agent` 工具 / `SummarizationPort` / `SessionMemoryExtractor`）、`SummarizationPort` 与 `SessionMemoryPort` 两个 SPI 在 agent 层实现。明确 agent 不持 LLM 客户端、不写 message 表、不评估权限、不写 trace 的边界。
 
 - 2026-06-30 / Codex: 完成 `pixflow-agent` Maven 模块落地。Wave 5 Agent 装配层全部 9 个子包（prompt / skill / memory / sessionmemory / subagent / summarization / planmode / hooks / config）按 Java 21 + Spring Boot 3.5.16 实现。73 个源文件 + 7 个单元测试类（含 ArchUnit 5 条断言），`mvn -pl pixflow-agent test` 28 测试方法全绿。`mvn -pl pixflow-app -am compile` BUILD SUCCESS，agent bean 装配不影响现有模块。详见 exec-plans/agent-module-implementation-plan.md。
+
+- 2026-07-08 / Codex: 同步 `agent-memory-recall-refactor-plan.md` 的实现结果。agent 记忆召回边界从旧 provider/RRF 通道体系改为同步调用 `MemoryService.prepareContext(MemoryContextRequest)`；`PromptRuntimeContext` 持有 `MemoryContext`；Prompt 只注入 `user_preferences`、`sku_history`、`analysis_insights`；RRF、SKU 信号提取、混合检索、降级和 trace 均归 `module-memory`。`mvn -pl pixflow-agent -am test` BUILD SUCCESS，agent 模块 33 个测试全绿。
+
+- 2026-07-08 / Codex: 同步 `context-autoconfiguration-refactor-plan.md` 的实现结果。agent 自动配置声明 `@AutoConfiguration(after = ContextAutoConfiguration.class)`，表达 `AgentOrchestrator` 依赖 context 基础 Bean 的装配顺序；`TokenEstimator`、`ContextBudgetService`、`ContextCompactionService` 的默认实现归 `pixflow-context` 发布，agent 不拥有这些默认 Bean。
+
+- 2026-07-09 / Codex: 同步 `review-agent-correctness-refactor-plan.md` 的第一批实现结果。`AgentOrchestrator` 的回合入口改为从 `TranscriptPort.load(conversationId)` rehydrate 活动链并 seed per-turn `MessageStore`，按普通 USER 消息数计算目标 turn number，`streamNewTurn` / `continueTurn` 共享驱动路径并在异常路径归一化、flush。Session Memory 保存改为数据库层单调 upsert，异步提取 executor 由 Spring 托管且有界，断路器按 conversation 隔离。`SubagentRunner` 删除 prompt echo 成功路径，真实 child runtime 尚未接通时返回结构化 unavailable error；subagent tools 改为类型化参数解析和 timeout/error 归一化。Prompt fingerprint 的已落地 section 使用 UTF-8 输入，skill loader 和相关 hook 日志保留 throwable 诊断，agent migration 改为强约束版本。真实 child runtime、真实 message seq 增量提取、完整配置校验和 public record 契约仍按 ExecPlan 后续推进。

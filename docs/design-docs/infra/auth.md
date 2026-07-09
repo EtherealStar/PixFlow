@@ -131,6 +131,8 @@ module/* ──► auth
 - `username` 大小写统一归一化。
 - `username` 唯一索引必须存在。
 - 密码只保存 hash，不保存原文和可逆密文。
+- `status` 由数据库 `CHECK (status IN ('ACTIVE','DISABLED'))` 强约束。
+- 时间列使用 `TIMESTAMP(3)`，应用侧以 UTC `Instant` 读写。
 
 ### 4.2 用户状态机
 
@@ -230,7 +232,7 @@ refresh token 不做 JWT，而是随机字符串：
 4. 校验密码 hash。
 5. 写 `last_login_at`。
 6. 签发 access token + refresh 会话。
-7. 清理失败计数。
+7. 只清理 username 维度失败计数，不清理 IP 维度计数。
 
 ### 6.3 刷新
 
@@ -239,11 +241,13 @@ refresh token 不做 JWT，而是随机字符串：
 流程：
 
 1. 从 HttpOnly cookie 取 refresh token。
-2. 查 Redis 会话。
+2. 原子消费 Redis 会话（get-and-delete）。
 3. 校验 token hash。
 4. 轮换 refresh token。
 5. 签发新的 access token。
 6. 返回新 access token，并更新 refresh cookie。
+
+同一个 refresh token 只能被消费一次；并发 refresh 中只有成功原子消费旧会话的一方可以签发新 token。
 
 ### 6.4 登出
 
@@ -291,13 +295,17 @@ refresh token 不做 JWT，而是随机字符串：
 4. 读取用户快照或回源 DB。
 5. 构造 `AuthPrincipal`，放入 `SecurityContextHolder` 和 `AuthContextHolder`。
 
-默认放行：
+默认匿名放行：
 
-- `/api/auth/**`
+- `POST /api/auth/register`
+- `POST /api/auth/login`
+- `POST /api/auth/refresh`
 - `/actuator/health`
 - 静态资源
 
 其余接口都要求认证。
+
+`GET /api/auth/me`、`POST /api/auth/logout` 等已登录 auth 接口必须经过 JWT filter。部署在 context path 下时，filter 使用 servlet path/pathInfo 做匹配，不能用完整 request URI。
 
 建议暴露两种读取方式：
 
@@ -332,6 +340,7 @@ STOMP `CONNECT` 也带同一个 access token。
 - `AUTH_TOKEN_INVALID`
 - `AUTH_TOKEN_EXPIRED`
 - `AUTH_TOKEN_REVOKED`
+- `AUTH_ACCESS_DENIED`
 - `AUTH_REFRESH_EXPIRED`
 - `AUTH_REFRESH_INVALID`
 - `AUTH_ACCOUNT_DISABLED`
@@ -341,7 +350,8 @@ STOMP `CONNECT` 也带同一个 access token。
 
 - 按 username 限流。
 - 按 IP 限流。
-- 命中后返回 429。
+- 登录失败时原子递增 username/IP 两个计数并按返回值判定是否锁定；命中后返回 429。
+- 登录成功只清 username 计数，不清 IP 计数，避免同 IP 任意账号成功登录绕过 IP 级防护。
 
 密码与 Cookie：
 
@@ -366,7 +376,7 @@ pixflow:
       cookie-name: PIXFLOW_REFRESH
       cookie-path: /
       cookie-same-site: Lax
-      cookie-secure: false
+      cookie-secure: true
     password:
       bcrypt-strength: 12
     throttle:
@@ -374,6 +384,8 @@ pixflow:
       window: 10m
       block-ttl: 10m
 ```
+
+`pixflow.auth.jwt.secret` 没有生产可用默认值，必须显式配置，且 UTF-8 长度至少 32 字节。本地开发如需关闭 refresh cookie `Secure`，必须在开发 profile 显式设置 `cookie-secure: false`。
 
 ---
 
@@ -419,3 +431,5 @@ pixflow:
 ## Revision Notes
 
 2026-07-01 / Codex: 新增 `infra/auth` 设计文档，采用“JWT access token + Redis refresh session + access blacklist”的单机实现口径，并把认证边界与 `permission` 的 HITL 授权边界分开。文档同时补了顶层资源 `owner_user_id` 归属、前端 / WebSocket 接入和登录失败限流，目标是把项目从“单用户无身份”细化为“单机可展示的完整账号体系”。
+
+2026-07-09 / Codex: 同步 auth 安全硬化实现口径。JWT secret 改为必填强 secret，refresh cookie 默认 Secure；匿名端点白名单收窄到 register/login/refresh，`/api/auth/me` 与 logout 必须经过 JWT filter；refresh session 采用 Redis atomic consume 单次轮换；登录限流改为失败时原子递增并且成功登录不清 IP 计数；access denied 使用 403 `AUTH_ACCESS_DENIED`；`user_account` schema 增加 status check 并使用 UTC `TIMESTAMP(3)`。

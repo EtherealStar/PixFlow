@@ -31,7 +31,7 @@
 
 ## 一、文档定位与设计原则
 
-`module/imagegen` 处于依赖 DAG 的 **Wave 3**，依赖 `infra/ai`（`ImageGenClient` 源图重绘）、`infra/storage`（`GENERATED` 桶落生图）、`permission`（+ `contracts` 的确认令牌契约）、`common`（错误归一化、脱敏）。它被 `agent`（接线 `submit_imagegen_plan` 工具）与 `module/task`（带外执行时调用重绘执行器）消费。
+`module/imagegen` 处于依赖 DAG 的 **Wave 3**，依赖 `infra/ai`（`ImageGenClient` 源图重绘）、`infra/storage`（`GENERATED` 桶落生图）、`permission`（+ `contracts` 的确认令牌契约）、`contracts.proposal`（待确认提案 SPI）、`common`（错误归一化、脱敏）。它被 `agent`（接线 `submit_imagegen_plan` 工具）与 `module/task`（带外执行时调用重绘执行器）消费。
 
 模块专属设计原则：
 
@@ -95,7 +95,6 @@ module/imagegen/
 │   ├── ImagegenConfirmationSupport.java # 重算 payloadHash / expectedCount，供 confirm 边界构造 PermissionSubject
 │   └── ImagegenPayloadHasher.java     # 规范化(有序源图集 + prompt + 参数白名单) → 稳定哈希
 ├── port/
-│   ├── PendingPlanPort.java           # SPI：提案入队/取回（conversation 实现，倒置）
 │   └── SourceImageReader.java         # SPI：按 imageId 解析源图 ObjectLocation + 归属校验（file 实现，倒置）
 ├── error/
 │   └── ImagegenErrorCode.java         # enum implements common.ErrorCode（提案侧校验错误）
@@ -109,7 +108,7 @@ module/imagegen/
 imagegen ──► infra/ai        （ImageGenClient.generate 源图重绘）
 imagegen ──► infra/storage   （getStream 解析源图字节、put 结果到 GENERATED 桶）
 imagegen ──► permission      （ConfirmationAction.IMAGEGEN / 构造 PermissionSubject 输入）
-imagegen ──► contracts       （确认令牌动作枚举 / 载荷契约，经 permission 间接或直接引用）
+imagegen ──► contracts       （confirmation 令牌形状 + proposal.PendingPlanPort / PendingPlanProposal）
 imagegen ──► common          （PixFlowException / ErrorCode / Sanitizer）
 agent    ──► imagegen        （接线 submit_imagegen_plan 工具）
 module/task ──► imagegen      （执行侧消费 ImageGenExecutor；Wave 4 落地的依赖边，见 §十六）
@@ -117,12 +116,12 @@ module/task ──► imagegen      （执行侧消费 ImageGenExecutor；Wave 4
 
 > **Wave 3 实现 vs 装配边界**：`DefaultImageGenExecutor` 在 Wave 3 范围内实现并自测齐全（含 fake `infra/ai` + fake `infra/storage` 的集成测试），但**不通过 imagegen 自己的 AutoConfiguration 装配到 Spring 上下文**——避免在 task 还没就绪时（Wave 4）把 executor 暴露给无人消费的 runner。待 task 模块就绪后，由 task 的 AutoConfiguration 主动 `import` 该 executor 的 `@Bean`（SPI 倒置 + 波次边界清晰）。这一边界由一个 imagegen 侧的 sentinel 单测守护（断言 `DefaultImageGenExecutor` 的 `@Configuration` 装配开关默认关闭）。
 
-两条 SPI 倒置（避免 Wave 3 反向依赖 Wave 4 的 conversation，与 `state.CheckpointReadPort`←task、`context.TranscriptPort`←session 同款手法）：
+两条 SPI 倒置（避免 imagegen 反向依赖 file 或 pending-plan 持久化实现，与 `state.CheckpointReadPort`←task、`context.TranscriptPort`←session 同款手法）：
 
-- **`PendingPlanPort`**：提案入队/取回由 `module/conversation` 实现（提案与会话关联，见 [§六](#六待确认提案的存储与会话关联复用-pending-plan)）。
+- **`PendingPlanPort`**：契约位于 `contracts.proposal`，生产实现由拥有 `pending_plan` 表的 `module/dag` 提供；imagegen 只消费 SPI 提交/取回提案（见 [§六](#六待确认提案的存储与会话关联复用-pending-plan)）。
 - **`SourceImageReader`**：按 `imageId` 解析 `asset_image.minio_key` 与归属校验由 `module/file` 实现（imagegen 不直连 `asset_*` 表）。
 
-**不依赖**：`infra/mq`、`infra/cache`、`harness/state`、`module/dag`、`module/task` 的业务类型、MySQL/MyBatis-Plus（提案与结果落库分别倒置给 conversation / 由 task 承担）。
+**不依赖**：`infra/mq`、`infra/cache`、`harness/state`、`module/dag`、`module/task` 的业务类型、`module/conversation`、MySQL/MyBatis-Plus（提案持久化倒置给 `contracts.proposal.PendingPlanPort`，生产实现由 dag 承担；结果落库由 task 承担）。
 
 ---
 
@@ -145,7 +144,7 @@ module/task ──► imagegen      （执行侧消费 ImageGenExecutor；Wave 4
 
 校验通过 → 规范化为 `ImagegenPlan`（有序 `sourceImageIds`、trim 后的 `prompt`、归一化 `params`、`note`、`conversationId`、`packageId`），经 `PendingPlanPort.enqueue` 入待确认队列，返回**提案引用**（`planId` + 摘要：源图张数、prompt 摘要、note），由 Agent 通过 SSE 告知用户「已生成生图提案，待确认」。
 
-- **入队幂等**：同 `toolCallId` 重复提交不产生重复 pending plan（`harness/tools.md §七` 要求 `submit_*_plan` 入队幂等）；`PendingPlanPort` 以 `(conversationId, toolCallId)` 去重。
+- **入队幂等**：同 `toolCallId` 重复提交不产生重复 pending plan（`harness/tools.md §七` 要求 `submit_*_plan` 入队幂等）；当前 `pending_plan` 表按 `toolCallId` 去重。若未来存在跨会话 toolCallId 碰撞风险，应另起 migration 改为 `(conversationId, toolCallId)` 联合唯一键。
 - **并发安全**：`submit_imagegen_plan` 标 `concurrencySafe=true`，多条提案（不同变体/不同 prompt）可在一轮内并发提交。
 - **结果预算**：返回摘要受 Tool Registry 结果预算约束，正常体积很小，无需外置。
 
@@ -157,26 +156,26 @@ module/task ──► imagegen      （执行侧消费 ImageGenExecutor；Wave 4
 
 确认时序要求 confirm REST 端点能**按 `planId` 取回提案原文**以重算 `payloadHash` 与张数（`permission.md §5.1` 时序）。因此提案必须在「提交 → 确认」之间持久化。
 
-设计决策（与你确认一致）：
+设计决策：
 
-- **提案与会话关联**：pending plan 归 `module/conversation` 拥有与持久化（会话维度，便于「某会话下有哪些待确认提案」「会话关闭即失效」）。
-- **DAG 与生图提案共用同一套 pending-plan 机制**：`submit_image_plan`（DAG 提案）与 `submit_imagegen_plan`（生图提案）写入同一 pending-plan 存储，用 `planType ∈ {IMAGE_DAG, IMAGEGEN}` 区分载荷，统一生命周期（创建 / 取回 / 确认消费 / 过期失效）。
-- **倒置接缝 `PendingPlanPort`**：imagegen（Wave 3）只依赖该 SPI，conversation（Wave 4）实现它，避免 Wave 3 → Wave 4 的前向依赖。
+- **提案与会话关联**：pending plan 记录包含 `conversationId`，确认 REST 边界可按会话校验归属。
+- **DAG 与生图提案共用同一套 pending-plan 机制**：`submit_image_plan`（DAG 提案）与 `submit_imagegen_plan`（生图提案）写入同一 `pending_plan` 存储，用 `planType ∈ {IMAGE_PLAN, IMAGEGEN}` 区分载荷，统一生命周期（创建 / 取回 / 确认消费 / 过期失效）。
+- **倒置接缝 `PendingPlanPort`**：imagegen 只依赖 `contracts.proposal` 中的纯 SPI；生产实现由拥有 `pending_plan` 表、mapper 与状态机的 `module/dag` 提供，避免 imagegen 直连 MyBatis 或依赖 conversation。
 
 ```java
 public interface PendingPlanPort {
-    /** 入队待确认提案，返回 planId（同 (conversationId, toolCallId) 幂等）。 */
+    /** 入队待确认提案，返回 planId（同 toolCallId 幂等）。 */
     String enqueue(PendingPlanProposal proposal);
     /** confirm 边界按 planId 取回原文（供重算 payloadHash / count）。 */
     Optional<PendingPlanProposal> find(String planId);
 }
 ```
 
-- `PendingPlanProposal` 是中立 record（`planType` + 载荷 JSON + `conversationId` + `packageId` + `toolCallId` + 创建时间），不绑定 imagegen/dag 具体类型，便于两路共用。
+- `PendingPlanProposal` 是 `contracts.proposal` 中立 record（`planType` + 载荷 JSON + `conversationId` + `packageId` + `toolCallId` + 创建时间），不绑定 imagegen/dag 具体类型，便于两路共用。
 - imagegen 把 `ImagegenPlan` 序列化为载荷写入；confirm 边界与 `ImagegenConfirmationSupport` 反序列化回 `ImagegenPlan` 重算载荷。
-- **持久化介质归 conversation**：MySQL 持久 + 可选 Redis 热缓存 / TTL 由 conversation 侧决定，本模块不感知。
+- **持久化介质归 dag**：MySQL `pending_plan` 表、TTL、状态机与 idempotency 由 dag 的 `PendingPlanPortAdapter` / `PendingPlanService` 承担，本模块不感知。
 
-> 该 `PendingPlanPort` 的精确形状与 DAG 提案共用细节属 `module/conversation` 设计；本文只钉死 imagegen 侧契约：**产出 `ImagegenPlan`、经端口入队取回，不自持提案表**。已登记为 [§十六](#十六对-designmd-与依赖-dag-的细化) 的跨切细化。
+> 该 `PendingPlanPort` 的精确形状属 `base/contracts.md §六.五`；生产实现属 `module/dag`。本文只钉死 imagegen 侧契约：**产出 `ImagegenPlan`、经端口入队取回，不自持提案表，也不依赖 dag 业务类型**。已登记为 [§十六](#十六对-designmd-与依赖-dag-的细化) 的跨切细化。
 
 ---
 
@@ -385,8 +384,9 @@ imagegen 通过 Micrometer 暴露指标，**不依赖 `harness/eval`**（与 `ha
 | `infra/ai` | 经 `ImageGenClient.generate` 源图重绘；imagegen 传字节、收字节，落桶自理；重试/并发/型号归 ai |
 | `infra/storage` | `getStream` 解析源图字节；`put` 结果到 `GENERATED` 桶（`StorageKeys.generated`）|
 | `permission` | confirm 边界 `evaluate(action=IMAGEGEN)` 由 permission 校验消费令牌；imagegen 经 `ImagegenConfirmationSupport` 提供 `payloadHash`/`actualCount`；子 Agent 调本工具被硬 deny |
-| `contracts` | 引用 `ConfirmationAction.IMAGEGEN` 等确认令牌动作枚举 |
-| `module/conversation` | 实现 `PendingPlanPort`（提案与会话关联、与 DAG 提案共用 pending-plan）；confirm REST 端点取回提案、算载荷、构造 `PermissionSubject`、触发 task |
+| `contracts` | 引用 `ConfirmationAction.IMAGEGEN` 等确认令牌动作枚举；消费 `contracts.proposal.PendingPlanPort` / `PendingPlanProposal` 提交与取回待确认提案 |
+| `module/dag` | 提供唯一生产 `PendingPlanPort` 实现，统一写入/读取 `pending_plan`；imagegen 不依赖 dag 业务类型，只通过 contracts SPI 接入 |
+| `module/conversation` | confirm REST 端点通过 pending-plan 事实视图取回提案、算载荷、构造 `PermissionSubject`、触发 task；不实现 `PendingPlanPort` |
 | `module/file` | 实现 `SourceImageReader`（按 imageId 解析 `asset_image.minio_key` + 归属校验）；imagegen 不直连 `asset_*` 表 |
 | `module/task` | 消费 `ImageGenExecutor.redraw` 执行生成式单元；fan-out / 进度 / `process_result` 落库 / 失败隔离 / 恢复 / 取消全在 task |
 | `agent` | 撰写生图提示词、接线 `submit_imagegen_plan`、向用户呈现提案与确认引导 |
@@ -417,7 +417,7 @@ imagegen 通过 Micrometer 暴露指标，**不依赖 `harness/eval`**（与 `ha
 
 1. **定位措辞校正**（`design.md §10.2`）：把「生图子 Agent」明确为「与确定性 DAG 并列的生成式重绘**路径**」——它无 child runtime、无 think-act-observe，只有「提案 handler + 单图重绘能力」。生图提示词由**主 Agent** 撰写。
 2. **依赖边 `task → imagegen`（Wave 4 落地）**（`module-dependency-dag-plan.md`）：执行侧复用 task 异步外壳，task 消费 imagegen 暴露的 `ImageGenExecutor` SPI；与现有 `dag` 在形状上完全对称——dag 同样是被 task 消费，task 才是异步外壳方。**imagegen 本身不依赖 task**，保持 Wave 3 边界的最小依赖（仅 `infra/ai`/`infra/storage`/`permission`/`contracts`/`common`）。这条边在 Wave 4 真正由 task 模块引入时再登记到依赖图。
-3. **待确认提案统一归 conversation 的 pending-plan**：`submit_image_plan`（DAG）与 `submit_imagegen_plan`（生图）共用一套会话级 pending-plan 存储，`planType` 区分；imagegen 经 `PendingPlanPort` SPI 倒置接入，不自持提案表。这细化了 `design.md §9.1` 与 `harness/tools.md §3.5` 的「入确认队列」落点（明确队列由 conversation 拥有、两路共用）。
+3. **待确认提案统一归 dag 的 `pending_plan` 持久化实现**：`submit_image_plan`（DAG）与 `submit_imagegen_plan`（生图）共用一套 `pending_plan` 存储，`planType` 区分；`PendingPlanPort` 契约位于 `contracts.proposal`，生产实现位于 `module/dag`，imagegen 经 SPI 倒置接入，不自持提案表。这细化了 `design.md §9.1` 与 `harness/tools.md §3.5` 的「入确认队列」落点。
 4. **`IMAGEGEN` 令牌在 confirm 边界单次消费、worker 不再验**（细化 `permission.md`「module/imagegen 生图执行前校验 IMAGEGEN 令牌」表述）：与 DAG 路径一致，令牌在确认 REST 边界 `verifyAndConsume`；imagegen 的 permission 职责是**重算 payloadHash/张数**供比对，异步 worker 执行时令牌已消费、不二次校验。
 5. **生成式单元粒度 = 「1 源图 → 1 重绘」**：`expectedCount` = 源图张数，复用 task 的 `[图片×支路]` fan-out/失败隔离/幂等模型；`process_result` 以 `source_path` 标生成式、`image_id` = 源图 id。
 6. **倒置接缝 `SourceImageReader`**：imagegen 不直连 `asset_*` 表，按 imageId 解析源图位置/归属由 `module/file` 实现，保持 imagegen 对 file 零编译依赖。
@@ -445,4 +445,6 @@ imagegen 通过 Micrometer 暴露指标，**不依赖 `harness/eval`**（与 `ha
 
 ## Revision Notes
 
-2026-06-29 / Kiro: 新增 `module/imagegen` 设计文档。基于设计讨论确定：① 定位为「生成式重绘路径」而非子 Agent（校正 `design.md §10.2` 措辞）；② 两张脸——提案侧 `submit_imagegen_plan`（零副作用零令牌）+ 执行侧无状态 `ImageGenExecutor`；③ 执行复用 `module/task` 异步外壳，新增 `imagegen → task` 依赖边（对称 `dag → task`）；④ 待确认提案与会话关联、与 DAG 提案共用 conversation 的 pending-plan，经 `PendingPlanPort` SPI 倒置；⑤ 生成式单元 =「1 源图→1 重绘」，`IMAGEGEN` 令牌在 confirm 边界单次消费、worker 不再验，imagegen 仅重算 payloadHash/张数。向 `design.md`、`module-dependency-dag-plan.md`、`permission.md`、`module/conversation`（未来）提出 §十六 所列细化与新增依赖边。
+2026-06-29 / Kiro: 新增 `module/imagegen` 设计文档。基于设计讨论确定：① 定位为「生成式重绘路径」而非子 Agent（校正 `design.md §10.2` 措辞）；② 两张脸——提案侧 `submit_imagegen_plan`（零副作用零令牌）+ 执行侧无状态 `ImageGenExecutor`；③ 执行复用 `module/task` 异步外壳，新增 `imagegen → task` 依赖边（对称 `dag → task`）；④ 待确认提案与会话关联、与 DAG 提案共用 pending-plan，经 `PendingPlanPort` SPI 倒置；⑤ 生成式单元 =「1 源图→1 重绘」，`IMAGEGEN` 令牌在 confirm 边界单次消费、worker 不再验，imagegen 仅重算 payloadHash/张数。向 `design.md`、`module-dependency-dag-plan.md`、`permission.md`、`module/conversation`（未来）提出 §十六 所列细化与新增依赖边。
+
+2026-07-07 / Codex: 更新待确认提案所有权：`PendingPlanPort` / `PendingPlanProposal` 迁入 `contracts.proposal`，`module/dag` 提供唯一生产实现并写同一张 `pending_plan` 表，imagegen 只消费 contracts SPI；删除旧 `com.pixflow.module.imagegen.port.PendingPlanPort` / `PendingPlanProposal` 设计描述，不再要求 conversation 实现该 port。

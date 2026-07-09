@@ -2,7 +2,7 @@
 
 > 本文是 PixFlow 完整重写阶段 `module/dag` 模块的设计文档，对应 `design.md` 第二章设计原则一/二（两层循环分离、确定性底座不被污染）、第五章 §5.2（两套工具严格分离）、第九章「DAG 确定性执行引擎」（§9.1 编译校验分支展开、§9.4 断点恢复与失败隔离、§9.5 分组聚合）、第十三章数据模型，以及 `module-dependency-dag-plan.md` 的 **Wave 3 横切组合 + 确定性核心**。
 > 范围：DAG 中间表示与校验、`submit_image_plan` 提案接线、分支/组支路展开、把一条已展开支路缝合为 `infra/{thirdparty,image,ai,storage}` 调用链的**确定性单元执行器**、`generate_copy` 独立文案分支、失败的源头归一化。
-> 配套阅读：`harness/tools.md`（`submit_image_plan` 工具边界、零令牌）、`infra/image.md`（类型化像素操作与 `ImagePipeline`）、`infra/thirdparty.md`（抠图 `BackgroundRemovalClient`）、`infra/ai.md`（`generate_copy` 走 `ChatModelClient`）、`harness/state.md`（`RunStateRefStore`/`UnitKey`/恢复协调）、`module/file.md`（`asset_image`/`asset_copy` 来源）、`base/contracts.md`（确认令牌形状）、`base/common.md`（错误归一化/脱敏）。本文不涉及 MVP 既有实现，从生产级需求重新推导。
+> 配套阅读：`harness/tools.md`（`submit_image_plan` 工具边界、零令牌）、`infra/image.md`（类型化像素操作与 `ImagePipeline`）、`infra/thirdparty.md`（抠图 `BackgroundRemovalClient`）、`infra/ai.md`（`generate_copy` 走 `ChatModelClient`）、`harness/state.md`（`RunStateRefStore`/`UnitKey`/恢复协调）、`module/file.md`（`asset_image`/`asset_copy` 来源）、`base/contracts.md`（确认令牌形状 + 待确认提案 SPI）、`base/common.md`（错误归一化/脱敏）。本文不涉及 MVP 既有实现，从生产级需求重新推导。
 
 ---
 
@@ -84,6 +84,7 @@ module/dag/
 │   ├── PendingPlanStatus.java        # PENDING / CONFIRMED / DISCARDED / EXPIRED
 │   ├── PendingPlanService.java       # 入队/读取/状态迁移/过期清理
 │   ├── PendingPlanMapper.java        # MyBatis-Plus
+│   ├── PendingPlanPortAdapter.java   # contracts.proposal.PendingPlanPort 的唯一生产实现
 │   └── SubmitImagePlanHandler.java   # 贡献给 harness/tools 的 ToolHandler bean（深校验 + 入队）
 ├── expand/
 │   ├── BranchExpander.java           # ValidatedDag + 图片成员 → List<ExecutableBranch>
@@ -116,6 +117,7 @@ module/dag ──► infra/ai          （generate_copy → ChatModelClient）
 module/dag ──► infra/storage     （两端缝合：取源图字节、写结果/中间产物）
 module/dag ──► harness/state     （中间产物引用 RunStateRefStore；仅组支路用，见 §十一）
 module/dag ──► common            （PixFlowException / ErrorCode / Sanitizer / ErrorNormalizer 边界）
+module/dag ──► contracts         （只实现 contracts.proposal.PendingPlanPort，不消费 confirmation 令牌契约）
 module/dag ──► MySQL/MyBatis-Plus（pending_plan 表）
 
 harness/tools ──► module/dag     （收集 SubmitImagePlanHandler 的 ToolDescriptor/ToolHandler bean）
@@ -123,7 +125,7 @@ module/task   ──► module/dag     （调 BranchExpander.expand、UnitExecut
 module/conversation ──► module/dag（确认 REST 边界调 DagValidator 重校验 + GroupPreflight HITL）
 ```
 
-**反向约束**：dag **不依赖** `module/file`（分组成员/文案以中立 record 喂入）、**不依赖** `module/task`/`harness/loop`/`agent`、**不依赖** `infra/cache`（中间产物引用经 `harness/state`，见 [§十一](#十一中间产物引用与恢复走-state缓存收窄到组支路)）、**不依赖** `contracts`（零令牌，确认令牌形状只服务确认 REST 边界 + permission + cache）。
+**反向约束**：dag **不依赖** `module/file`（分组成员/文案以中立 record 喂入）、**不依赖** `module/task`/`harness/loop`/`agent`、**不依赖** `infra/cache`（中间产物引用经 `harness/state`，见 [§十一](#十一中间产物引用与恢复走-state缓存收窄到组支路)）。dag 只允许依赖 `contracts.proposal` 这条纯待确认提案 SPI，用于把 `pending_plan` 持久化能力暴露给 imagegen；dag 不依赖 `contracts.confirmation`，不签发、不消费确认令牌。
 
 > 关键倒置说明：`harness/tools` 对 dag 零编译依赖，`SubmitImagePlanHandler` 在 dag 实现 `ToolHandler` 并把 `ToolDescriptor` 暴露为 `@Bean`，`DefaultToolRegistry` 自动收集（`tools.md §四`）。这与 memory 的 `InsightKeywordSearch`、permission 的 `ConfirmationTokenStore` 倒置同构。
 ---
@@ -221,10 +223,11 @@ Agent 调 submit_image_plan(dag, note?)
 
 | 表 | 关键字段 | 说明 |
 |---|---|---|
-| `pending_plan` | id, conversation_id, type, dag_json, note, payload_hash, status, created_at, expires_at | 待确认 DAG 提案；`type`=IMAGE_PLAN（生图提案由 `module/imagegen` 持镜像表或共用，见下）；`status`=PENDING/CONFIRMED/DISCARDED/EXPIRED |
+| `pending_plan` | id, conversation_id, type, dag_json, note, payload_hash, status, created_at, expires_at | 待确认提案统一事实表；`type`=IMAGE_PLAN 或 IMAGEGEN；`status`=PENDING/CONFIRMED/DISCARDED/EXPIRED |
 
-- `payload_hash` = 规范化 DAG JSON 的哈希，供确认边界比对「确认的就是执行的」（与 `TokenClaims.payloadHash` 同源理念，`contracts.md §6.2`）。
-- `type` 字段为生图提案预留：`submit_imagegen_plan` 的提案语义与之对称（`tools.md §3.5`），可共用 `pending_plan` 表（`type=IMAGEGEN`、`dag_json` 位置存「源图引用集 + 提示词」载荷）或由 `module/imagegen` 持镜像表——具体由 imagegen 模块设计时定，本表结构对两类提案中立。
+- `payload_hash` = 规范化载荷哈希，供确认边界比对「确认的就是执行的」（与 `TokenClaims.payloadHash` 同源理念，`contracts.md §6.2`）。DAG 路径使用规范化 DAG JSON；IMAGEGEN 路径使用 sourceImageIds + prompt + params 的规范载荷 JSON。
+- `type` 字段区分 `IMAGE_PLAN` 与 `IMAGEGEN`。`dag_json` 字段作为历史命名保留，实际承载中立 `payloadJson`：DAG 路径写 DAG JSON，imagegen 路径写源图引用集 + 提示词载荷。
+- `PendingPlanPortAdapter` 是 `contracts.proposal.PendingPlanPort` 的唯一生产实现：`IMAGE_PLAN` 仍委托 `PendingPlanService.enqueue(...)` 做 DAG 深校验与 canonical hash；`IMAGEGEN` 只保存已由 imagegen handler 校验过的中立载荷，不把生图业务校验塞进 dag。
 - 过期清理：`@Scheduled` 扫超龄 `PENDING` 转 `EXPIRED`（防提案无限堆积）。**注意**：定时扫描在调用方/app 接线，dag 只提供 `PendingPlanService` 的迁移能力；dag 自身不持调度器（保持无运行态循环）。
 
 ### 6.2.1 Schema 演进与加法兼容约束
@@ -664,6 +667,7 @@ public UnitOutcome execute(ExecutableBranch branch, UnitInput input) {
 | `harness/tools` | dag 贡献 `SubmitImagePlanHandler` 的 `ToolDescriptor`/`ToolHandler` bean，tools 自动收集；`submit_image_plan.dag` 深度校验在 dag handler；tools 对 dag 零编译依赖 |
 | `module/task` | 调 `BranchExpander.expand(dag, images)` 展开、`UnitExecutor.execute(branch, input)` 逐单元执行；喂 `ImageDescriptor`/`CopyContext` 中立输入；据 `UnitOutcome` 写 `process_result`/`process_result_member`、进度、终态；持线程池/锁/取消/恢复扫描 |
 | `module/conversation` | 确认 REST 边界调 `DagValidator` 重校验 + `GroupPreflight` 算 expected_count 差异；编排令牌（permission）与 HITL；创建 `process_task` |
+| `module/imagegen` | 经 `contracts.proposal.PendingPlanPort` 提交/取回 `IMAGEGEN` 待确认提案；dag 只提供中立持久化，不理解 imagegen 业务语义 |
 | `infra/image` | 调 `ImageCodec`/`ImagePipeline.run`（逐图）/`runComposed`（组），传类型化 spec；字节 I/O 由 dag 在两端缝合；image 不依赖 dag |
 | `infra/thirdparty` | dag 是唯一直接消费方：`remove_bg` 节点调 `BackgroundRemovalClient.remove(源图字节)`，结果喂给 image |
 | `infra/ai` | `generate_copy` 调 `ChatModelClient`（PRIMARY_CHAT）；ai 不理解 DAG 语义 |
@@ -672,7 +676,7 @@ public UnitOutcome execute(ExecutableBranch branch, UnitInput input) {
 | `module/file` | **无直接依赖**：分组成员（`group_key`/`view_id`）、文案（`asset_copy`）由 task 以中立 record 喂入；文件名分组规则属 file |
 | `common` | 单元失败经 `ErrorNormalizer` 归一化为 SKIP 的 `UnitOutcome.FAILED`；`DagErrorCode implements ErrorCode`；文案经 `Sanitizer` |
 
-**反向约束**：dag 不依赖 task/conversation/loop/agent、不依赖 file、不依赖 cache（经 state）、不依赖 contracts（零令牌）。
+**反向约束**：dag 不依赖 task/conversation/loop/agent、不依赖 file、不依赖 cache（经 state）、不依赖 `contracts.confirmation`。仅允许依赖 `contracts.proposal`，作为 `pending_plan` 生产实现对外暴露的纯 SPI。
 
 ---
 
@@ -729,7 +733,7 @@ dag 通过 Micrometer 暴露指标，**不依赖 `harness/eval`**（与 `harness
 - **pending_plan 状态机测试**：PENDING→CONFIRMED/DISCARDED/EXPIRED；payload_hash 计算稳定（规范化 DAG）。
 - **失败隔离边界测试**：单元执行器对各类异常一律返回 FAILED outcome、从不抛出；断言无堆栈泄露、category=SKIP。
 - **恢复对齐测试**：确定性 branchId 使 UnitKey 可匹配 process_result；组支路整组幂等重算；普通支路无节点级缓存（断言不写 branch:cache）。
-- **边界守护（ArchUnit）**：`com.pixflow.module.dag..` 不依赖 `module/file`、`module/task`、`infra/cache`、`contracts`、`harness/loop`、`agent`；不出现线程池/MQ/Redisson/process_result 实体直连。
+- **边界守护（ArchUnit）**：`com.pixflow.module.dag..` 不依赖 `module/file`、`module/task`、`module/conversation`、`infra/cache`、`contracts.confirmation`、`harness/loop`、`agent`；只允许 `contracts.proposal` 作为 pending-plan SPI；不出现线程池/MQ/Redisson/process_result 实体直连。
 - **错误码目录一致性**：`DagErrorCode` 并入 `common` 启动期聚合测试。
 
 ---
@@ -739,7 +743,7 @@ dag 通过 Micrometer 暴露指标，**不依赖 `harness/eval`**（与 `harness
 本模块对既有设计做如下**细化（非冲突）**，需同步记录（落地时在相应文档同步）：
 
 1. **明确 dag/task 的「执行引擎」边界**：`design.md §12` 字面上「执行引擎」在 dag、「失败隔离」在 task 含混。本文钉死为：dag 是**无状态确定性单元执行器 + 校验 + 展开**，task 是**有状态异步外壳**（fan-out/进度/锁/恢复/process_result 落库）。失败隔离分两半——单元内归一化在 dag（返回 FAILED outcome），批次内继续在 task。
-2. **提案载体新增 `pending_plan` 表**：`tools.md` 只说提案「归属 module/dag/task」未定载体。本文确定独立 `pending_plan` 表（不复用 `process_task` 状态机），对 IMAGE_PLAN / IMAGEGEN 两类提案中立。
+2. **提案载体新增 `pending_plan` 表**：`tools.md` 只说提案「归属 module/dag/task」未定载体。本文确定独立 `pending_plan` 表（不复用 `process_task` 状态机），对 IMAGE_PLAN / IMAGEGEN 两类提案中立；生产写入 port 由 dag 实现 `contracts.proposal.PendingPlanPort` 暴露。
 3. **分组成员/文案以中立 record 喂入，dag 不依赖 file**：`file.md §十三` 契约表写「dag 读 asset_image」，本文改为 task 以 `ImageDescriptor`/`CopyContext` 喂入，**不新增 file→dag 边**。需回写 `file.md` 契约表（把「dag 读 asset_image」改为「dag 经 task 以中立投影消费 group_key/view_id」）。
 4. **中间产物引用走 `harness/state`，依赖边 `cache → dag` 改为 `state → dag`**：`dag-plan` 依赖图画的是 `cache → dag` 直连，与 `state.md §七`（dag 经 `RunStateRefStore`）冲突。本文采纳 state facade，建议 `dag-plan` 删 `cache → dag`、补 `state → dag`（state Wave2 / dag Wave3，无环）。
 5. **中间产物缓存收窄到组支路**：普通逐图支路全程内存（image「解码一次/编码一次」），不做节点级缓存、不写 `branch:cache`；恢复整支路幂等重算。`branch:cache`/`group:cache` 中真正使用的是组支路成员预处理引用（`group:cache:*`）。这细化 `design.md §13.3` 的 `branch:cache:*` 用途说明。
@@ -755,7 +759,7 @@ dag 通过 Micrometer 暴露指标，**不依赖 `harness/eval`**（与 `harness
 - **动态注册像素工具 / 自定义工具插件**：白名单是封闭枚举，不支持运行时扩展（确定性底座要求）。
 - **DAG 可视化编辑 / 前端编排器**：本期 DAG 由 Agent 产出 JSON，不做可视化编辑面板。
 - **组内参数联合推导**（如取组内最大尺寸回填各图）：`design.md §9.5` 本期不做；静态固定参数的「各自处理保持一致」沿用逐图支路同参数处理。
-- **生图提案的执行细节**：`submit_imagegen_plan` 的提案与执行属 `module/imagegen`；本文只保证 `pending_plan` 表结构对生图提案中立。
+- **生图提案的业务执行细节**：`submit_imagegen_plan` 的校验、payload hash 与执行属 `module/imagegen`；本文只保证 `pending_plan` 表结构与 `PendingPlanPort` 持久化实现对生图提案中立。
 - **DAG 模板/预设方案库**：本期不做常用方案模板沉淀，后续按运营需求评估。
 - **跨任务 DAG 复用/缓存编译结果**：DAG 编译是轻量纯函数，不缓存编译产物。
 

@@ -14,6 +14,7 @@
 - [四、准入准则（防止沦为垃圾场）](#四准入准则防止沦为垃圾场)
 - [五、模块结构与包布局](#五模块结构与包布局)
 - [六、确认令牌契约](#六确认令牌契约)
+- [六.五、待确认提案契约](#六五待确认提案契约)
 - [七、依赖关系：零依赖叶子](#七依赖关系零依赖叶子)
 - [八、稳定性与演进策略](#八稳定性与演进策略)
 - [九、从现状迁移](#九从现状迁移)
@@ -34,7 +35,7 @@
 3. **零依赖叶子**。`contracts` 不依赖任何内部模块——**包括不依赖 `common`**。它只用 JDK 类型（`Instant`、`Duration`、`Optional` 等）。这样它是整个工程最稳定、绝不可能成环的根。
 4. **不依赖业务，也不依赖基础设施**。`contracts` 不能依赖 `permission`、`task`、`dag`、`infra/*` 等任何上层或基础设施模块。
 5. **稳定即契约**。它是编译期共享库（本期单体，无跨进程协议）；一旦发布，字段语义与签名的**语义级**向后兼容是硬要求，破坏性变更必须跨依赖方协同（见 [§八](#八稳定性与演进策略)）。
-6. **小而克制**。当前只承载确认令牌契约。新增任何类型都必须过 [§四](#四准入准则防止沦为垃圾场) 的准入准则，宁缺毋滥。
+6. **小而克制**。当前只承载确认令牌契约与待确认提案契约。新增任何类型都必须过 [§四](#四准入准则防止沦为垃圾场) 的准入准则，宁缺毋滥。
 
 
 ---
@@ -141,22 +142,25 @@ flowchart TD
 
 ## 五、模块结构与包布局
 
-源码根包：`com.pixflow.contracts`，按**主题子包**组织。当前只有确认令牌一个主题。
+源码根包：`com.pixflow.contracts`，按**主题子包**组织。当前有确认令牌与待确认提案两个主题。
 
 ```text
 pixflow-contracts/
 └── src/main/java/com/pixflow/contracts/
-    └── confirmation/
-        ├── ConfirmationToken.java         # 不透明令牌句柄（record）
-        ├── TokenClaims.java               # 令牌绑定载荷（record）
-        ├── ConfirmationAction.java        # 受控动作枚举
-        ├── ConfirmationLevel.java         # 确认级别枚举
-        └── ConfirmationTokenStore.java    # 存储 SPI（倒置接缝核心）
+    ├── confirmation/
+    │   ├── ConfirmationToken.java         # 不透明令牌句柄（record）
+    │   ├── TokenClaims.java               # 令牌绑定载荷（record）
+    │   ├── ConfirmationAction.java        # 受控动作枚举
+    │   ├── ConfirmationLevel.java         # 确认级别枚举
+    │   └── ConfirmationTokenStore.java    # 存储 SPI（倒置接缝核心）
+    └── proposal/
+        ├── PendingPlanPort.java           # 待确认提案入队/取回 SPI
+        └── PendingPlanProposal.java       # DAG/imagegen 共享提案载体（record）
 ```
 
 约定：
 
-- **按主题分子包**（`confirmation/`），不按类型种类分（不设 `dto/`、`enum/`、`spi/` 这种横切目录）。后续若出现新的解环主题，再加同级子包（如 `xxx/`），不在现有子包里堆叠不相关类型。
+- **按主题分子包**（`confirmation/`、`proposal/`），不按类型种类分（不设 `dto/`、`enum/`、`spi/` 这种横切目录）。后续若出现新的解环主题，再加同级子包（如 `xxx/`），不在现有子包里堆叠不相关类型。
 - 每个子包应当能对应到一条明确的「解环故事」（哪两个模块、为什么不能互相依赖）。讲不出这个故事的子包不该存在。
 
 ---
@@ -246,6 +250,39 @@ public interface ConfirmationTokenStore {
 
 ---
 
+## 六.五、待确认提案契约
+
+待确认提案是 `submit_image_plan` 与 `submit_imagegen_plan` 生成的待用户确认计划。它需要被三个兄弟模块同时理解：`module/imagegen` 负责生成式提案校验并提交，`module/dag` 拥有 `pending_plan` 表与持久化实现，`module/conversation` 负责确认 REST 编排并读取提案事实。若把 SPI 放在任一业务模块，都会形成反向依赖或自动配置脆弱性。因此 `contracts.proposal` 只定义纯 Java 接缝：
+
+```java
+public interface PendingPlanPort {
+    String enqueue(PendingPlanProposal proposal);
+
+    Optional<PendingPlanProposal> find(String planId);
+}
+```
+
+`PendingPlanProposal` 是中立 record：
+
+```java
+public record PendingPlanProposal(
+        String planType,
+        String payloadJson,
+        String conversationId,
+        String packageId,
+        String toolCallId,
+        Instant createdAt) {}
+```
+
+边界约束：
+
+- `proposal` 子包只含 SPI / record，不出现 Spring、Jackson、MyBatis、mapper、entity 或数据库状态机。
+- `payloadJson` 的结构由提案属主模块解释：DAG 路径是 DAG JSON，imagegen 路径是源图集 + prompt + params 的规范载荷。contracts 不解析、不校验其业务语义。
+- 生产实现唯一归 `module/dag`，因为它已经拥有 `pending_plan` 表、mapper、状态机和 TTL 配置。contracts 只定义形状，不拥有存储。
+- `conversation` 只在确认边界读取提案事实并编排令牌 / task，不再替 imagegen 实现写入 port。
+
+---
+
 ## 七、依赖关系：零依赖叶子
 
 ```text
@@ -253,15 +290,17 @@ public interface ConfirmationTokenStore {
             │  contracts   │   仅依赖 JDK，零内部依赖
             └──────┬───────┘
         被依赖      │
-   ┌───────────────┼────────────────┐
-   ▼               ▼                 ▼
-permission     infra/cache       (未来需解环的兄弟)
-(实现校验)      (提供 Redis 实现)
+   ┌───────────────┼────────────────┬────────────────┐
+   ▼               ▼                ▼                ▼
+permission     infra/cache      module/dag      module/imagegen
+(实现校验)      (提供 Redis 实现) (proposal 实现) (proposal 消费)
 ```
 
 - `contracts` **无任何入边**：不依赖 `common`、不依赖 infra、不依赖业务。
 - `permission → contracts`：用契约签发/校验/消费令牌。
 - `infra/cache → contracts`：提供 `RedisConfirmationTokenStore` 实现 SPI。
+- `module/dag → contracts`：实现 `contracts.proposal.PendingPlanPort`，统一写入/读取 `pending_plan`。
+- `module/imagegen → contracts`：消费 `PendingPlanPort` 提交/取回生成式待确认提案。
 - `permission` 与 `infra/cache` 之间**无直接依赖**——这正是 `contracts` 要达成的解耦。
 
 > `design.md §12` 与 `module-dependency-dag-plan.md` 的依赖图已同步去掉 `common → contracts` 边，`contracts` 在三处文档中统一为零依赖叶子（见 [§一](#一文档定位与设计原则) 末尾说明）。
@@ -315,7 +354,9 @@ permission     infra/cache       (未来需解环的兄弟)
 | `permission` | 依赖 `contracts.confirmation.*` 完成令牌签发/校验/消费；`ConfirmationTokenService` 面向 `ConfirmationTokenStore` SPI 编程，不感知存储介质 |
 | `infra/cache` | 提供 `RedisConfirmationTokenStore implements ConfirmationTokenStore`，保证 `consume` 的原子读+删（Lua）；不依赖 permission |
 | `module/conversation` | 令牌**签发**入口（确认 REST 端点）使用 `TokenClaims`/`ConfirmationToken` 形状，但签发动作经 `permission` 的 service，不直接碰 store |
-| `module/task` / `module/imagegen` | 提交/生图前由 permission 校验，业务侧只负责按真实载荷算 `payloadHash`/`count` 填入流程，消费的是 permission 行为而非直接用 contracts |
+| `module/dag` | 实现 `contracts.proposal.PendingPlanPort`，作为 `pending_plan` 持久化唯一生产提供方；同时继续消费 confirmation 枚举/claims 语义的下游结果，不把令牌行为放入 dag |
+| `module/imagegen` | 消费 `contracts.proposal.PendingPlanPort` 提交 `IMAGEGEN` 提案；提交/生图前由 permission 校验，业务侧只负责按真实载荷算 `payloadHash`/`count` 填入流程 |
+| `module/task` | 执行前由 conversation + permission 完成确认，task 不直接消费 contracts proposal SPI |
 | reactor 父 POM | 对 `pixflow-contracts` 用 maven-enforcer `bannedDependencies` 锁死为叶子 |
 
 **反向不变量**：`contracts` 对以上任何模块**零依赖、零业务词、零框架依赖**。
@@ -326,7 +367,7 @@ permission     infra/cache       (未来需解环的兄弟)
 
 `contracts` 几乎无行为，测试重心是**约束守护**而非逻辑覆盖：
 
-- **值对象自洽**：`ConfirmationToken`（空 tokenId 抛错）、`TokenClaims`（非空/`expectedCount ≥ 0`/`expiresAt > issuedAt`）的 compact constructor 校验单测。
+- **值对象自洽**：`ConfirmationToken`（空 tokenId 抛错）、`TokenClaims`（非空/`expectedCount ≥ 0`/`expiresAt > issuedAt`）、`PendingPlanProposal`（planType/payloadJson/conversationId/toolCallId/createdAt 必填）的 compact constructor 校验单测。
 - **零依赖守护**：reactor 层 maven-enforcer `bannedDependencies` 保证 `pixflow-contracts` POM 不出现任何内部/重型依赖；CI 构建即校验（编译期不可达是第一道，enforcer 是第二道）。
 - **依赖方向守护（过渡期）**：reactor 未完全拆分前，用 ArchUnit 断言 `com.pixflow.contracts..` 不依赖 `..permission..`/`..infra..`/`..module..`/`..agent..`/`..common..`，作为迁移期的临时底线。
 - **SPI 契约测试归属实现方**：`consume` 的「原子读+删/单次消费/并发只一次成功」由 `infra/cache`（Testcontainers 真实 Redis）与 `permission`（InMemory 替身）各自验证；`contracts` 本身不含可测行为。

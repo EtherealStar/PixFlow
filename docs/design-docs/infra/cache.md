@@ -192,9 +192,11 @@ public interface DistributedSemaphore {
 
 ## 六、序列化与 codec
 
-- Redisson 全局采用 **JSON（Jackson）codec**，复用 `common` 已配置的 `ObjectMapper`（含 JavaTime 模块、`NON_NULL` 等约定），保证缓存内容**人类可读、便于排障**。
+- 业务 KV 缓存值由 `CacheStore` 使用 PixFlow 自己的 `ObjectMapper` 序列化为**普通 JSON 字符串**，再通过 Redisson `StringCodec` 写入 Redis。Redisson 全局 codec 不承载业务对象协议，不再依赖 `JsonJacksonCodec` 或 Java 多态字段恢复业务对象。
+- `CacheStore.get(key, type)` 先以 `StringCodec` 取回 JSON 字符串，再直接按调用方传入的 `Class<T>` 执行 `objectMapper.readValue(json, type)`。Redis value 不需要、也不应该包含 Redisson 多态字段 `@class`。
 - 缓存值约定为**小而结构化的引用/元数据对象**（见 [§九](#九中间产物边界redis-存引用字节落-minio)），JSON 体积可控；不缓存大字节，故不需要二进制 codec 的极致紧凑。
-- 序列化失败（反序列化时类型不匹配等）按"缓存读降级"处理：记 warn + 视为 miss，不影响主流程（见 [§八](#八降级分级策略)）。
+- 序列化失败（反序列化时类型不匹配、坏 JSON、旧协议污染等）按"缓存读降级"处理：只记录命名空间和异常类型，视为 miss，不输出完整 value，不影响主流程（见 [§八](#八降级分级策略)）。
+- 这是一次缓存协议破坏式重构。旧 Redisson `JsonJacksonCodec` 写出的业务缓存值不做代码兼容，必须通过 TTL 自然过期或按当前环境前缀清理。生产环境清理必须先用 `SCAN` 预览并分批 `DEL`，不得使用 `FLUSHDB`。
 
 ---
 
@@ -287,7 +289,7 @@ public interface DistributedSemaphore {
 | `pixflow.cache.default-ttl` | 命名空间默认 TTL 兜底 | 1h |
 | `pixflow.cache.semaphore.{api}.permits` | 各第三方 API 全局并发许可 | 按 API 配置 |
 
-`RedissonConfig` 依据 `mode` 装配单机/哨兵/集群的 `RedissonClient`，统一注入 JSON codec 与连接超时。
+`RedissonConfig` 依据 `mode` 装配单机/哨兵/集群的 `RedissonClient`，统一配置连接超时、重试与锁看门狗。业务 KV value 的 JSON 协议由 `CacheStore` 显式使用 `StringCodec` 和 `ObjectMapper` 管理；锁、计数、信号量等 Redisson 原语按各调用点显式选择安全 codec 或 Redisson 默认 codec。
 
 ---
 

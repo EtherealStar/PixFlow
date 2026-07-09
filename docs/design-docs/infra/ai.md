@@ -345,6 +345,8 @@ public final class ModelRetryRunner {
 
 infra/ai 的 `ModelRetryRunner` 负责**模型调用级**重试（NETWORK/RATE_LIMIT/PROVIDER）。它与 `infra/thirdparty` 的 Resilience4j（抠图 API 等非模型第三方）是不同模块、不同对象；与 `module/task` 的 MQ 重投（任务级）也不重叠。各层各管一段。
 
+`ChatModelClient.stream` 是文本模型调用 retry 的唯一上行边界。`harness/loop` 与 `agent` 只调用并消费该 stream，不再注入、持有或外包 `ModelRetryRunner`；否则会把同一模型请求重复套 retry，导致等待时间和 SSE 协议状态被放大。
+
 ---
 
 ## 八、错误归一化与源头构造
@@ -502,3 +504,9 @@ pixflow:
 - **provider 级 `/connect` 动态发现与切换**（参考的 connection flow）：本期型号由配置承载，不做运行时发现。
 - **嵌入缓存 / 生图结果去重缓存**：待出现明确性能或成本瓶颈再做。
 - **cache_creation/cache_read token 等服务商上下文缓存计量**：本期 Prompt 缓存是应用侧 section 缓存（`design.md §6.2`），不依赖服务商 context caching，故不计量其专属 token 字段。
+
+---
+
+## Revision Notes
+
+2026-07-10 / Codex: 明确模型调用 retry 的单一所有权：`ChatModelClient.stream` 内部通过 `ModelRetryRunner` 负责 retry，`harness/loop` 与 `agent` 不再注入或外包 retry runner；已发射后的可恢复失败通过 `AttemptReset` 向上游暴露，由 loop/conversation/web 投影成非终态 `RATE_LIMIT_RETRY` 状态。

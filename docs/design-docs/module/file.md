@@ -1,7 +1,7 @@
 # module/file —— 素材管理（上传 / 解压 / 绑定，Wave 2）
 
 > 本文是 PixFlow 完整重写阶段 `module/file` 模块的设计文档，对应 `design.md` 第八章相关的素材接入、第九章 9.5「分组聚合（文件名驱动分组）」、第十二章「业务模块划分」、第十三章 §13.1 数据模型与 §13.4 MinIO 布局，以及 `module-dependency-dag-plan.md` 的 **Wave 2**。
-> 范围：素材包上传、**MQ 驱动的异步解压入库**、文件名驱动的 SKU / 分组绑定、文案文档解析，以及素材包查询 / 删除。
+> 范围：素材包**分片上传（chunked upload）+ 整包 SHA-256 去重**、**MQ 驱动的异步解压入库**、文件名驱动的 SKU / 分组绑定、文案文档解析，以及素材包查询 / 删除。
 > 配套阅读：`infra/storage.md`（对象 I/O 与 `StorageKeys`）、`infra/mq.md`（可靠消息设施与消费模型）、`common.md`（错误归一化、`Sanitizer`、跨切 SPI 模式）、`harness/state.md`（运行态读模型与「state 不推送」边界）。本文不涉及 MVP 既有实现，从新架构需求重新推导，按生产级标准设计。
 
 ---
@@ -12,18 +12,19 @@
 - [二、职责边界（入口侧 vs 出口侧）](#二职责边界入口侧-vs-出口侧)
 - [三、模块结构与依赖位置](#三模块结构与依赖位置)
 - [四、数据模型与状态机](#四数据模型与状态机)
-- [五、上传与解压管线（MQ 驱动）](#五上传与解压管线mq-驱动)
-- [六、Zip 安全（slip / bomb）](#六zip-安全slip--bomb)
-- [七、文件名驱动解析（SKU / 分组）](#七文件名驱动解析sku--分组)
-- [八、文案文档解析](#八文案文档解析)
-- [九、进度推送（复用 WebSocket）](#九进度推送复用-websocket)
-- [十、恢复、幂等与失败隔离](#十恢复幂等与失败隔离)
-- [十一、错误与降级](#十一错误与降级)
-- [十二、配置](#十二配置)
-- [十三、对其他模块的契约](#十三对其他模块的契约)
-- [十四、测试策略](#十四测试策略)
-- [十五、对 design.md 的细化](#十五对-designmd-的细化)
-- [十六、暂不考虑](#十六暂不考虑)
+- [五、分片上传与整包去重](#五分片上传与整包去重)
+- [六、异步解压管线（MQ 驱动）](#六异步解压管线mq-驱动)
+- [七、Zip 安全（slip / bomb）](#七zip-安全slip--bomb)
+- [八、文件名驱动解析（SKU / 分组）](#八文件名驱动解析sku--分组)
+- [九、文案文档解析](#九文案文档解析)
+- [十、进度推送（复用 WebSocket）](#十进度推送复用-websocket)
+- [十一、恢复、幂等与失败隔离](#十一恢复幂等与失败隔离)
+- [十二、错误与降级](#十二错误与降级)
+- [十三、配置](#十三配置)
+- [十四、对其他模块的契约](#十四对其他模块的契约)
+- [十五、测试策略](#十五测试策略)
+- [十六、对 design.md 的细化](#十六对-designmd-的细化)
+- [十七、暂不考虑](#十七暂不考虑)
 
 ---
 
@@ -34,12 +35,13 @@
 模块专属设计原则：
 
 1. **入口侧聚焦**。file 只负责「素材进系统」：上传、解压、绑定、文案解析。结果图与评分的展示是**出口侧**，依赖 `task`/`rubrics`（Wave 4/6）写入的表，本期不在 file 实现（见 [§二](#二职责边界入口侧-vs-出口侧)）。
-2. **重活异步、入口轻**。HTTP 上传请求只做「流式落 zip + 建包记录 + 发解压消息」，秒级返回 `packageId`；耗时的解压 / N 次 MinIO 上传 / 批量入库交 RocketMQ 作业异步处理（见 [§五](#五上传与解压管线mq-驱动)）。
-3. **解压作业幂等可重投**。一个包 = 一条消息，`process-then-ack` + `(package_id, original_path)` 唯一约束让崩溃后的 MQ 重投天然续跑，**不需要自建恢复扫描与分布式锁**（见 [§十](#十恢复幂等与失败隔离)）。
+2. **重活异步、入口轻**。上传走分片协议（init → chunk PUT → complete），大文件由前端切片、并发上传、断点续传；耗时的 MinIO `composeObject` 组装与后续解压 / 批量入库交后台异步处理，上传完成即返回（见 [§五](#五分片上传与整包去重)、[§六](#六异步解压管线mq-驱动)）。
+3. **解压作业幂等可重投**。一个包 = 一条消息，`process-then-ack` + `(package_id, original_path)` 唯一约束让崩溃后的 MQ 重投天然续跑，**不需要自建恢复扫描与分布式锁**（见 [§十一](#十一恢复幂等与失败隔离)）。
 4. **只准入、不解码**。file 对图片做轻量准入（扩展名白名单 + magic bytes 嗅探 + 大小限制），**不调 ImageIO 解码**——真正的解码 / 像素校验留给处理期的 `infra/image` + `module/dag`，保持 file 不依赖 `infra/image`。
 5. **分组由文件名编号决定**。SKU / 分组 / 视图全部从文件名编号解析，不做视觉识别（对齐 `design.md §9.5`）。
-6. **安全是硬约束**。zip slip、zip bomb、路径穿越在解压侧前置拦截，超阈值即拒（见 [§六](#六zip-安全slip--bomb)）。
+6. **安全是硬约束**。zip slip、zip bomb、路径穿越在解压侧前置拦截，超阈值即拒（见 [§七](#七zip-安全slip--bomb)）。
 7. **生产级、不简化**。流式 I/O、可靠投递、毒包 DLQ、断点续跑、Testcontainers 集成测试齐备。
+8. **整包 SHA-256 去重**。前端对文件流式计算 SHA-256（4 MB 分片，Web Crypto），上传前先 `POST /api/files/packages/init` 携带 `fileHash`；若 `asset_package.file_hash` 已存在同值记录，直接返回已有包（`mode: "DEDUP"`），避免重复上传与存储浪费。Redisson 锁 `lock:package-upload:{fileHash}` 保证同 hash 并发上传的互斥（见 [§五](#五分片上传与整包去重)）。
 
 ---
 
@@ -65,6 +67,12 @@ Maven 模块：`pixflow-module-file`（需加入根 `pom.xml` `<modules>` 与 `d
 ```
 module/file/
 ├── FileService.java                  # 对外门面：upload / 查询 / 删除（解压触发委托给 ingest）
+├── upload/
+│   ├── UploadSessionService.java     # 上传会话生命周期：init / chunk PUT / complete / cancel
+│   ├── UploadSessionStore.java       # Redis 会话读写（package_upload_session 五类 key）
+│   ├── ChunkAssembler.java           # MinIO composeObject 分片合龙
+│   ├── ChunkIntegrityVerifier.java   # X-Chunk-Hash 校验 + 全量 chunk 完整性检查
+│   └── FileHashService.java          # fileHash → 已有包查重 / Redisson 锁协调
 ├── pkg/
 │   ├── AssetPackageService.java      # 素材包生命周期 + 状态机迁移
 │   ├── PackageStatus.java            # enum UPLOADED/EXTRACTING/READY/PARTIAL/FAILED
@@ -104,13 +112,14 @@ module/file/
 依赖方向：
 
 ```
-module/file ──► infra/storage   （StorageKeys + ObjectStorage 流式读写、级联删除）
+module/file ──► infra/storage   （StorageKeys + ObjectStorage 流式读写、级联删除、composeObject 分片合龙）
 module/file ──► infra/mq        （MessageDestination/ConsumerBinding 声明、MessagePublisher、ConsumerErrorHandler）
+module/file ──► infra/cache     （Redisson 锁 lock:package-upload:{fileHash}，上传互斥与 complete/cancel 串行化）
 module/file ──► common          （ErrorNormalizer / Sanitizer / ProgressNotifier SPI / ApiResponse）
 module/file ──► MySQL / MyBatis-Plus + POI + commons-csv
 ```
 
-**不依赖** `infra/image`（不解码）、`infra/cache`（process-then-ack 免锁）、`harness/*`、`module/task` 等后续波次模块。WebSocket 推送经 `common` 的 `ProgressNotifier` SPI 解耦（见 [§九](#九进度推送复用-websocket)）。
+**不依赖** `infra/image`（不解码）、`harness/*`、`module/task` 等后续波次模块。WebSocket 推送经 `common` 的 `ProgressNotifier` SPI 解耦（见 [§十](#十进度推送复用-websocket)）。
 
 ---
 
@@ -118,11 +127,11 @@ module/file ──► MySQL / MyBatis-Plus + POI + commons-csv
 
 ### 4.1 MySQL
 
-沿用 `design.md §13.1` 的三张核心表，并对 `asset_package` 补充**状态枚举**、**进度列**与软删除列，同时新增一张轻量失败明细表 `asset_ingest_error`（细化见 [§十五](#十五对-designmd-的细化)）：
+沿用 `design.md §13.1` 的三张核心表，并对 `asset_package` 补充**状态枚举**、**进度列**与软删除列，同时新增一张轻量失败明细表 `asset_ingest_error`（细化见 [§十六](#十六对-designmd-的细化)）：
 
 | 表 | 关键字段 | 说明 |
 |---|---|---|
-| `asset_package` | **id BIGINT**, name, minio_zip_key, doc_key, **status**, **image_count**, **extracted_count**, error_summary, **deleted_at**, created_at, updated_at | 素材包；`id` 与现有 `StorageKeys.package*(long packageId)` 保持一致；`image_count`=中央目录预扫得到的有效图总数；`extracted_count`=已入库进度；`deleted_at` 用于被历史任务/对话引用后的软删除 |
+| `asset_package` | **id BIGINT**, name, **file_hash VARCHAR(64)**, minio_zip_key, doc_key, **status**, **image_count**, **extracted_count**, error_summary, **deleted_at**, created_at, updated_at | 素材包；`id` 与现有 `StorageKeys.package*(long packageId)` 保持一致；`file_hash` 为前端流式计算的 SHA-256 hex（64 字符），**UNIQUE 索引**用于整包去重；`image_count`=中央目录预扫得到的有效图总数；`extracted_count`=已入库进度；`deleted_at` 用于被历史任务/对话引用后的软删除 |
 | `asset_image` | **id BIGINT**, package_id, sku_id, group_key, view_id, minio_key, original_path, created_at | 单图；**唯一约束 `(package_id, original_path)`** 保证重投幂等；`group_key` 非空=分组成员 |
 | `asset_copy` | **id BIGINT**, package_id, sku_id, product_name, keywords, description | 文案条目；一文档多行，按 `sku_id` 关联 |
 | `asset_ingest_error` | **id BIGINT**, package_id, original_path, stage, code, message, created_at | 解压/准入/上传/命名/文档解析的失败明细；`error_summary` 只存摘要，详情由此表分页查询 |
@@ -132,7 +141,28 @@ module/file ──► MySQL / MyBatis-Plus + POI + commons-csv
 - `error_summary`：解压终态为 `FAILED`/`PARTIAL` 时的脱敏摘要（`Sanitizer` 截断 ≤1000 字），只保留分类统计与前 N 条样例；完整逐项失败进入 `asset_ingest_error`。
 - `asset_package.id` 统一用 `BIGINT`（MySQL 自增或雪花 ID 均可），不使用 UUID 字符串。原因是 `infra/storage` 已落地的 `StorageKeys.packageSource(long packageId)`、`packageImage(long packageId, ...)`、`packageDoc(long packageId, ...)` 均以 `long` 为契约，file 模块继续沿用可避免额外映射与跨模块 API 返工。
 
-### 4.2 素材包状态机
+### 4.2 Redis（上传会话）
+
+`package_upload_session` 为 Redis-only 存储（不落 MySQL），TTL 默认 1 小时，完成或取消后延迟清理。共五类 key：
+
+| Key 模式 | 类型 | 说明 |
+|---|---|---|
+| `pixflow:upload:session:{uploadId}` | Hash | 会话元数据：`filename`、`size`、`fileHash`、`chunkSize`、`totalChunks`、`status`（`INIT`/`UPLOADING`/`COMPLETING`/`READY`/`CANCELLED`/`EXPIRED`）、`createdAt`、`ttl` |
+| `pixflow:upload:chunks:{uploadId}` | Set | 已完成上传的分片索引集合（如 `"0"`, `"1"`, `"5"`） |
+| `pixflow:upload:lock:{uploadId}:chunk:{index}` | String（带 TTL） | 单分片写入锁，防止同一分片并发 PUT 脏写 |
+| `pixflow:upload:lock:{uploadId}:terminal` | String（带 TTL） | Complete / Cancel 共用的终态锁，串行化 `COMPLETING`、`READY`、`CANCELLED` 等终态迁移 |
+
+此外，整包去重互斥锁独立于会话：
+
+| Key 模式 | 类型 | 说明 |
+|---|---|---|
+| `lock:package-upload:{fileHash}` | Redisson RLock | 同 `fileHash` 的 init 互斥（watch-dog 自动续期），防止两个客户端同时上传同一文件 |
+
+- 会话在 `init` 时创建，`complete` 成功后延迟删除（保留窗口供前端轮询结果），`cancel` 后延迟删除。
+- 分片上传幂等：同一 `(uploadId, index)` 重复 PUT 返回 `ALREADY_EXISTS`，不产生副作用。
+- TTL 会话过期由 Redis key TTL 自动驱逐，`EXPIRED` 状态由 `GET /api/files/packages/sessions/{uploadId}` 按需判定。
+
+### 4.3 素材包状态机
 
 ```
             上传请求落 zip + 建包
@@ -149,62 +179,115 @@ module/file ──► MySQL / MyBatis-Plus + POI + commons-csv
 
 - `UPLOADED`：zip 已落 MinIO、包记录已建，等待 / 重试投递解压消息。
 - `EXTRACTING`：消费者正在解压（`process-then-ack`，未 ack）。
-- `READY` / `PARTIAL` / `FAILED`：解压终态。`PARTIAL` 表示部分图准入/上传失败但至少一张成功；终态判定见 [§十](#十恢复幂等与失败隔离)。
+- `READY` / `PARTIAL` / `FAILED`：解压终态。`PARTIAL` 表示部分图准入/上传失败但至少一张成功；终态判定见 [§十一](#十一恢复幂等与失败隔离)。
 - 状态迁移由 `AssetPackageService` 收口，乐观更新（带 `updated_at`），避免并发重投下的脏写。
 
 ---
 
-## 五、上传与解压管线（MQ 驱动）
+## 五、分片上传与整包去重
 
-分两阶段：**同步上传（请求内）** 与 **异步解压（MQ 作业）**。决策依据见与设计讨论一致的结论——解压是 I/O 密集长耗时作业，MQ 提供跨节点削峰、背压、可靠投递与毒包 DLQ，且 `infra/mq.md §二` 明确预留「批量导入」复用。
+素材包上传采用**分片上传协议（chunked upload）**，替代简单的整文件 multipart POST。设计依据：大 zip 文件（可达 2 GiB）在弱网环境下整文件上传失败率高；分片上传支持并发、断点续传与细粒度重试，且前端可流式计算 SHA-256 用于整包去重。
 
-### 5.1 同步上传（HTTP 请求内）
+协议设计与前端细节以 `web.md §16` 为权威源，API 契约以 `api.md` Asset Package API 为权威源。本文记录模块侧的设计决策与后端实现要点。
+
+### 5.1 协议总览
+
+六阶段流程（`web.md §16.1`）：
 
 ```
-POST /api/files/packages  (multipart: zip[, doc])
-  → 生成 packageId
-  → 流式存 zip：ObjectStorage.put(StorageKeys.packageSource(id), in, size, "application/zip")
-  → [可选] 流式存 doc：put(StorageKeys.packageDoc(id, name), ...)
-  → 本地事务提交 asset_package(status=UPLOADED)
-  → ExtractionPublisher.publish(ExtractionMessage{packageId})，读 PublishResult：
-        confirmed → 置 EXTRACTING（或留 UPLOADED 由消费者置）→ 返回 packageId
-        failed    → 保留 UPLOADED，由 PublishGapRescan 补发（不阻断上传）
-  → 返回 { packageId, status }
+前端：Streaming SHA-256（4MB chunks, Web Crypto）
+  → POST /api/files/packages/init  {filename, size, fileHash, chunkSize}
+       后端：fileHash 查重 → Redisson lock:package-upload:{fileHash} 互斥
+         ├─ 命中已有包 → {mode: "DEDUP", packageId, status}         // 去重命中
+         └─ 未命中     → {mode: "UPLOAD", uploadId}                 // 正常上传
+  → 前端：filter 已上传分片（GET sessions/{uploadId} → uploadedChunks）
+  → 前端：并行 PUT chunk（固定 worker pool, 默认 4）
+       PUT /api/files/packages/sessions/{uploadId}/chunks/{index}
+       Header: X-Chunk-Hash (SHA-256 of chunk bytes)
+       后端：校验 chunk hash → 流式写 MinIO 临时分片 → 标记 uploaded
+  → POST /api/files/packages/sessions/{uploadId}/complete
+       后端：全量 chunk 完整性校验 → MinIO composeObject 合龙 → 建 asset_package → 发解压消息
+  → 前端：订阅进度（轮询 GET /api/files/packages/{id} 或 WS /topic/packages/{id}/progress）
 ```
 
-- **流式不入堆**：zip / doc 以 `InputStream` 直传 MinIO，`size` 已知（multipart 提供），不缓冲整个文件到堆。
-- **消息体最小化**：`ExtractionMessage` 只含 `packageId`；zip 已在 MinIO，任意 worker 节点据 `packageId` 取回，呼应 `infra/mq.md §九`「消息体最小化」。
-- **投递缺口闭合**：对齐 `infra/mq.md §5.2`——先提交 DB，再发布并读 `PublishResult`；失败不抛断请求，`PublishGapRescan`（`@Scheduled`）扫超龄 `UPLOADED` 补发。**这是唯一的定时补偿，且只覆盖投递缺口，不用于解压崩溃恢复。**
+### 5.2 整包 SHA-256 去重
 
-### 5.2 异步解压（ack 模式：process-then-ack）
+`web.md §16.2` + `api.md` Dedup/Lock Summary：
+
+| 层级 | 机制 | 说明 |
+|---|---|---|
+| **去重判定** | `asset_package.file_hash` UNIQUE 索引 | `init` 时只查 `file_hash = ? AND status = READY AND deleted_at IS NULL`，命中才返回 `mode: "DEDUP"` 和已有 `packageId` |
+| **并发互斥** | Redisson `lock:package-upload:{fileHash}` | 同 `fileHash` 的两个 init 请求互斥，watch-dog 自动续期；先到者正常上传，后到者要么等待要么在锁释放后读到已创建的包记录 → DEDUP |
+| **去重响应** | `mode: "DEDUP"` + `packageId` + `status` | 前端收到 DEDUP 后跳过上传，直接进入已有包的进度订阅 |
+| **正常上传** | `mode: "UPLOAD"` + `uploadId` | 前端进入分片上传流程 |
+
+- **幂等保护**：即使两个请求同时 `init` 且锁机制未能完全串行化，`asset_package.file_hash` 的 UNIQUE 约束在最终 `complete` 建包时兜底——第二个 `INSERT` 会触发 `DuplicateKeyException`，`complete` 转为幂等返回已有包信息。
+- **软删除兼容**：已被软删（`deleted_at IS NOT NULL`）的包不参与去重命中，`init` 按正常上传处理，创建新包记录。
+
+### 5.3 分片上传会话
+
+`api.md` Upload Session Storage：
+
+- **会话生命周期**：`init` 创建（`INIT`）→ 首片上传进入 `UPLOADING` → `complete` 进入 `COMPLETING` → 合龙成功 `READY` / 失败回滚；`cancel` → `CANCELLED`；TTL 超期 → `EXPIRED`。
+- **Redis-only**：会话状态、已上传分片集合、分片锁、complete/cancel 锁全部存储在 Redis，不落 MySQL（见 [§4.2](#42-redis上传会话)）。
+- **chunkSize**：固定 5 MiB（`web.md §16.4`），前端按此切片；最后一个分片可小于 5 MiB。
+- **并发控制**：前端固定 worker pool（默认 4），后端 429 + `Retry-After` 头限流；单分片锁 `lock:{uploadId}:chunk:{index}` 防并发 PUT 同一分片。
+
+### 5.4 分片完整性
+
+- **单分片校验**：`PUT /chunks/{index}` 必须携带 `X-Chunk-Hash`（分片字节的 SHA-256 hex），后端以流式限长读取写入临时对象，并同步计算 SHA-256；声明长度、实际读取长度或 hash 不匹配时失败并清理临时对象。
+- **全量校验**：`complete` 时检查 `uploadedChunks` 集合是否覆盖 `[0, totalChunks)` → 不完整 → `INCOMPLETE_CHUNKS`。
+- **合龙**：MinIO `composeObject` 将各分片按索引顺序拼接为最终 zip 对象，key = `StorageKeys.packageSource(packageId)`。
+
+### 5.5 断点续传与取消
+
+- **断点续传**：前端在 `localStorage` 中按 `fileHash` 存储 `uploadId` + 7 天 TTL（`web.md §16.3`）。页面刷新后：若会话未过期 → `GET sessions/{uploadId}` 拿到 `uploadedChunks`，过滤已上传分片，续传剩余分片；若会话已过期 → 重新发起 `init`。
+- **取消**：`DELETE /api/files/packages/sessions/{uploadId}` → 清理 Redis 会话 + 已上传临时分片 → `CANCELLED`。幂等：重复 cancel 返回 204。
+
+### 5.6 前端状态机
+
+前端 chunk 状态机（`web.md §16.4`）：`idle → hashing → initing → uploading → completing → done / error / cancelled`。后端会话 `status` 与之对应：`INIT → UPLOADING → COMPLETING → READY / CANCELLED / EXPIRED`。
+
+---
+
+## 六、异步解压管线（MQ 驱动）
+
+解压是 I/O 密集长耗时作业，在分片上传合龙完成后由 MQ 异步驱动。决策依据与 `infra/mq.md §二` 一致——MQ 提供跨节点削峰、背压、可靠投递与毒包 DLQ，且预留「批量导入」复用场景。
 
 与 `module/task` 的 `ack-then-process` **不同**：解压是「一个包一个独立、天然幂等的工作单元」，直接在消费回调内跑完整包、跑完才 ack，崩溃由 MQ 重投续跑，最省心且无需额外恢复设施。
 
 ```
+complete 成功后:
+  → ExtractionPublisher.publish(ExtractionMessage{packageId})，读 PublishResult：
+        confirmed → 置 EXTRACTING → 返回
+        failed    → 保留 UPLOADED，由 PublishGapRescan 补发（不阻断 complete 响应）
+
 ExtractionConsumer.onMessage(ExtractionMessage{packageId})   // 未 ack
   → AssetPackageService → status=EXTRACTING
   → 从 MinIO 取回 zip 到受限临时文件（大小受上传上限约束）
   → ZipExtractor：
         ① 读中央目录：拿到 entry 总数 + 声明大小 → 预 bomb 校验 → 回填 image_count
         ② 逐 entry（可选有界并发）：
-             - 路径规范化 + slip 校验（§六）
+             - 路径规范化 + slip 校验（§七）
              - ImageAdmission 准入（扩展名/magic bytes/大小）；非图片 entry 按规则忽略
              - 流式上传 MinIO：put(StorageKeys.packageImage(id, relPath), entryStream, size, ct)
              - FileNameParser 解析 → asset_image（INSERT IGNORE / ON DUPLICATE，幂等）
-             - extracted_count++ → ProgressNotifier 推进度（§九）
+             - extracted_count++ → ProgressNotifier 推进度（§十）
         ③ 写终态（READY/PARTIAL/FAILED）+ error_summary
   → 删除临时文件
   → ack（整包处理完成）
-  消费回调内异常 → 交 ExtractionErrorHandler 判定 Retry / DeadLetter（§十一）
+  消费回调内异常 → 交 ExtractionErrorHandler 判定 Retry / DeadLetter（§十二）
 ```
 
-- **为何取回临时文件而非纯流式**：读 **zip 中央目录**可一次性拿到 entry 总数与各 entry 声明大小——既给出准确的进度分母（`image_count`），又能在解压前做**声明大小级别的 bomb 预检**（更安全）。临时文件大小受上传上限约束、用完即删。这细化了 `storage.md`「不落盘」原则——其本意是「不把整个对象缓冲进堆」，而非禁止受限临时工作文件（见 [§十五](#十五对-designmd-的细化)）。跨节点消费本就要求 worker 从 MinIO 取回 zip，临时文件是其自然落点。
+- **消息体最小化**：`ExtractionMessage` 只含 `packageId`；zip 已在 MinIO，任意 worker 节点据 `packageId` 取回，呼应 `infra/mq.md §九`「消息体最小化」。
+- **投递缺口闭合**：对齐 `infra/mq.md §5.2`——`complete` 先建包记录再发消息并读 `PublishResult`；失败不抛断请求，`PublishGapRescan`（`@Scheduled`）扫超龄 `UPLOADED` 补发。**这是唯一的定时补偿，且只覆盖投递缺口，不用于解压崩溃恢复。**
+- **为何取回临时文件而非纯流式**：读 **zip 中央目录**可一次性拿到 entry 总数与各 entry 声明大小——既给出准确的进度分母（`image_count`），又能在解压前做**声明大小级别的 bomb 预检**（更安全）。临时文件大小受上传上限约束、用完即删。这细化了 `storage.md`「不落盘」原则——其本意是「不把整个对象缓冲进堆」，而非禁止受限临时工作文件（见 [§十六](#十六对-designmd-的细化)）。跨节点消费本就要求 worker 从 MinIO 取回 zip，临时文件是其自然落点。
 - **包内并发**：基于临时文件的随机访问可对多个 entry 并发上传 MinIO，但必须是有界并发而非无限 fan-out。`consumer-concurrency` 控制同时解压的包数，默认 1～2；`intra-package-parallelism` 控制单包内 entry 准入/上传/入库并发，默认 4。中央目录预扫保持单线程；入库阶段按批次提交，并通过 `(package_id, original_path)` 唯一约束消化重投重复。这个默认值偏保守，目的是保护 MinIO、MySQL 与 zip 随机读取吞吐，避免一个大包抢占整机资源。
 - **消费超时**：process-then-ack 下整包解压须控制在 RocketMQ consumer 的消费超时 / 不可见窗口内；为 `pixflow-file` + `PACKAGE_EXTRACT` 单独配置 `consume-timeout`，或约束单包规模（本期数据集规模足够），作为部署配置记录。
 
 ---
 
-## 六、Zip 安全（slip / bomb）
+## 七、Zip 安全（slip / bomb）
 
 解压是不可信输入入口，前置三道硬防护，超阈值即拒、置 `FAILED` 并明确报错：
 
@@ -214,11 +297,11 @@ ExtractionConsumer.onMessage(ExtractionMessage{packageId})   // 未 ack
 | **Zip Bomb（解压炸弹）** | 中央目录预检声明总解压大小；解压期累计实际解压字节、entry 数、单 entry 上限、压缩比上限，任一超 `pixflow.file.zip.*` 阈值即中止 |
 | **资源滥用** | 单图大小上限、总图数上限；超限计入跳过清单或直接 `FAILED` |
 
-阈值全部可配（见 [§十二](#十二配置)）。bomb / slip 命中归一化为 `VALIDATION` / `BUSINESS_RULE` 类错误码，消费侧据 `recovery=TERMINATE` 判为 `DeadLetter`（毒包不重试，见 [§十一](#十一错误与降级)）。
+阈值全部可配（见 [§十三](#十三配置)）。bomb / slip 命中归一化为 `VALIDATION` / `BUSINESS_RULE` 类错误码，消费侧据 `recovery=TERMINATE` 判为 `DeadLetter`（毒包不重试，见 [§十二](#十二错误与降级)）。
 
 ---
 
-## 七、文件名驱动解析（SKU / 分组）
+## 八、文件名驱动解析（SKU / 分组）
 
 `FileNameParser` 落地 `design.md §9.5`：去扩展名后按 `_` 分段。
 
@@ -237,7 +320,7 @@ ExtractionConsumer.onMessage(ExtractionMessage{packageId})   // 未 ack
 
 ---
 
-## 八、文案文档解析
+## 九、文案文档解析
 
 - `CopyDocParser` 接口 + `CsvCopyDocParser`（commons-csv）/ `ExcelCopyDocParser`（Apache POI），按 doc 扩展名分派。
 - **列映射** `CopyDocColumnMapping`：`sku_id / product_name / keywords / description` 列名→字段，可配以容忍中文表头（如「商品编号 / 标题 / 关键词 / 描述」）。
@@ -247,7 +330,7 @@ ExtractionConsumer.onMessage(ExtractionMessage{packageId})   // 未 ack
 
 ---
 
-## 九、进度推送（复用 WebSocket）
+## 十、进度推送（复用 WebSocket）
 
 需求：解压进度实时推送，**复用既有 WebSocket/STOMP 通道**，而非新建推送链路。
 
@@ -268,11 +351,11 @@ public interface ProgressNotifier {
 - **轮询兜底 + 单一事实源**：进度真值是 `asset_package`（`status` + `extracted_count` + `image_count`）。WS 推送是 **best-effort 实时层**；`GET /api/files/packages/{id}` 返回同一行供前端轮询兜底（`design.md §4`「轮询兜底」）。二者一致，因为都源自同一 DB 行。
 - **traceId**：WS 帧内携带 `traceId`（`common.md §9.2` 约定的长连接透传边界）。
 
-> 这是对架构的跨切细化：把「WebSocket 推送传输」从 task/conversation **专属**提升为 **app 级共享 + `ProgressNotifier` 解耦**，task/conversation 将来同样经此 SPI 推送，state 仍只提供数据源、不持连接。该口径已同步回 `common.md` 与 `state.md`（见 [§十五](#十五对-designmd-的细化)）。
+> 这是对架构的跨切细化：把「WebSocket 推送传输」从 task/conversation **专属**提升为 **app 级共享 + `ProgressNotifier` 解耦**，task/conversation 将来同样经此 SPI 推送，state 仍只提供数据源、不持连接。该口径已同步回 `common.md` 与 `state.md`（见 [§十六](#十六对-designmd-的细化)）。
 
 ---
 
-## 十、恢复、幂等与失败隔离
+## 十一、恢复、幂等与失败隔离
 
 ### 10.1 崩溃恢复 = MQ 重投 + 幂等续跑
 
@@ -292,11 +375,11 @@ public interface ProgressNotifier {
 
 - 未被后续任务、对话或其他业务记录引用的素材包，可以执行物理删除：删除 `asset_package` / `asset_image` / `asset_copy` / `asset_ingest_error` 行，并调用 `ObjectStorage.deleteByPrefix(BucketType.PACKAGES, "{packageId}/")` 清理 MinIO 包前缀。
 - 已被引用的素材包，不物理删除，只写 `asset_package.deleted_at`。列表接口默认过滤 `deleted_at is not null`，历史任务、历史对话和回放仍可通过显式 ID 读取到必要元数据，避免任务输入事实源丢失。
-- Wave 2 中如果 `task` / `conversation` 尚未落表，删除服务仍应预留 `PackageReferenceChecker` 接口或等价内部检查点；当前实现可提供默认「无引用」实现，后续由 `module/task` / `module/conversation` 接入真实引用检查，避免删除语义写死。
+- Wave 2 中如果 `task` / `conversation` 尚未落表，删除服务仍应预留 `PackageReferenceChecker` 接口或等价内部检查点。默认实现必须 fail-safe：未知引用状态按“已引用”处理，只允许软删；只有接入权威引用检查且明确无引用时，才允许物理删除。
 
 ---
 
-## 十一、错误与降级
+## 十二、错误与降级
 
 file 自有错误码 `FileErrorCode implements common.ErrorCode`（`common.md §11` 码自治约定），HTTP 状态由 `category` 推导：
 
@@ -311,6 +394,14 @@ file 自有错误码 `FileErrorCode implements common.ErrorCode`（`common.md §
 | `COPY_DOC_PARSE_FAILED` | VALIDATION | SKIP | 文案文档解析失败（不阻断图片） |
 | `UPLOAD_TOO_LARGE` | VALIDATION | TERMINATE | 超上传上限（亦由 `MaxUploadSizeExceeded` 归一化） |
 | `PACKAGE_ALREADY_REFERENCED` | BUSINESS_RULE | TERMINATE | 被任务/对话引用的素材包不允许物理删除，只能软删 |
+| `FILE_HASH_MISMATCH` | VALIDATION | TERMINATE | init 时 fileHash 格式非法或与实际文件不匹配 |
+| `CHUNK_HASH_MISMATCH` | VALIDATION | TERMINATE | `X-Chunk-Hash` 与分片实际字节的 SHA-256 不符 |
+| `CHUNK_SIZE_MISMATCH` | VALIDATION | TERMINATE | 分片大小超出 `chunkSize`（末片除外） |
+| `CHUNK_OUT_OF_RANGE` | VALIDATION | TERMINATE | 分片 index 不在 `[0, totalChunks)` 范围内 |
+| `UPLOAD_SESSION_NOT_FOUND` | NOT_FOUND | TERMINATE | `uploadId` 不存在或已过期 |
+| `UPLOAD_SESSION_NOT_UPLOADING` | BUSINESS_RULE | TERMINATE | 会话状态不允许当前操作（如已取消/已完成时仍 PUT chunk） |
+| `INCOMPLETE_CHUNKS` | VALIDATION | TERMINATE | complete 时存在未上传的分片 |
+| `PACKAGE_DEDUP_CONFLICT` | BUSINESS_RULE | TERMINATE | file_hash UNIQUE 冲突（并发 complete 的兜底异常，前端应转为 DEDUP） |
 
 `ExtractionErrorHandler`（实现 `infra/mq.ConsumerErrorHandler`）按归一化模型的 `recovery` 给 `RetryDecision`（`common.md §6.4` 映射）：
 
@@ -324,7 +415,7 @@ file 自有错误码 `FileErrorCode implements common.ErrorCode`（`common.md §
 
 ---
 
-## 十二、配置
+## 十三、配置
 
 `@ConfigurationProperties(prefix = "pixflow.file")`：
 
@@ -332,8 +423,13 @@ file 自有错误码 `FileErrorCode implements common.ErrorCode`（`common.md §
 pixflow:
   file:
     upload:
-      max-zip-size: 2GiB              # 单 zip 上限（亦配 Spring multipart）
+      max-zip-size: 2GiB              # 单 zip 上限（对齐前端 chunked upload 总大小限制）
       max-doc-size: 50MiB
+      chunk-size: 5MiB                # 分片大小（固定，前后端一致；web.md §16.4）
+      session-ttl: 1h                 # 上传会话 Redis TTL（超期未完成 → EXPIRED）
+      session-cleanup-delay: 5m       # complete/cancel 后延迟删除会话（保留窗口供前端轮询）
+      dedup-enable: true              # 整包 SHA-256 去重开关
+      concurrent-chunks-max: 4        # 前端并发 PUT 分片上限（后端 429 限流依据）
     extract:
       topic: pixflow-file
       tag: PACKAGE_EXTRACT
@@ -367,12 +463,13 @@ pixflow:
 
 ---
 
-## 十三、对其他模块的契约
+## 十四、对其他模块的契约
 
 | 模块 | 契约 |
 |---|---|
-| `infra/storage` | 用 `StorageKeys.package*` 写 zip/原图/文档；解压期 `getStream` 取回 zip、`put` 流式上传图；仅在素材包未被引用且执行物理删除时用 `deleteByPrefix(PACKAGES, "{packageId}/")` |
+| `infra/storage` | 用 `StorageKeys.package*` 写 zip/原图/文档；解压期 `getStream` 取回 zip、`put` 流式上传图；上传期用 `put` 写临时分片对象 + `composeObject` 合龙为最终 zip；仅在素材包未被引用且执行物理删除时用 `deleteByPrefix(PACKAGES, "{packageId}/")` |
 | `infra/mq` | `ExtractionDestination` 声明 `pixflow-file` topic、`PACKAGE_EXTRACT` tag 与 `pixflow-file-extractor` consumer group；`ExtractionPublisher` 经 `MessagePublisher` 发布并据 `PublishResult` 补偿；`ExtractionConsumer` process-then-ack；`ExtractionErrorHandler` 实现 `ConsumerErrorHandler` |
+| `infra/cache` | Redisson `RLock` 用于 `lock:package-upload:{fileHash}`（整包上传互斥）+ `lock:{uploadId}:chunk:{index}`（分片写入串行化）+ `lock:{uploadId}:terminal`（complete/cancel 终态操作串行化）；Redis `String`/`Set`/`Hash` 用于上传会话 key（见 [§4.2](#42-redis上传会话)） |
 | `common` | 错误归一化 / `Sanitizer` / `ApiResponse`；实现侧消费 `ProgressNotifier` SPI（接口在 common，STOMP 实现在 app 级） |
 | `module/dag` | 读 `asset_image` 的 `sku_id`/`group_key`/`view_id` 做 `BranchExpander` 分组展开与 `compose_group` 成员归组 |
 | `module/conversation` | `message.attached_package_id` 关联素材包；只读查询包详情；后续为 `PackageReferenceChecker` 提供引用检查，防止已被对话引用的包被物理删除 |
@@ -380,11 +477,11 @@ pixflow:
 | `agent` | `search` / `read` / 处理建议依赖已绑定的 `sku_id`；file 保证绑定在解压期完成 |
 | `pixflow-app` | 提供 STOMP broker 配置 + `StompProgressNotifier` Bean；装配 file 的 controller / consumer |
 
-**反向约束**：不依赖 `infra/image`、`infra/cache`、`harness/*`、`module/task`、`module/rubrics`。
+**反向约束**：不依赖 `infra/image`、`harness/*`、`module/task`、`module/rubrics`。
 
 ---
 
-## 十四、测试策略
+## 十五、测试策略
 
 - **`FileNameParser` 单测**：三段/两段/兜底分支 + 边界（>3 段、空段、纯数字、中文名、重复下划线、无扩展名）。
 - **`SkuExtractor` 单测**：兜底提取规则；接口可替换性（fake 实现不影响 parser 契约）。
@@ -399,10 +496,17 @@ pixflow:
 - **`CopyDocParser` 测试**：样例 CSV / XLSX（含中文表头映射）、缺/重复 sku_id 策略、解析失败不阻断图片。
 - **`ProgressNotifier` 测试**：用 fake notifier 断言进度按 `extracted_count` 推进、channel/事件正确；轮询端点与 WS 事件同源一致。
 - **错误码目录一致性**：`FileErrorCode` 并入 `common` 启动期聚合测试（code 唯一 + i18n 齐全 + category 非空）。
+- **分片上传集成测试（Testcontainers：MinIO + Redis）**：init → 并行 chunk PUT → complete → composeObject 合龙 → `asset_package` 创建全链路。
+- **整包去重测试**：同一 `fileHash` 两次 init → 首次正常 UPLOAD、第二次 DEDUP → 验证 `asset_package` 只有一条记录；DEDUP 命中后前端跳过上传直接获得 `packageId`。
+- **整包上传互斥测试**：两个并发 init 同 `fileHash` → Redisson 锁串行化 → 先到者完成建包、后到者转为 DEDUP。
+- **分片断点续传测试**：上传部分分片后模拟中断 → `GET sessions/{uploadId}` 拿到 `uploadedChunks` → 过滤后续传剩余分片 → complete 成功。
+- **分片幂等测试**：同一 `(uploadId, index)` 重复 PUT → 第二次返回 `ALREADY_EXISTS`，分片集合不变。
+- **分片校验测试**：`X-Chunk-Hash` 不匹配 → `CHUNK_HASH_MISMATCH`；complete 时分片不完整 → `INCOMPLETE_CHUNKS`；index 越界 → `CHUNK_OUT_OF_RANGE`。
+- **上传会话生命周期测试**：init→UPLOADING→complete→READY；cancel→CANCELLED；TTL 超期→EXPIRED。
 
 ---
 
-## 十五、对 design.md 的细化
+## 十六、对 design.md 的细化
 
 本模块对 `design.md` 及相邻设计文档做如下**细化（非冲突）**，需同步记录：
 
@@ -413,20 +517,19 @@ pixflow:
 5. **`asset_image` 唯一约束 + `asset_ingest_error` 失败明细**：`(package_id, original_path)` 唯一，保证重投/重跑幂等；新增 `asset_ingest_error` 存逐图/文档解析失败明细，`error_summary` 只保留脱敏摘要。
 6. **临时工作文件的边界澄清**：解压期允许「将 zip 取回受限临时文件」以读取中央目录（准确进度分母 + 声明大小级 bomb 预检），细化 `storage.md`「不落盘」=「不把整个对象缓冲进堆」，非禁止受限临时文件。
 7. **职责切分**：file 本期只做入口侧；`design.md §12` 所列「结果管理 / 评分展示」属出口侧，待 `task`/`rubrics` 就绪后实现（见 [§二](#二职责边界入口侧-vs-出口侧)）。
+8. **分片上传 + 整包 SHA-256 去重**：将 `design.md §8` 的「素材上传」从简单 multipart POST 细化为分片上传协议（init → chunk PUT → composeObject，`web.md §16`），新增 `asset_package.file_hash`（SHA-256 hex，UNIQUE）用于整包去重，引入 `infra/cache`（Redisson 锁 `lock:package-upload:{fileHash}`）用于上传互斥，新增 Redis `package_upload_session` 五类 key 用于会话管理。去重命中时返回 `mode: "DEDUP"` + 已有 `packageId`，避免重复上传与存储浪费。
 
 > 以上为对既有设计的补充落地，不改变 `design.md §9.5` 的文件名分组规则、§13.4 的 MinIO 布局与 §15 的「MySQL 事实源」原则。
 
 ---
 
-## 十六、暂不考虑
+## 十七、暂不考虑
 
 - **出口侧（结果图聚合展示 / 评分展示 / 打包下载）**：依赖 `task`/`rubrics` 写入，后续波次实现。
 - **视觉识别分组**：分组完全由文件名编号决定，不做图像内容识别（`design.md §9.5`）。
-- **增量/断点续传上传**：本期整文件上传；超大 zip 的分片续传后续再评估。
-- **前端直传（presignPut）接素材包**：`storage` 已预留 `presignPut`，业务编排后续再做。
+- **前端直传（presignPut）接素材包**：分片上传已覆盖大文件场景，presignPut 直传后续再评估。
 - **组内参数联合推导**（如取组内最大尺寸回填各图）：`design.md §9.5` 本期不做。
 - **多语言文案文档 analyzer / 复杂表结构解析**：本期按约定列映射解析 CSV/XLSX。
-- **素材包版本管理 / 去重**：同一素材重复上传按新包处理，不做内容级去重。
 
 ## Revision Notes
 
@@ -435,3 +538,7 @@ pixflow:
 2026-06-29 / Codex: 同步 `harness/tools.md` 的新工具口径，将 agent 侧旧 `query_commerce_data` 依赖表述改为 `search` / `read`。
 
 2026-07-02 / Codex: 同步 `infra/mq.md` 的 RocketMQ 目标设计，将解压异步作业从 RabbitMQ 队列组改为 RocketMQ `pixflow-file` topic、`PACKAGE_EXTRACT` tag 与 `pixflow-file-extractor` consumer group；移除 prefetch / consumer_timeout 等 RabbitMQ 专属表述，保留 process-then-ack、幂等重投、投递缺口扫描与毒包 DLQ 的业务语义。
+
+2026-07-04 / Claude Code: 同步 `web.md §16` 与 `api.md` Asset Package API 的当前设计，将上传协议从简单 multipart POST 更新为分片上传 + 整包 SHA-256 去重。新增 §五「分片上传与整包去重」，原 §五.2 解压管线独立为 §六，后续章节序号顺延。关键变更：`asset_package` 新增 `file_hash VARCHAR(64) UNIQUE`；新增 Redis `package_upload_session` 五类 key + Redisson `lock:package-upload:{fileHash}`；新增 `upload/` 包（`UploadSessionService`/`UploadSessionStore`/`ChunkAssembler`/`ChunkIntegrityVerifier`/`FileHashService`）；新增依赖 `infra/cache`；新增 9 个上传相关错误码；新增上传配置段（`chunk-size`/`session-ttl`/`dedup-enable` 等）；§十七移除「素材包版本管理 / 去重：不做内容级去重」与「增量/断点续传上传」过时条目。
+
+2026-07-09 / Codex: 按上传安全重构计划同步实现口径：分片写入改为流式限长校验，不再先整块读入堆；complete/cancel 共用 `terminal` 终态锁，complete 先进入 `COMPLETING` 并校验分片覆盖与大小；整包去重只命中 `READY` 且未软删的包；默认 `PackageReferenceChecker` 改为保守实现，未知引用状态只软删，避免默认物理删除历史事实源。

@@ -526,3 +526,5 @@ pixflow:
 ## Revision Notes
 
 - 2026-06-30 / Codex: 新增 `SessionMemoryPort` SPI（agent 模块 Wave 5 落地）。定义在 `com.pixflow.harness.context.sessionmemory` 包，包含 `SessionMemoryContent`（Markdown 内容 + contentHash）与 `SessionMemoryThreshold`（lastSummarizedSeq + coveredTurnCount + 运行时增量）两个 record。4 方法契约：load / save / computeThreshold / scheduleExtraction。`agent` 模块的 `SessionMemoryService` 实现该 SPI。这是继 `SummarizationPort` 后第 2 个由 agent 实现的 context SPI。
+
+- 2026-07-08 / Codex: 落地 context 模块自装配。新增 `com.pixflow.harness.context.config.ContextAutoConfiguration`，通过 `AutoConfiguration.imports` 发布默认 `TokenEstimator`、`ContextBudgetService`、`ContextCompactionService`，并允许用户 Bean 覆盖；不发布 `ContextEngine`，因为它依赖回合内 `MessageStore`，不适合作为全局单例。`SummarizationPort` 仍由 agent 可选实现，缺失时压缩服务走确定性兜底。

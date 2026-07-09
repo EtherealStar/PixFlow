@@ -519,6 +519,8 @@ graph TD
 
 ### 13.1 MySQL（关系数据）
 
+本地开发环境由 `docker-compose.yml` 初始化 MySQL 8，数据库名为 `pixflow`。当前开发库初始化凭据固定为：root 用户密码 `pixflow_root_20260705`；应用用户 `pixflow`，密码 `pixflow_dev_20260705`。`pixflow-app/src/main/resources/application-dev.yml` 必须与该应用用户密码保持一致。注意：MySQL 官方镜像的 `MYSQL_*` 环境变量只在空数据目录首次初始化时生效；如果 `pixflow_mysql_data` 卷已存在，修改 compose 文件不会自动改库内密码，需显式重置账号或删除该卷重新初始化。
+
 | 表 | 关键字段 | 说明 |
 |---|---|---|
 | `asset_package` | id, name, minio_zip_key, doc_key, image_count, status, created_at | 素材包 |
