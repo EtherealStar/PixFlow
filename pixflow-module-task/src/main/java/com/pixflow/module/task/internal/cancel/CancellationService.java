@@ -23,7 +23,7 @@ public class CancellationService {
     }
 
     public boolean cancel(CancelTaskCommand command) {
-        ProcessTask task = taskMapper.selectById(Long.parseLong(command.taskId().value()));
+        ProcessTask task = taskMapper.findByIdAndConversation(command.taskId(), command.conversationId());
         if (task == null) {
             metrics.recordCancel("missing");
             return false;
@@ -32,7 +32,7 @@ public class CancellationService {
             metrics.recordCancel("terminal");
             return false;
         }
-        cancelFlag.requestCancel(command.taskId().value(), command.reason());
+        cancelFlag.requestCancel(Long.toString(command.taskId()), command.reason());
         if (task.getStatus() == TaskStatus.QUEUED) {
             taskMapper.transit(task.getId(), TaskStatus.QUEUED, TaskStatus.CANCELLED, clock.instant());
             metrics.recordCancel("queued");

@@ -83,7 +83,7 @@ public class ImageGenWorker {
             resultMapper.insert(result);
             progressAggregator.success(unit.taskId(), context.totalUnits());
             metrics.recordWorker(unit.taskType(), "success", Duration.between(started, clock.instant()));
-        } catch (Throwable t) {
+        } catch (Exception t) {
             failureIsolator.handle(unit, t, context);
             metrics.recordWorker(unit.taskType(), "failed", Duration.between(started, clock.instant()));
         }

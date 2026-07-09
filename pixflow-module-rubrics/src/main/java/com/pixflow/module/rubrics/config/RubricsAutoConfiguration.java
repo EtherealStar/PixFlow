@@ -10,6 +10,8 @@ import com.pixflow.module.memory.skuhistory.SkuHistoryService;
 import com.pixflow.module.rubrics.baseline.BaselineService;
 import com.pixflow.module.rubrics.baseline.RegressionAlertService;
 import com.pixflow.module.rubrics.baseline.RegressionComparator;
+import com.pixflow.module.rubrics.api.RubricsAdminController;
+import com.pixflow.module.rubrics.api.RubricsReportController;
 import com.pixflow.module.rubrics.feedback.MemoryFeedbackTrigger;
 import com.pixflow.module.rubrics.feedback.ScoreFeedbackWriter;
 import com.pixflow.module.rubrics.judge.JudgePromptBuilder;
@@ -39,6 +41,7 @@ import com.pixflow.module.task.infra.persistence.ProcessTaskMapper;
 import java.time.Clock;
 import java.util.List;
 import java.util.concurrent.Executor;
+import org.apache.ibatis.annotations.Mapper;
 import org.mybatis.spring.annotation.MapperScan;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -53,14 +56,8 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 @AutoConfiguration
 @EnableScheduling
 @EnableConfigurationProperties(RubricsProperties.class)
-@MapperScan("com.pixflow.module.rubrics.persistence")
+@MapperScan(value = "com.pixflow.module.rubrics.persistence", annotationClass = Mapper.class)
 public class RubricsAutoConfiguration {
-    @Bean
-    @ConditionalOnMissingBean(name = "rubricsClock")
-    public Clock rubricsClock() {
-        return Clock.systemUTC();
-    }
-
     @Bean
     @ConditionalOnMissingBean
     public TemplateLoader templateLoader() {
@@ -171,7 +168,7 @@ public class RubricsAutoConfiguration {
     @ConditionalOnMissingBean
     @ConditionalOnBean({RubricsBaselineMapper.class, RubricsRunMapper.class})
     public BaselineService baselineService(RubricsBaselineMapper baselineMapper, RubricsRunMapper runMapper,
-                                           @Qualifier("rubricsClock") Clock clock) {
+                                           Clock clock) {
         return new BaselineService(baselineMapper, runMapper, clock);
     }
 
@@ -192,7 +189,7 @@ public class RubricsAutoConfiguration {
             RubricsAlertMapper alertMapper,
             ObjectMapper objectMapper,
             RubricsProperties properties,
-            @Qualifier("rubricsClock") Clock clock) {
+            Clock clock) {
         return new RegressionAlertService(alertMapper, objectMapper, properties, clock);
     }
 
@@ -228,7 +225,7 @@ public class RubricsAutoConfiguration {
             ItemEvaluator itemEvaluator,
             ScoreFeedbackWriter scoreFeedbackWriter,
             MemoryFeedbackTrigger memoryFeedbackTrigger,
-            @Qualifier("rubricsClock") Clock clock) {
+            Clock clock) {
         return new EvaluationRunner(
                 templateRegistry,
                 resultMapper,
@@ -256,5 +253,27 @@ public class RubricsAutoConfiguration {
     @ConditionalOnBean(EvaluationRunner.class)
     public RubricsDailyBatchScheduler rubricsDailyBatchScheduler(EvaluationRunner runner, RubricsProperties properties) {
         return new RubricsDailyBatchScheduler(runner, properties);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnBean({EvaluationRunner.class, BaselineService.class, RubricsAlertMapper.class})
+    public RubricsAdminController rubricsAdminController(
+            TemplateRegistry templateRegistry,
+            EvaluationRunner runner,
+            BaselineService baselineService,
+            RubricsAlertMapper alertMapper,
+            Clock clock) {
+        return new RubricsAdminController(templateRegistry, runner, baselineService, alertMapper, clock);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnBean({RubricsScoreMapper.class, RegressionComparator.class, RegressionAlertService.class})
+    public RubricsReportController rubricsReportController(
+            RubricsScoreMapper scoreMapper,
+            RegressionComparator regressionComparator,
+            RegressionAlertService alertService) {
+        return new RubricsReportController(scoreMapper, regressionComparator, alertService);
     }
 }

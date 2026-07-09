@@ -8,11 +8,12 @@ public record TaskStatusView(
         String taskId,
         TaskType taskType,
         TaskStatus status,
-        int total,
-        int done,
-        int failed,
+        Progress progress,
         int skipped,
         String lastError,
         Instant createdAt,
-        Instant updatedAt) {
+        Instant startedAt,
+        Instant finishedAt) {
+    public record Progress(int done, int total, int failed) {
+    }
 }

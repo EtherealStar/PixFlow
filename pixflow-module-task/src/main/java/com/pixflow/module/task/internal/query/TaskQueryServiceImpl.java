@@ -50,16 +50,18 @@ public class TaskQueryServiceImpl implements TaskQueryService {
         int success = resultMapper.countByStatus(id, ResultStatus.SUCCESS);
         int failed = resultMapper.countByStatus(id, ResultStatus.FAILED);
         int skipped = resultMapper.countByStatus(id, ResultStatus.SKIPPED);
+        int total = value(task.getTotalCount());
+        int done = success + failed + skipped;
         return new TaskStatusView(taskId.value(), task.getTaskType(), task.getStatus(),
-                value(task.getTotalCount()), success + failed + skipped, failed, skipped,
-                task.getLastError(), task.getCreatedAt(), task.getUpdatedAt());
+                new TaskStatusView.Progress(done, total, failed), skipped,
+                task.getLastError(), task.getCreatedAt(), task.getStartedAt(), task.getFinishedAt());
     }
 
     @Override
     public Flux<ProgressEvent> subscribe(TaskId taskId) {
         TaskStatusView view = getStatus(taskId);
-        return Flux.just(new ProgressEvent(view.taskId(), view.total(), view.done(),
-                view.failed(), view.skipped(), view.status(), java.time.Instant.now()));
+        return Flux.just(new ProgressEvent(view.taskId(), view.progress().total(), view.progress().done(),
+                view.progress().failed(), view.skipped(), view.status(), java.time.Instant.now()));
     }
 
     @Override

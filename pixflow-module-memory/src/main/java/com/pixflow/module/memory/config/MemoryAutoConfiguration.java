@@ -66,12 +66,6 @@ public class MemoryAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public Clock memoryClock() {
-        return Clock.systemUTC();
-    }
-
-    @Bean
-    @ConditionalOnMissingBean
     public ObjectMapper memoryObjectMapper() {
         return new ObjectMapper();
     }
@@ -108,8 +102,8 @@ public class MemoryAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public MemoryRanker memoryRanker(MemoryProperties properties, Clock memoryClock) {
-        return new MemoryRanker(properties, memoryClock);
+    public MemoryRanker memoryRanker(MemoryProperties properties, Clock clock) {
+        return new MemoryRanker(properties, clock);
     }
 
     @Bean
@@ -175,7 +169,7 @@ public class MemoryAutoConfiguration {
             InsightLifecycleService lifecycleService,
             MemoryProperties properties,
             @Qualifier("memoryIngestExecutor") Executor memoryIngestExecutor,
-            Clock memoryClock) {
+            Clock clock) {
         return new InsightIngestService(
                 extractor,
                 mapper,
@@ -184,7 +178,7 @@ public class MemoryAutoConfiguration {
                 lifecycleService,
                 properties,
                 memoryIngestExecutor,
-                memoryClock);
+                clock);
     }
 
     @Bean
@@ -199,13 +193,13 @@ public class MemoryAutoConfiguration {
             ObjectProvider<InsightDocMapper> mapper,
             ObjectProvider<InsightVectorRepo> vectorRepo,
             MemoryProperties properties,
-            Clock memoryClock) {
+            Clock clock) {
         InsightDocMapper resolvedMapper = mapper.getIfAvailable();
         InsightVectorRepo resolvedVectorRepo = vectorRepo.getIfAvailable();
         if (resolvedMapper == null || resolvedVectorRepo == null) {
             return new NoopInsightLifecycleService();
         }
-        return new DefaultInsightLifecycleService(resolvedMapper, resolvedVectorRepo, properties, memoryClock);
+        return new DefaultInsightLifecycleService(resolvedMapper, resolvedVectorRepo, properties, clock);
     }
 
     @Bean

@@ -51,10 +51,10 @@ public class CreateTaskServiceImpl implements TaskCommandService {
     public TaskId createAndEnqueue(CreateTaskCommand command) {
         Instant started = clock.instant();
         return idempotencyGuard.findExistingTaskId(command.idempotencyKey())
-                .map(taskId -> {
+                .map(existingTaskId -> {
                     metrics.recordCreate(command.taskType(), "idempotent_hit",
                             Duration.between(started, clock.instant()));
-                    return new TaskId(taskId);
+                    return new TaskId(existingTaskId);
                 })
                 .orElseGet(() -> createNew(command, started));
     }

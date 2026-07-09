@@ -89,7 +89,7 @@ public class ProcessWorker {
                 failureIsolator.handle(unit, new PixFlowException(outcome.error().code(), outcome.error().safeMessage()), context);
                 metrics.recordWorker(unit.taskType(), "failed", Duration.between(started, clock.instant()));
             }
-        } catch (Throwable t) {
+        } catch (Exception t) {
             failureIsolator.handle(unit, t, context);
             metrics.recordWorker(unit.taskType(), "failed", Duration.between(started, clock.instant()));
         }

@@ -17,6 +17,13 @@ public interface ProcessTaskMapper extends BaseMapper<ProcessTask> {
 
     @Select("""
             select * from process_task
+            where id = #{taskId} and conversation_id = #{conversationId}
+            limit 1
+            """)
+    ProcessTask findByIdAndConversation(@Param("taskId") long taskId, @Param("conversationId") String conversationId);
+
+    @Select("""
+            select * from process_task
             where status = #{status}
             order by started_at asc
             limit #{limit}
