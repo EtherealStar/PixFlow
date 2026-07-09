@@ -39,7 +39,7 @@ export interface ChallengeOrToken {
   token?: string | ConfirmationToken
 }
 
-/** Agent 回合摘要状态（Pinia 持久化部分）。deltas 不入 state，留作 composable 内的 ref。 */
+/** Agent 回合摘要状态（Pinia 持久化部分）。运行中的 timeline 留在 composable 内，不进入 Pinia。 */
 export interface AgentTurnSummary {
   conversationId: string
   phase: AgentTurnPhase
@@ -47,6 +47,7 @@ export interface AgentTurnSummary {
   taskId?: string
   error?: ApiError
   traceId?: string
+  queuedCount?: number
 }
 
 /** SSE 事件类型。 */
@@ -66,11 +67,90 @@ export interface AgentEvent<T = unknown> {
   traceId?: string
 }
 
-export interface AssistantDeltaPayload { text: string }
-export interface AssistantMessageCompletedPayload { finalText: string; messageId?: string; traceId?: string; turnNo?: number }
-export interface ToolCallReadyPayload { toolName: string; toolCallId: string; toolInput: Record<string, unknown> }
-export interface ToolStartedPayload { toolCallId: string }
-export interface ToolResultPayload { toolCallId: string; content: string; externalized: boolean }
-export interface TransitionPayload { reason: string }
-export interface CompletedPayload { finalText: string; traceId?: string; turnNo?: number }
+export interface AgentEventAttribution {
+  assistantCallId?: string
+  modelTurnIndex?: number
+  iteration?: number
+  traceId?: string
+  turnNo?: number
+}
+
+export interface AssistantDeltaPayload extends AgentEventAttribution { text: string }
+export interface AssistantMessageCompletedPayload extends AgentEventAttribution { finalText: string; messageId?: string }
+export interface ToolCallReadyPayload extends AgentEventAttribution { toolName: string; toolCallId: string; toolInput?: unknown }
+export interface ToolStartedPayload extends AgentEventAttribution { toolCallId: string; toolName?: string }
+export interface ToolResultPayload extends AgentEventAttribution {
+  toolCallId: string
+  toolName?: string
+  content: string
+  metadata?: Record<string, unknown>
+  externalized: boolean
+  error?: boolean
+}
+export interface TransitionPayload extends AgentEventAttribution {
+  reason: string
+  attempt?: number
+  retriesRemaining?: number
+  errorCode?: string
+  message?: string
+  retrying?: boolean
+}
+export interface CompletedPayload extends AgentEventAttribution { finalText: string }
 export interface ErrorEventPayload { errorCode?: string; message: string; traceId?: string }
+
+export type TimelineItem =
+  | AssistantTimelineItem
+  | ToolTimelineItem
+  | TransitionTimelineItem
+  | ErrorTimelineItem
+
+export interface AssistantTimelineItem {
+  id: string
+  type: 'assistant'
+  assistantCallId: string
+  modelTurnIndex: number
+  text: string
+  status: 'streaming' | 'completed'
+  messageId?: string
+  traceId?: string
+  turnNo?: number
+}
+
+export interface ToolTimelineItem {
+  id: string
+  type: 'tool'
+  assistantCallId: string
+  modelTurnIndex: number
+  toolCallId: string
+  toolName: string
+  input?: unknown
+  result?: string
+  metadata?: Record<string, unknown>
+  status: 'queued' | 'running' | 'completed' | 'error'
+  externalized?: boolean
+  traceId?: string
+  turnNo?: number
+}
+
+export interface TransitionTimelineItem {
+  id: string
+  type: 'transition'
+  reason: string
+  assistantCallId?: string
+  modelTurnIndex?: number
+  attempt?: number
+  retriesRemaining?: number
+  errorCode?: string
+  message?: string
+  retrying?: boolean
+  traceId?: string
+  turnNo?: number
+}
+
+export interface ErrorTimelineItem {
+  id: string
+  type: 'error'
+  message: string
+  errorCode?: string
+  traceId?: string
+}
