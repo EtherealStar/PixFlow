@@ -19,8 +19,6 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.HexFormat;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -29,7 +27,6 @@ import org.springframework.transaction.annotation.Transactional;
  * <p>幂等:同 toolCallId 重复调用不产生新 plan(返回原 plan)。
  * 过期:cron 由调用方(模块外)定时调 expireOverdue。
  */
-@Service
 public class PendingPlanService {
 
     private final PendingPlanMapper mapper;
@@ -44,7 +41,6 @@ public class PendingPlanService {
         this(mapper, validator, properties, new ObjectMapper(), Clock.systemUTC());
     }
 
-    @Autowired
     public PendingPlanService(PendingPlanMapper mapper,
                               DagValidator validator,
                               DagProperties properties,
@@ -142,6 +138,15 @@ public class PendingPlanService {
      */
     @Transactional
     public PendingPlan confirm(Long planId, String taskId) {
+        PendingPlan confirming = startConfirmation(planId);
+        return markConfirmedWithTask(confirming.getId(), taskId);
+    }
+
+    /**
+     * 抢占 proposal 的确认权。只有抢到 CONFIRMING 后，调用方才允许创建 task。
+     */
+    @Transactional
+    public PendingPlan startConfirmation(Long planId) {
         PendingPlan plan = mapper.findById(planId);
         if (plan == null) {
             throw new PixFlowException(DagErrorCode.DAG_PLAN_NOT_FOUND,
@@ -155,16 +160,44 @@ public class PendingPlanService {
             throw new PixFlowException(DagErrorCode.DAG_PLAN_ALREADY_CONFIRMED,
                 "pending_plan 已被确认: id=" + planId);
         }
-        int rows = mapper.updateStatus(planId, PendingPlanStatus.CONFIRMED.name(),
-            clock.instant(), taskId);
+        if (plan.getStatus() == PendingPlanStatus.CONFIRMING) {
+            throw new PixFlowException(DagErrorCode.DAG_PLAN_ALREADY_CONFIRMED,
+                "pending_plan 正在确认: id=" + planId);
+        }
+        Instant now = clock.instant();
+        int rows = mapper.updateStatusFrom(planId, PendingPlanStatus.PENDING.name(),
+            PendingPlanStatus.CONFIRMING.name(), now);
         if (rows == 0) {
             throw new PixFlowException(DagErrorCode.DAG_PLAN_ALREADY_CONFIRMED,
                 "pending_plan 状态竞争: id=" + planId);
         }
-        plan.setStatus(PendingPlanStatus.CONFIRMED);
-        plan.setTaskId(taskId);
-        plan.setConfirmedAt(clock.instant());
+        plan.setStatus(PendingPlanStatus.CONFIRMING);
+        plan.setConfirmedAt(now);
         return plan;
+    }
+
+    @Transactional
+    public PendingPlan markConfirmedWithTask(Long planId, String taskId) {
+        if (taskId == null || taskId.isBlank()) {
+            throw new IllegalArgumentException("taskId must not be blank");
+        }
+        Instant now = clock.instant();
+        int rows = mapper.markConfirmedWithTask(planId, taskId.trim(), now);
+        if (rows == 0) {
+            throw new PixFlowException(DagErrorCode.DAG_PLAN_ALREADY_CONFIRMED,
+                "pending_plan 状态竞争: id=" + planId);
+        }
+        PendingPlan plan = mapper.findById(planId);
+        plan.setStatus(PendingPlanStatus.CONFIRMED);
+        plan.setTaskId(taskId.trim());
+        plan.setConfirmedAt(now);
+        return plan;
+    }
+
+    @Transactional
+    public void markConfirmationFailed(Long planId) {
+        mapper.updateStatusFrom(planId, PendingPlanStatus.CONFIRMING.name(),
+            PendingPlanStatus.PENDING.name(), null);
     }
 
     /**

@@ -19,6 +19,11 @@
             <groupId>com.pixflow</groupId>
             <artifactId>pixflow-common</artifactId>
         </dependency>
+        <!-- 共享提案 SPI: imagegen 提案写入由 dag 的 pending_plan 实现承载 -->
+        <dependency>
+            <groupId>com.pixflow</groupId>
+            <artifactId>pixflow-contracts</artifactId>
+        </dependency>
         <!-- 像素操作白名单中本地栅格运算所属 -->
         <dependency>
             <groupId>com.pixflow</groupId>

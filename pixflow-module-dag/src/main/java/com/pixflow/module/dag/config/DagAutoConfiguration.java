@@ -1,7 +1,9 @@
 package com.pixflow.module.dag.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.pixflow.contracts.proposal.PendingPlanPort;
 import com.pixflow.common.error.ErrorNormalizer;
+import com.pixflow.module.dag.DagFacade;
 import com.pixflow.module.dag.cache.TaskAssetCache;
 import com.pixflow.module.dag.exec.BranchExecutionContext;
 import com.pixflow.module.dag.exec.CopyUnitExecutor;
@@ -13,12 +15,14 @@ import com.pixflow.module.dag.expand.BranchExpander;
 import com.pixflow.module.dag.expand.GroupPreflight;
 import com.pixflow.module.dag.ir.DagJsonReader;
 import com.pixflow.module.dag.propose.PendingPlanMapper;
+import com.pixflow.module.dag.propose.PendingPlanPortAdapter;
 import com.pixflow.module.dag.propose.PendingPlanService;
 import com.pixflow.module.dag.propose.SubmitImagePlanHandler;
 import com.pixflow.module.dag.validate.DagValidator;
 import com.pixflow.module.dag.validate.ParamSchemaRegistry;
 import com.pixflow.module.dag.validate.SchemaRegistryValidator;
 import java.time.Clock;
+import org.apache.ibatis.annotations.Mapper;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -32,14 +36,8 @@ import org.mybatis.spring.annotation.MapperScan;
  */
 @AutoConfiguration
 @EnableConfigurationProperties(DagProperties.class)
-@MapperScan("com.pixflow.module.dag.propose")
+@MapperScan(value = "com.pixflow.module.dag.propose", annotationClass = Mapper.class)
 public class DagAutoConfiguration {
-
-    @Bean
-    @ConditionalOnMissingBean
-    public Clock dagClock() {
-        return Clock.systemUTC();
-    }
 
     @Bean
     @ConditionalOnMissingBean
@@ -89,6 +87,12 @@ public class DagAutoConfiguration {
     @ConditionalOnMissingBean
     public GroupPreflight groupPreflight() {
         return new GroupPreflight();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public DagFacade dagFacade(DagValidator validator, BranchExpander expander, GroupPreflight preflight) {
+        return new DagFacade(validator, expander, preflight);
     }
 
     @Bean
@@ -171,8 +175,16 @@ public class DagAutoConfiguration {
                                                     DagValidator validator,
                                                     DagProperties props,
                                                     ObjectMapper objectMapper,
-                                                    Clock dagClock) {
-        return new PendingPlanService(mapper, validator, props, objectMapper, dagClock);
+                                                    Clock clock) {
+        return new PendingPlanService(mapper, validator, props, objectMapper, clock);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public PendingPlanPort pendingPlanPort(PendingPlanMapper mapper,
+                                           PendingPlanService service,
+                                           DagProperties props) {
+        return new PendingPlanPortAdapter(mapper, service, props);
     }
 
     @Bean

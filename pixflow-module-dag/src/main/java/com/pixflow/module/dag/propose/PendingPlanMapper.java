@@ -27,6 +27,25 @@ public interface PendingPlanMapper extends BaseMapper<PendingPlan> {
 
     @Update("""
             UPDATE pending_plan
+            SET status = #{to}, confirmed_at = #{confirmedAt}
+            WHERE id = #{id} AND status = #{from}
+            """)
+    int updateStatusFrom(@Param("id") Long id,
+                         @Param("from") String from,
+                         @Param("to") String to,
+                         @Param("confirmedAt") java.time.Instant confirmedAt);
+
+    @Update("""
+            UPDATE pending_plan
+            SET status = 'CONFIRMED', confirmed_at = #{confirmedAt}, task_id = #{taskId}
+            WHERE id = #{id} AND status = 'CONFIRMING'
+            """)
+    int markConfirmedWithTask(@Param("id") Long id,
+                              @Param("taskId") String taskId,
+                              @Param("confirmedAt") java.time.Instant confirmedAt);
+
+    @Update("""
+            UPDATE pending_plan
             SET status = 'EXPIRED'
             WHERE status = 'PENDING' AND expires_at < NOW(6)
             """)

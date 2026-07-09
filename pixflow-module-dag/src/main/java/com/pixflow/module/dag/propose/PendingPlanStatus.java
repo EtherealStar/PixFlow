@@ -14,6 +14,7 @@ package com.pixflow.module.dag.propose;
  */
 public enum PendingPlanStatus {
     PENDING,
+    CONFIRMING,
     CONFIRMED,
     DISCARDED,
     EXPIRED
