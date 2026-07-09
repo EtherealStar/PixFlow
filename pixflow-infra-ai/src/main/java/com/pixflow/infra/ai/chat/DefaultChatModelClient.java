@@ -15,30 +15,36 @@ import com.pixflow.infra.ai.observability.AiMetrics;
 import com.pixflow.infra.ai.provider.ProviderPayloads;
 import com.pixflow.infra.ai.resilience.ConcurrencyGuard;
 import com.pixflow.infra.ai.resilience.ModelRetryRunner;
+import com.pixflow.infra.ai.resilience.ToolCallAccumulator;
 import com.pixflow.infra.ai.spi.GlobalConcurrencyLimiter;
 import java.net.URI;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.atomic.AtomicBoolean;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
+import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.web.reactive.function.client.ClientResponse;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Flux;
-import reactor.core.publisher.Mono;
 
 /**
  * 默认文本模型客户端。
  *
- * <p>当前实现走 DashScope OpenAI-compatible 阻塞接口，并通过公共抽象对上隐藏供应商协议。
- * 真流式增量后续可在本类内扩展，不影响上层契约。
+ * <p>当前实现走 DashScope OpenAI-compatible chat completions 接口，并通过公共抽象对上隐藏供应商协议。
  */
 public final class DefaultChatModelClient implements ChatModelClient {
     private static final String PROVIDER_DASHSCOPE = "dashscope";
+    private static final ParameterizedTypeReference<ServerSentEvent<String>> STRING_SSE =
+            new ParameterizedTypeReference<>() {
+            };
 
     private final AiProperties properties;
     private final ModelRouter modelRouter;
@@ -86,20 +92,14 @@ public final class DefaultChatModelClient implements ChatModelClient {
     @Override
     public Flux<ChatStreamEvent> stream(ChatRequest request) {
         Objects.requireNonNull(request, "request");
-        return retryRunner.run(request.role(), attempt -> callOnce(request)
-                .map(result -> (ChatStreamEvent) new ChatStreamEvent.Completed(
-                        result.finalText(),
-                        result.toolCalls(),
-                        result.stopReason(),
-                        result.usage()))
-                .flux());
+        return retryRunner.run(request.role(), attempt -> streamOnce(request));
     }
 
-    private Mono<ChatResult> callOnce(ChatRequest request) {
-        return Mono.defer(() -> {
+    private Flux<ChatStreamEvent> streamOnce(ChatRequest request) {
+        return Flux.defer(() -> {
             ResolvedModel model = modelRouter.resolve(request.role());
             if (!PROVIDER_DASHSCOPE.equals(model.provider())) {
-                return Mono.error(new PixFlowException(
+                return Flux.error(new PixFlowException(
                         AiErrorCode.MODEL_UNSUPPORTED_CAPABILITY,
                         "Unsupported chat provider",
                         null,
@@ -110,7 +110,7 @@ public final class DefaultChatModelClient implements ChatModelClient {
             }
             String apiKey = properties.dashscope().apiKey();
             if (apiKey == null || apiKey.isBlank()) {
-                return Mono.error(new PixFlowException(
+                return Flux.error(new PixFlowException(
                         AiErrorCode.MODEL_CONFIGURATION_ERROR,
                         "DashScope API key is not configured",
                         null,
@@ -123,17 +123,27 @@ public final class DefaultChatModelClient implements ChatModelClient {
             AiMetricsCall call = new AiMetricsCall(metrics, model);
             GlobalConcurrencyLimiter.Permit permit = concurrencyGuard.acquire(request.role(), Duration.ZERO);
             metrics.incrementConcurrency();
+            AtomicBoolean recorded = new AtomicBoolean(false);
             try {
                 return webClient.post()
                         .uri(chatCompletionsUri(properties.dashscope().baseUrl()))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .accept(MediaType.APPLICATION_JSON)
+                        .accept(MediaType.TEXT_EVENT_STREAM)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
-                        .bodyValue(toProviderRequest(request, model))
-                        .exchangeToMono(response -> handleResponse(response, model))
+                        .bodyValue(toProviderStreamRequest(request, model))
+                        .exchangeToFlux(this::handleStreamResponse)
                         .timeout(effectiveTimeout(model, request.options()))
-                        .doOnSuccess(result -> call.record(true, result))
-                        .doOnError(error -> call.record(false, null))
+                        .doOnNext(event -> {
+                            if (event instanceof ChatStreamEvent.Completed completed
+                                    && recorded.compareAndSet(false, true)) {
+                                call.record(true, completed.usage());
+                            }
+                        })
+                        .doOnError(error -> {
+                            if (recorded.compareAndSet(false, true)) {
+                                call.record(false, null);
+                            }
+                        })
                         .doFinally(signalType -> {
                             metrics.decrementConcurrency();
                             permit.close();
@@ -141,27 +151,35 @@ public final class DefaultChatModelClient implements ChatModelClient {
             } catch (RuntimeException ex) {
                 metrics.decrementConcurrency();
                 permit.close();
-                return Mono.error(ex);
+                return Flux.error(ex);
             }
         });
     }
 
-    private Mono<ChatResult> handleResponse(ClientResponse response, ResolvedModel model) {
+    private Flux<ChatStreamEvent> handleStreamResponse(ClientResponse response) {
         HttpStatusCode status = response.statusCode();
         if (status.isError()) {
             return response.bodyToMono(String.class)
                     .defaultIfEmpty("")
-                    .flatMap(body -> Mono.error(ProviderErrorMapper.fromHttpStatus(
+                    .flatMapMany(body -> Flux.error(ProviderErrorMapper.fromHttpStatus(
                             status,
                             null,
                             response.headers().asHttpHeaders(),
                             body.isBlank() ? "model provider returned HTTP " + status.value() : body)));
         }
-        return response.bodyToMono(JsonNode.class)
-                .map(this::fromProviderResponse)
+        StreamState state = new StreamState(objectMapper);
+        return response.bodyToFlux(STRING_SSE)
+                .concatMap(event -> Flux.fromIterable(state.accept(event.data())))
                 .onErrorMap(error -> error instanceof PixFlowException
                         ? error
                         : ProviderErrorMapper.fromMessage(error.getMessage(), error));
+    }
+
+    private Map<String, Object> toProviderStreamRequest(ChatRequest request, ResolvedModel model) {
+        Map<String, Object> payload = toProviderRequest(request, model);
+        payload.put("stream", true);
+        payload.put("stream_options", Map.of("include_usage", true));
+        return payload;
     }
 
     private Map<String, Object> toProviderRequest(ChatRequest request, ResolvedModel model) {
@@ -199,6 +217,23 @@ public final class DefaultChatModelClient implements ChatModelClient {
             case ASSISTANT -> "assistant";
             case TOOL -> "tool";
         });
+        if (message.role() == ChatMessage.Role.ASSISTANT
+                && message.parts().stream().anyMatch(ChatMessage.ToolCallPart.class::isInstance)) {
+            value.put("content", assistantTextContent(message.parts()));
+            value.put("tool_calls", message.parts().stream()
+                    .filter(ChatMessage.ToolCallPart.class::isInstance)
+                    .map(ChatMessage.ToolCallPart.class::cast)
+                    .map(this::toProviderAssistantToolCall)
+                    .toList());
+            return value;
+        }
+        if (message.role() == ChatMessage.Role.TOOL
+                && message.parts().size() == 1
+                && message.parts().get(0) instanceof ChatMessage.ToolResultPart result) {
+            value.put("content", result.content());
+            value.put("tool_call_id", result.toolCallId());
+            return value;
+        }
         if (message.parts().size() == 1 && message.parts().get(0) instanceof ChatMessage.TextPart text) {
             value.put("content", text.text());
             return value;
@@ -213,6 +248,26 @@ public final class DefaultChatModelClient implements ChatModelClient {
         }
         value.put("content", content);
         return value;
+    }
+
+    private String assistantTextContent(List<ChatMessage.Part> parts) {
+        String text = parts.stream()
+                .filter(ChatMessage.TextPart.class::isInstance)
+                .map(ChatMessage.TextPart.class::cast)
+                .map(ChatMessage.TextPart::text)
+                .collect(java.util.stream.Collectors.joining("\n"));
+        return text.isBlank() ? "" : text;
+    }
+
+    private Map<String, Object> toProviderAssistantToolCall(ChatMessage.ToolCallPart part) {
+        Map<String, Object> function = new LinkedHashMap<>();
+        function.put("name", part.name());
+        function.put("arguments", part.argumentsJson());
+        Map<String, Object> toolCall = new LinkedHashMap<>();
+        toolCall.put("id", part.id());
+        toolCall.put("type", "function");
+        toolCall.put("function", function);
+        return toolCall;
     }
 
     private Map<String, Object> toProviderTool(ToolSchema schema) {
@@ -236,55 +291,6 @@ public final class DefaultChatModelClient implements ChatModelClient {
         return Map.of("type", "function", "function", function);
     }
 
-    private ChatResult fromProviderResponse(JsonNode root) {
-        JsonNode choice = root.path("choices").isArray() && !root.path("choices").isEmpty()
-                ? root.path("choices").get(0)
-                : null;
-        if (choice == null) {
-            throw new PixFlowException(
-                    AiErrorCode.MODEL_PROVIDER_ERROR,
-                    "Model provider response missing choices",
-                    null,
-                    Map.of(),
-                    RecoveryHint.RETRY,
-                    null,
-                    null);
-        }
-        JsonNode message = choice.path("message");
-        String finalText = message.path("content").isTextual() ? message.path("content").asText() : "";
-        List<ToolCall> toolCalls = parseToolCalls(message.path("tool_calls"));
-        StopReason stopReason = stopReason(choice.path("finish_reason").asText(null), toolCalls);
-        return new ChatResult(finalText, toolCalls, stopReason, ProviderPayloads.usage(root.path("usage")));
-    }
-
-    private List<ToolCall> parseToolCalls(JsonNode node) {
-        if (!node.isArray() || node.isEmpty()) {
-            return List.of();
-        }
-        List<ToolCall> calls = new ArrayList<>();
-        for (JsonNode item : node) {
-            JsonNode function = item.path("function");
-            String name = function.path("name").asText("");
-            String arguments = function.path("arguments").isTextual()
-                    ? function.path("arguments").asText()
-                    : function.path("arguments").toString();
-            try {
-                objectMapper.readTree(arguments);
-            } catch (Exception ex) {
-                throw new PixFlowException(
-                        AiErrorCode.INVALID_TOOL_ARGUMENTS,
-                        "Invalid tool arguments",
-                        ex,
-                        Map.of("toolName", name),
-                        RecoveryHint.TERMINATE,
-                        null,
-                        null);
-            }
-            calls.add(new ToolCall(item.path("id").asText(null), name, arguments));
-        }
-        return List.copyOf(calls);
-    }
-
     private static StopReason stopReason(String finishReason, List<ToolCall> toolCalls) {
         if (!toolCalls.isEmpty() || "tool_calls".equals(finishReason)) {
             return StopReason.TOOL_CALLS;
@@ -299,6 +305,95 @@ public final class DefaultChatModelClient implements ChatModelClient {
             return StopReason.CONTENT_FILTER;
         }
         return StopReason.OTHER;
+    }
+
+    private static final class StreamState {
+        private final ObjectMapper objectMapper;
+        private final StringBuilder finalText = new StringBuilder();
+        private final ToolCallAccumulator toolCallAccumulator;
+        private TokenUsage usage = new TokenUsage(0, 0, 0);
+        private boolean completed;
+
+        private StreamState(ObjectMapper objectMapper) {
+            this.objectMapper = objectMapper;
+            this.toolCallAccumulator = new ToolCallAccumulator(objectMapper);
+        }
+
+        private List<ChatStreamEvent> accept(String data) {
+            if (completed || data == null || data.isBlank()) {
+                return List.of();
+            }
+            String payload = data.strip();
+            if (payload.startsWith("data:")) {
+                payload = payload.substring("data:".length()).strip();
+            }
+            if ("[DONE]".equals(payload)) {
+                return complete(StopReason.OTHER);
+            }
+
+            JsonNode root;
+            try {
+                root = objectMapper.readTree(payload);
+            } catch (Exception ex) {
+                throw ProviderErrorMapper.fromMessage("Invalid streaming model response", ex);
+            }
+            if (root.has("usage") && !root.path("usage").isNull()) {
+                usage = ProviderPayloads.usage(root.path("usage"));
+            }
+            JsonNode choice = root.path("choices").isArray() && !root.path("choices").isEmpty()
+                    ? root.path("choices").get(0)
+                    : null;
+            if (choice == null) {
+                return List.of();
+            }
+
+            List<ChatStreamEvent> events = new ArrayList<>();
+            JsonNode delta = choice.path("delta");
+            String content = delta.path("content").isTextual() ? delta.path("content").asText() : "";
+            if (!content.isEmpty()) {
+                finalText.append(content);
+                events.add(new ChatStreamEvent.TextDelta(content, 0));
+            }
+            appendToolCalls(delta.path("tool_calls"));
+
+            String finishReason = choice.path("finish_reason").isTextual()
+                    ? choice.path("finish_reason").asText()
+                    : null;
+            if (finishReason != null && !"null".equals(finishReason)) {
+                List<ToolCall> toolCalls = toolCallAccumulator.complete();
+                events.add(new ChatStreamEvent.Completed(
+                        finalText.toString(),
+                        toolCalls,
+                        stopReason(finishReason, toolCalls),
+                        usage));
+                completed = true;
+            }
+            return events;
+        }
+
+        private void appendToolCalls(JsonNode toolCalls) {
+            if (!toolCalls.isArray() || toolCalls.isEmpty()) {
+                return;
+            }
+            for (JsonNode item : toolCalls) {
+                int index = item.path("index").asInt(0);
+                String id = item.path("id").isTextual() ? item.path("id").asText() : null;
+                JsonNode function = item.path("function");
+                String name = function.path("name").isTextual() ? function.path("name").asText() : null;
+                String arguments = function.path("arguments").isTextual() ? function.path("arguments").asText() : null;
+                toolCallAccumulator.append(index, id, name, arguments);
+            }
+        }
+
+        private List<ChatStreamEvent> complete(StopReason fallbackStopReason) {
+            List<ToolCall> toolCalls = toolCallAccumulator.complete();
+            completed = true;
+            return Collections.singletonList(new ChatStreamEvent.Completed(
+                    finalText.toString(),
+                    toolCalls,
+                    toolCalls.isEmpty() ? fallbackStopReason : StopReason.TOOL_CALLS,
+                    usage));
+        }
     }
 
     private static URI chatCompletionsUri(String baseUrl) {
@@ -333,11 +428,11 @@ public final class DefaultChatModelClient implements ChatModelClient {
             this.sample = metrics.startCall();
         }
 
-        private void record(boolean ok, ChatResult result) {
+        private void record(boolean ok, TokenUsage usage) {
             metrics.recordCall(sample, model.role(), model.provider(), model.capability(), ok);
-            if (ok && result != null) {
-                metrics.incrementTokens(model.role(), "prompt", result.usage().promptTokens());
-                metrics.incrementTokens(model.role(), "completion", result.usage().completionTokens());
+            if (ok && usage != null) {
+                metrics.incrementTokens(model.role(), "prompt", usage.promptTokens());
+                metrics.incrementTokens(model.role(), "completion", usage.completionTokens());
             }
         }
     }

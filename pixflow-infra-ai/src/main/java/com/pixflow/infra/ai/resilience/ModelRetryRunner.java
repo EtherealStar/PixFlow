@@ -7,6 +7,7 @@ import com.pixflow.infra.ai.error.AiErrorCode;
 import com.pixflow.infra.ai.model.ModelRole;
 import java.time.Duration;
 import java.util.Objects;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import reactor.core.publisher.Flux;
@@ -63,36 +64,33 @@ public final class ModelRetryRunner {
                     null));
         }
         return attemptSupplier.apply(attempt)
-                .materialize()
-                .collectList()
-                .flatMapMany(signals -> {
-                    Throwable failure = null;
-                    boolean sawText = false;
-                    java.util.List<ChatStreamEvent> events = new java.util.ArrayList<>();
-                    for (reactor.core.publisher.Signal<ChatStreamEvent> signal : signals) {
-                        if (signal.isOnNext()) {
-                            ChatStreamEvent event = signal.get();
-                            events.add(event);
-                            sawText = sawText || event instanceof ChatStreamEvent.TextDelta;
-                        } else if (signal.isOnError()) {
-                            failure = signal.getThrowable();
-                        }
-                    }
-                    if (failure == null) {
-                        return Flux.fromIterable(events);
-                    }
-                    PixFlowException normalized = normalize(role, failure);
-                    if (!isRetryable(normalized) || normalized.category() == com.pixflow.common.error.ErrorCategory.CONTEXT_LIMIT) {
-                        return Flux.error(normalized);
-                    }
-                    if (attempt >= retryPolicy.maxRetries() + 1) {
-                        return Flux.error(normalized);
-                    }
-                    Duration delay = retryPolicy.delayForAttempt(attempt, normalized.retryAfter());
-                    Flux<ChatStreamEvent> reset = sawText
-                            ? Flux.just(new ChatStreamEvent.AttemptReset(normalized, attempt + 1, retryPolicy.maxRetries() - attempt))
-                            : Flux.empty();
-                    return reset.concatWith(Flux.defer(() -> tryAttempt(role, attemptSupplier, attempt + 1, false)).delaySubscription(delay, Schedulers.boundedElastic()));
+                .transform(events -> {
+                    AtomicBoolean sawText = new AtomicBoolean(emittedDownstream);
+                    return events
+                            .doOnNext(event -> {
+                                if (event instanceof ChatStreamEvent.TextDelta) {
+                                    sawText.set(true);
+                                }
+                            })
+                            .onErrorResume(failure -> {
+                                PixFlowException normalized = normalize(role, failure);
+                                if (!isRetryable(normalized)
+                                        || normalized.category() == com.pixflow.common.error.ErrorCategory.CONTEXT_LIMIT
+                                        || attempt >= retryPolicy.maxRetries() + 1) {
+                                    return Flux.error(normalized);
+                                }
+                                Duration delay = retryPolicy.delayForAttempt(attempt, normalized.retryAfter());
+                                Flux<ChatStreamEvent> nextAttempt = Flux.defer(() -> tryAttempt(role, attemptSupplier, attempt + 1, false))
+                                        .delaySubscription(delay, Schedulers.boundedElastic());
+                                if (sawText.get()) {
+                                    return Flux.<ChatStreamEvent>just(new ChatStreamEvent.AttemptReset(
+                                                    normalized,
+                                                    attempt + 1,
+                                                    retryPolicy.maxRetries() - attempt))
+                                            .concatWith(nextAttempt);
+                                }
+                                return nextAttempt;
+                            });
                 });
     }
 

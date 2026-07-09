@@ -20,7 +20,7 @@ public record ChatMessage(Role role, List<Part> parts) {
         TOOL
     }
 
-    public sealed interface Part permits TextPart, ImagePart {
+    public sealed interface Part permits TextPart, ImagePart, ToolCallPart, ToolResultPart {
     }
 
     public record TextPart(String text) implements Part {
@@ -34,6 +34,32 @@ public record ChatMessage(Role role, List<Part> parts) {
     public record ImagePart(ImageContent content, String description) implements Part {
         public ImagePart {
             content = Objects.requireNonNull(content, "content");
+        }
+    }
+
+    public record ToolCallPart(String id, String name, String argumentsJson) implements Part {
+        public ToolCallPart {
+            if (id == null || id.isBlank()) {
+                throw new IllegalArgumentException("tool call id must not be blank");
+            }
+            if (name == null || name.isBlank()) {
+                throw new IllegalArgumentException("tool call name must not be blank");
+            }
+            id = id.trim();
+            name = name.trim();
+            argumentsJson = Objects.requireNonNullElse(argumentsJson, "{}");
+        }
+    }
+
+    public record ToolResultPart(String toolCallId, String content) implements Part {
+        public ToolResultPart {
+            if (toolCallId == null || toolCallId.isBlank()) {
+                throw new IllegalArgumentException("tool call id must not be blank");
+            }
+            if (content == null || content.isBlank()) {
+                throw new IllegalArgumentException("tool result content must not be blank");
+            }
+            toolCallId = toolCallId.trim();
         }
     }
 
