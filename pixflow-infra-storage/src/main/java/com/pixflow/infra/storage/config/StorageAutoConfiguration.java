@@ -9,17 +9,17 @@ import com.pixflow.infra.storage.StorageProperties;
 import com.pixflow.infra.storage.toolresult.ObjectStorageToolResultStorage;
 import com.pixflow.infra.storage.toolresult.ToolResultStorage;
 import io.minio.MinioClient;
+import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
 import org.springframework.util.StringUtils;
 
 /**
  * storage 自动装配。只有配置 endpoint 后才创建真实 MinIO 客户端。
  */
-@Configuration
+@AutoConfiguration
 @EnableConfigurationProperties(StorageProperties.class)
 @ConditionalOnProperty(prefix = "pixflow.storage", name = "endpoint")
 public class StorageAutoConfiguration {
