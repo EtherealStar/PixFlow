@@ -21,16 +21,15 @@ import com.pixflow.infra.cache.store.RedissonCacheStore;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.redisson.Redisson;
 import org.redisson.api.RedissonClient;
-import org.redisson.codec.JsonJacksonCodec;
 import org.redisson.config.Config;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
+import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.util.StringUtils;
 
-@Configuration
+@AutoConfiguration
 @EnableConfigurationProperties(CacheProperties.class)
 public class CacheAutoConfiguration {
 
@@ -42,10 +41,8 @@ public class CacheAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public RedissonClient redissonClient(CacheProperties properties, ObjectProvider<ObjectMapper> objectMapperProvider) {
-        ObjectMapper objectMapper = objectMapperProvider.getIfAvailable(CacheAutoConfiguration::defaultObjectMapper);
+    public RedissonClient redissonClient(CacheProperties properties) {
         Config config = new Config();
-        config.setCodec(new JsonJacksonCodec(objectMapper));
         config.setLockWatchdogTimeout(properties.getLock().getWatchdogTimeout().toMillis());
         if (properties.getMode() != CacheProperties.Mode.SINGLE) {
             throw new IllegalArgumentException("当前版本仅联调 single Redis，已预留 sentinel/cluster 配置位");

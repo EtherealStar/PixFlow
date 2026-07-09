@@ -23,7 +23,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.redisson.Redisson;
 import org.redisson.api.RedissonClient;
-import org.redisson.codec.JsonJacksonCodec;
+import org.redisson.client.codec.StringCodec;
 import org.redisson.config.Config;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.junit.jupiter.Container;
@@ -47,7 +47,6 @@ class RedisIntegrationTest {
         objectMapper = new ObjectMapper()
                 .registerModule(new JavaTimeModule())
                 .setSerializationInclusion(JsonInclude.Include.NON_NULL);
-        config.setCodec(new JsonJacksonCodec(objectMapper));
         namespace = new DefaultCacheNamespace("test", Duration.ofSeconds(5));
     }
 
@@ -80,6 +79,56 @@ class RedisIntegrationTest {
         assertThat(store.putIfAbsent(key, "first", Duration.ofSeconds(2))).isTrue();
         assertThat(store.putIfAbsent(key, "second", Duration.ofSeconds(2))).isFalse();
         assertThat(store.get(key, String.class)).contains("first");
+    }
+
+    @Test
+    void cacheStoreReadsPlainJsonWithoutClassMetadata() {
+        RedissonCacheStore store = new RedissonCacheStore(redissonClient, objectMapper, new NoopCacheMetrics());
+        CacheKey key = namespace.key("auth", "refresh", "plain-json");
+        String json = """
+                {"refreshJwtId":"r1","userId":1,"username":"demo","tokenHash":"hash","createdAt":"2026-07-07T06:00:00Z","expiresAt":"2026-08-06T06:00:00Z"}
+                """;
+
+        redissonClient.<String>getBucket(key.value(), StringCodec.INSTANCE)
+                .set(json, 5, java.util.concurrent.TimeUnit.SECONDS);
+
+        assertThat(store.get(key, SessionLike.class)).contains(new SessionLike(
+                "r1",
+                1L,
+                "demo",
+                "hash",
+                Instant.parse("2026-07-07T06:00:00Z"),
+                Instant.parse("2026-08-06T06:00:00Z")));
+    }
+
+    @Test
+    void cacheStoreWritesPlainJsonWithoutClassMetadata() {
+        RedissonCacheStore store = new RedissonCacheStore(redissonClient, objectMapper, new NoopCacheMetrics());
+        CacheKey key = namespace.key("auth", "refresh", "written-json");
+        SessionLike session = new SessionLike(
+                "r2",
+                2L,
+                "demo2",
+                "hash2",
+                Instant.parse("2026-07-07T07:00:00Z"),
+                Instant.parse("2026-08-06T07:00:00Z"));
+
+        store.put(key, session, Duration.ofSeconds(5));
+
+        String raw = redissonClient.<String>getBucket(key.value(), StringCodec.INSTANCE).get();
+        assertThat(raw).isNotBlank();
+        assertThat(raw).doesNotContain("@class");
+        assertThat(store.get(key, SessionLike.class)).contains(session);
+    }
+
+    @Test
+    void cacheStoreDegradesInvalidJsonToMiss() {
+        RedissonCacheStore store = new RedissonCacheStore(redissonClient, objectMapper, new NoopCacheMetrics());
+        CacheKey key = namespace.key("auth", "refresh", "bad-json");
+        redissonClient.<String>getBucket(key.value(), StringCodec.INSTANCE)
+                .set("{bad-json", 5, java.util.concurrent.TimeUnit.SECONDS);
+
+        assertThat(store.get(key, SessionLike.class)).isEmpty();
     }
 
     @Test
@@ -147,5 +196,14 @@ class RedisIntegrationTest {
     }
 
     private record SampleValue(String name, int count) {
+    }
+
+    private record SessionLike(
+            String refreshJwtId,
+            Long userId,
+            String username,
+            String tokenHash,
+            Instant createdAt,
+            Instant expiresAt) {
     }
 }
