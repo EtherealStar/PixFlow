@@ -2,12 +2,12 @@ package com.pixflow.common.error;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.lang.reflect.Method;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.MethodParameter;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.validation.BeanPropertyBindingResult;
 import org.springframework.validation.FieldError;
-import java.lang.reflect.Method;
 
 class ErrorNormalizerTest {
 
@@ -42,6 +42,17 @@ class ErrorNormalizerTest {
     void normalizesCacheExceptionToDependency() {
         PixFlowException exception = normalizer.normalize(new CacheException("redis unavailable"));
         assertThat(exception.code()).isEqualTo(CommonErrorCode.DEPENDENCY_UNAVAILABLE);
+    }
+
+    @Test
+    void normalizesMethodNotSupportedTo405Code() {
+        PixFlowException exception = normalizer.normalize(
+                SpringWebExceptionFixtures.methodNotAllowed("POST", "GET"));
+
+        assertThat(exception.code()).isEqualTo(CommonErrorCode.METHOD_NOT_ALLOWED);
+        assertThat(exception.code().httpStatus().value()).isEqualTo(405);
+        assertThat(exception.details()).containsEntry("method", "POST");
+        assertThat(exception.details()).containsEntry("supportedMethods", java.util.List.of("GET"));
     }
 
     @Test

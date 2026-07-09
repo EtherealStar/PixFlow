@@ -9,6 +9,7 @@ public enum ErrorCategory {
     VALIDATION(RecoveryHint.TERMINATE, HttpStatus.BAD_REQUEST),
     BUSINESS_RULE(RecoveryHint.TERMINATE, HttpStatus.CONFLICT),
     NOT_FOUND(RecoveryHint.TERMINATE, HttpStatus.NOT_FOUND),
+    METHOD_NOT_ALLOWED(RecoveryHint.TERMINATE, HttpStatus.METHOD_NOT_ALLOWED),
     PERMISSION(RecoveryHint.TERMINATE, HttpStatus.FORBIDDEN),
     RATE_LIMIT(RecoveryHint.RETRY, HttpStatus.TOO_MANY_REQUESTS),
     NETWORK(RecoveryHint.RETRY, HttpStatus.GATEWAY_TIMEOUT),

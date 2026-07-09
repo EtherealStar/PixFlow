@@ -5,6 +5,11 @@ spring:
     password: pixflow_dev_20260705
     driver-class-name: com.mysql.cj.jdbc.Driver
 pixflow:
+  auth:
+    jwt:
+      secret: ${PIXFLOW_AUTH_JWT_SECRET:pixflow-dev-jwt-secret-at-least-32-bytes}
+    refresh:
+      cookie-secure: false
   cache:
     address: redis://localhost:6379
     env-prefix: dev

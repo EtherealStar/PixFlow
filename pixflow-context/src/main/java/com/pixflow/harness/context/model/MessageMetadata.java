@@ -7,7 +7,11 @@ import java.util.List;
 import java.util.Map;
 
 public record MessageMetadata(Map<String, Object> values) {
+    public static final String EVENT = "event";
+    public static final String EVENT_SKILL_INVOCATION = "skill_invocation";
+    public static final String EVENT_PLAN_MODE_CHANGE = "plan_mode_change";
     public static final String TOOL_CALL_IDS = "toolCallIds";
+    public static final String ASSISTANT_TOOL_CALLS = "assistantToolCalls";
     public static final String TOOL_RESULT_EXTERNALIZED = "toolResultExternalized";
     public static final String TOOL_RESULT_REF = "toolResultRef";
     public static final String MICROCOMPACTED = "microcompacted";
@@ -26,6 +30,10 @@ public record MessageMetadata(Map<String, Object> values) {
 
     public static MessageMetadata empty() {
         return new MessageMetadata(Map.of());
+    }
+
+    public static MessageMetadata of(Map<String, Object> values) {
+        return new MessageMetadata(values);
     }
 
     public MessageMetadata with(String key, Object value) {
@@ -56,6 +64,24 @@ public record MessageMetadata(Map<String, Object> values) {
         return List.of();
     }
 
+    public List<AssistantToolCall> assistantToolCalls() {
+        Object value = values.get(ASSISTANT_TOOL_CALLS);
+        if (!(value instanceof List<?> list)) {
+            return List.of();
+        }
+        List<AssistantToolCall> result = new ArrayList<>(list.size());
+        for (Object item : list) {
+            if (item instanceof AssistantToolCall toolCall) {
+                result.add(toolCall);
+            } else if (item instanceof Map<?, ?> map) {
+                result.add(AssistantToolCall.fromMetadataMap(map));
+            } else {
+                throw new IllegalArgumentException("assistant tool call metadata item is invalid");
+            }
+        }
+        return List.copyOf(result);
+    }
+
     private static Map<String, Object> immutableCopy(Map<String, Object> source) {
         if (source == null || source.isEmpty()) {
             return Map.of();
@@ -72,7 +98,14 @@ public record MessageMetadata(Map<String, Object> values) {
             return Collections.unmodifiableMap(copy);
         }
         if (value instanceof List<?> list) {
-            return List.copyOf(list);
+            List<Object> copy = new ArrayList<>(list.size());
+            for (Object item : list) {
+                copy.add(copyValue(item));
+            }
+            return List.copyOf(copy);
+        }
+        if (value instanceof AssistantToolCall toolCall) {
+            return toolCall;
         }
         return value;
     }

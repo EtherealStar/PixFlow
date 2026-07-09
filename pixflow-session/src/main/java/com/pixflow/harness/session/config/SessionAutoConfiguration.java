@@ -13,6 +13,7 @@ import com.pixflow.harness.session.persistence.TranscriptService;
 import com.pixflow.harness.session.seq.SequenceAllocator;
 import com.pixflow.infra.storage.toolresult.ToolResultStorage;
 import io.micrometer.core.instrument.MeterRegistry;
+import org.apache.ibatis.annotations.Mapper;
 import org.mybatis.spring.annotation.MapperScan;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
@@ -23,7 +24,7 @@ import org.springframework.context.annotation.Bean;
 
 @AutoConfiguration
 @EnableConfigurationProperties(SessionProperties.class)
-@MapperScan("com.pixflow.harness.session.persistence")
+@MapperScan(value = "com.pixflow.harness.session.persistence", annotationClass = Mapper.class)
 public class SessionAutoConfiguration {
 
     @Bean

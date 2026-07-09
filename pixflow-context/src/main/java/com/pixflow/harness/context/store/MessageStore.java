@@ -2,6 +2,7 @@ package com.pixflow.harness.context.store;
 
 import com.pixflow.harness.context.compaction.CompactionTrigger;
 import com.pixflow.harness.context.model.Message;
+import com.pixflow.harness.context.model.MessageMetadata;
 import com.pixflow.harness.context.model.MessageRole;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -20,6 +21,10 @@ public final class MessageStore {
 
     public MessageStore(TranscriptPort transcriptPort) {
         this.transcriptPort = transcriptPort;
+    }
+
+    public static MessageStore transcriptBacked(TranscriptPort transcriptPort) {
+        return new MessageStore(transcriptPort);
     }
 
     public void bindConversation(String conversationId) {
@@ -53,6 +58,53 @@ public final class MessageStore {
             }
         }
         return appendMany(attachments);
+    }
+
+    /**
+     * 记录 skill 工具调用事件 trail。
+     *
+     * <p>role 是 {@link MessageRole#USER}，content 是描述性 metadata；调用方约定
+     * "事件 trail 是 agent 行为而非用户产生"，所以 role 取 USER 但内容是结构化事件描述。
+     *
+     * @param skillName skill 名称（剥 {@code skill__} 前缀）
+     * @param skillVersion skill 版本号
+     * @param bodyChars 返回 body 字节数（≤ 50KB 内置；外置由 handler 完成）
+     * @return 持久化的 message
+     */
+    public Message appendSkillInvocation(String skillName, int skillVersion, int bodyChars) {
+        Objects.requireNonNull(skillName, "skillName");
+        MessageMetadata metadata = MessageMetadata.of(Map.of(
+                MessageMetadata.EVENT, MessageMetadata.EVENT_SKILL_INVOCATION,
+                "skill_name", skillName,
+                "skill_version", skillVersion,
+                "body_chars", bodyChars
+        ));
+        return appendOne(Message.userEvent(
+                "[skill_invocation] " + skillName,
+                metadata));
+    }
+
+    /**
+     * 记录 Plan 模式切换事件 trail。
+     *
+     * <p>role 是 {@link MessageRole#USER}，content 是描述性 metadata；状态归属
+     * {@code RuntimeState.metadata["planMode"]}，本方法只留审计行。
+     *
+     * @param from 切换前状态（{@code "OFF"} / {@code "ACTIVE"} / 其他字符串）
+     * @param to 切换后状态
+     * @return 持久化的 message
+     */
+    public Message appendPlanModeChange(String from, String to) {
+        Objects.requireNonNull(from, "from");
+        Objects.requireNonNull(to, "to");
+        MessageMetadata metadata = MessageMetadata.of(Map.of(
+                MessageMetadata.EVENT, MessageMetadata.EVENT_PLAN_MODE_CHANGE,
+                "from", from,
+                "to", to
+        ));
+        return appendOne(Message.userEvent(
+                "[plan_mode_change] " + from + " -> " + to,
+                metadata));
     }
 
     public List<Message> currentMessages() {

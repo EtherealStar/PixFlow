@@ -17,6 +17,7 @@ import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 
 /**
  * 统一异常归一化入口。
@@ -52,6 +53,19 @@ public class ErrorNormalizer {
         }
         if (ex instanceof HttpMessageNotReadableException) {
             return invalidParam(ex, "请求体无法解析", Map.of("reason", ex.getMessage()));
+        }
+        if (ex instanceof HttpRequestMethodNotSupportedException methodNotSupported) {
+            return new PixFlowException(
+                    CommonErrorCode.METHOD_NOT_ALLOWED,
+                    "请求方法不支持",
+                    ex,
+                    Map.of(
+                            "method", String.valueOf(methodNotSupported.getMethod()),
+                            "supportedMethods", methodNotSupported.getSupportedHttpMethods() == null
+                                    ? List.of()
+                                    : methodNotSupported.getSupportedHttpMethods().stream()
+                                            .map(String::valueOf)
+                                            .toList()));
         }
         if (ex instanceof MaxUploadSizeExceededException upload) {
             return invalidParam(ex, "上传文件超过大小限制", Map.of("maxUploadSize", upload.getMaxUploadSize()));

@@ -89,6 +89,10 @@
             <artifactId>pixflow-conversation</artifactId>
         </dependency>
         <dependency>
+            <groupId>com.pixflow</groupId>
+            <artifactId>pixflow-agent</artifactId>
+        </dependency>
+        <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>

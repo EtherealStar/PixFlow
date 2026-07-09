@@ -27,13 +27,21 @@ public record Message(
         return new Message(null, MessageRole.USER, content, null, MessageMetadata.empty(), Instant.now());
     }
 
+    public static Message userEvent(String content, MessageMetadata metadata) {
+        return new Message(null, MessageRole.USER, content, null, metadata, Instant.now());
+    }
+
     public static Message assistant(String content) {
         return new Message(null, MessageRole.ASSISTANT, content, null, MessageMetadata.empty(), Instant.now());
     }
 
-    public static Message assistantToolCall(String content, String toolCallId) {
+    public static Message assistantToolCall(String content, java.util.List<AssistantToolCall> toolCalls) {
         return new Message(null, MessageRole.ASSISTANT, content, null,
-                MessageMetadata.empty().with(MessageMetadata.TOOL_CALL_IDS, java.util.List.of(toolCallId)), Instant.now());
+                MessageMetadata.empty().with(MessageMetadata.ASSISTANT_TOOL_CALLS, toolCalls), Instant.now());
+    }
+
+    public static Message assistantToolCall(String content, String toolCallId) {
+        return assistantToolCall(content, java.util.List.of(new AssistantToolCall(toolCallId, "unknown_tool", "{}")));
     }
 
     public static Message toolResult(String toolCallId, String content) {

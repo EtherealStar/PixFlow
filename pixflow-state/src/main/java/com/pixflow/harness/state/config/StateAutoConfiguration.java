@@ -19,21 +19,15 @@ import com.pixflow.infra.cache.counter.AtomicCounter;
 import com.pixflow.infra.cache.store.CacheStore;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Clock;
+import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
 
-@Configuration
+@AutoConfiguration
 @EnableConfigurationProperties(StateProperties.class)
 public class StateAutoConfiguration {
-
-    @Bean
-    @ConditionalOnMissingBean
-    public Clock stateClock() {
-        return Clock.systemUTC();
-    }
 
     @Bean
     @ConditionalOnMissingBean

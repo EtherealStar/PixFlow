@@ -2,6 +2,8 @@ package com.pixflow.harness.context.store;
 
 import com.pixflow.harness.context.compaction.CompactionTrigger;
 import com.pixflow.harness.context.model.Message;
+import com.pixflow.harness.context.model.MessageMetadata;
+import com.pixflow.harness.context.model.MessageRole;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -33,6 +35,41 @@ class MessageStoreTest {
 
         assertThat(transcript.appended).hasSize(1);
         assertThat(store.currentMessages()).extracting(Message::content).containsExactly("hello");
+    }
+
+    @Test
+    void appendSkillInvocationStoresTypedEventMetadata() {
+        InMemoryTranscript transcript = new InMemoryTranscript();
+        MessageStore store = new MessageStore(transcript);
+        store.bindConversation("c1");
+
+        Message message = store.appendSkillInvocation("search", 2, 1024);
+
+        assertThat(message.role()).isEqualTo(MessageRole.USER);
+        assertThat(message.content()).isEqualTo("[skill_invocation] search");
+        assertThat(message.metadata().values())
+                .containsEntry(MessageMetadata.EVENT, MessageMetadata.EVENT_SKILL_INVOCATION)
+                .containsEntry("skill_name", "search")
+                .containsEntry("skill_version", 2)
+                .containsEntry("body_chars", 1024);
+        assertThat(transcript.appended).containsExactly(message);
+    }
+
+    @Test
+    void appendPlanModeChangeStoresTypedEventMetadata() {
+        InMemoryTranscript transcript = new InMemoryTranscript();
+        MessageStore store = new MessageStore(transcript);
+        store.bindConversation("c1");
+
+        Message message = store.appendPlanModeChange("OFF", "ACTIVE");
+
+        assertThat(message.role()).isEqualTo(MessageRole.USER);
+        assertThat(message.content()).isEqualTo("[plan_mode_change] OFF -> ACTIVE");
+        assertThat(message.metadata().values())
+                .containsEntry(MessageMetadata.EVENT, MessageMetadata.EVENT_PLAN_MODE_CHANGE)
+                .containsEntry("from", "OFF")
+                .containsEntry("to", "ACTIVE");
+        assertThat(transcript.appended).containsExactly(message);
     }
 
     private static final class InMemoryTranscript implements TranscriptPort {

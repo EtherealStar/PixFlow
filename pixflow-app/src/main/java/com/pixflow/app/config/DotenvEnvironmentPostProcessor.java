@@ -4,9 +4,12 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.env.EnvironmentPostProcessor;
 import org.springframework.core.Ordered;
@@ -19,14 +22,11 @@ import org.springframework.core.env.MapPropertySource;
 public final class DotenvEnvironmentPostProcessor implements EnvironmentPostProcessor, Ordered {
 
     private static final String PROPERTY_SOURCE_NAME = "pixflowDotenv";
-    private static final List<Path> CANDIDATES = List.of(
-            Path.of(".env"),
-            Path.of("pixflow-app", ".env"));
 
     @Override
     public void postProcessEnvironment(ConfigurableEnvironment environment, SpringApplication application) {
-        for (Path candidate : CANDIDATES) {
-            Path path = candidate.toAbsolutePath().normalize();
+        Path start = Path.of("").toAbsolutePath().normalize();
+        for (Path path : candidatePaths(start)) {
             if (!Files.isRegularFile(path)) {
                 continue;
             }
@@ -42,6 +42,17 @@ public final class DotenvEnvironmentPostProcessor implements EnvironmentPostProc
     @Override
     public int getOrder() {
         return Ordered.HIGHEST_PRECEDENCE;
+    }
+
+    static List<Path> candidatePaths(Path start) {
+        Set<Path> paths = new LinkedHashSet<>();
+        Path current = start.toAbsolutePath().normalize();
+        while (current != null) {
+            paths.add(current.resolve(".env").normalize());
+            paths.add(current.resolve("pixflow-app").resolve(".env").normalize());
+            current = current.getParent();
+        }
+        return new ArrayList<>(paths);
     }
 
     private static Map<String, Object> loadDotenv(Path path) {

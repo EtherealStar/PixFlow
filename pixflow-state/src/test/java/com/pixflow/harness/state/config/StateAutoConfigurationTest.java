@@ -2,6 +2,7 @@ package com.pixflow.harness.state.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.pixflow.common.time.TimeAutoConfiguration;
 import com.pixflow.harness.state.model.CompletedUnits;
 import com.pixflow.harness.state.model.TaskRunStatus;
 import com.pixflow.harness.state.port.CheckpointReadPort.PersistedCounts;
@@ -22,7 +23,7 @@ import org.springframework.context.annotation.Configuration;
 
 class StateAutoConfigurationTest {
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
-            .withConfiguration(AutoConfigurations.of(StateAutoConfiguration.class));
+            .withConfiguration(AutoConfigurations.of(TimeAutoConfiguration.class, StateAutoConfiguration.class));
 
     @Test
     void runStateRefStoreCanBeCreatedWithOnlyCacheStore() {

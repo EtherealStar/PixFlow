@@ -5,6 +5,7 @@ package com.pixflow.common.error;
  */
 public enum CommonErrorCode implements ErrorCode {
     INTERNAL_ERROR("INTERNAL_ERROR", ErrorCategory.INTERNAL),
+    METHOD_NOT_ALLOWED("METHOD_NOT_ALLOWED", ErrorCategory.METHOD_NOT_ALLOWED),
     INVALID_PARAM("INVALID_PARAM", ErrorCategory.VALIDATION),
     RESOURCE_NOT_FOUND("RESOURCE_NOT_FOUND", ErrorCategory.NOT_FOUND),
     PERMISSION_DENIED("PERMISSION_DENIED", ErrorCategory.PERMISSION),

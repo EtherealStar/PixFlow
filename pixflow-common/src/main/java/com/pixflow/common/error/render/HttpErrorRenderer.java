@@ -4,6 +4,8 @@ import com.pixflow.common.error.ErrorNormalizer;
 import com.pixflow.common.error.PixFlowException;
 import com.pixflow.common.sanitize.Sanitizer;
 import com.pixflow.common.web.ApiResponse;
+
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -27,11 +29,13 @@ public class HttpErrorRenderer {
     public ResponseEntity<ApiResponse<Void>> handle(Throwable throwable) {
         PixFlowException error = errorNormalizer.normalize(throwable);
         return ResponseEntity.status(error.code().httpStatus())
-                .body(ApiResponse.error(error, Sanitizer.sanitizeMessage(error.getMessage())));
+            .contentType(MediaType.APPLICATION_JSON)
+            .body(ApiResponse.error(error, Sanitizer.sanitizeMessage(error.getMessage())));
     }
 
     public ResponseEntity<ApiResponse<Void>> render(PixFlowException error) {
         return ResponseEntity.status(error.code().httpStatus())
-                .body(ApiResponse.error(error, Sanitizer.sanitizeMessage(error.getMessage())));
-    }
+            .contentType(MediaType.APPLICATION_JSON)
+            .body(ApiResponse.error(error, Sanitizer.sanitizeMessage(error.getMessage())));
+}
 }
