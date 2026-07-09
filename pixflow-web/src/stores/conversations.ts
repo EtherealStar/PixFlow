@@ -12,7 +12,7 @@ export const useConversationsStore = defineStore('conversations', () => {
   async function refresh(): Promise<void> {
     loading.value = true
     try {
-      const page = await api.listConversations({ archived: false, page: 0, size: 50 })
+      const page = await api.listConversations({ includeArchived: false, page: 1, size: 50 })
       items.value = page.items
     } finally {
       loading.value = false
@@ -24,7 +24,7 @@ export const useConversationsStore = defineStore('conversations', () => {
     current.value = await api.getConversation(id)
   }
 
-  async function create(payload?: { title?: string; packageId?: number }): Promise<ConversationDetail> {
+  async function create(payload?: { title?: string; packageId?: string | number }): Promise<ConversationDetail> {
     const c = await api.createConversation(payload)
     currentId.value = c.conversationId
     current.value = c

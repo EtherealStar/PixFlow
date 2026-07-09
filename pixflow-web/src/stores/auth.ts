@@ -1,65 +1,65 @@
 import { defineStore } from 'pinia'
-import { computed, ref } from 'vue'
+import { getAuthSession, type AuthUser } from '@/runtime/authSession'
 
 /**
  * Auth store（web.md §十一 鉴权接入）
  *
- * 当前为最小 stub（仅用于布局/Header 编译通过）。
- * R6 阶段会接入 pixflow-infra-auth JWT 与 /api/auth 端点。
- *
  * 行为契约：
- * - 优先 httpOnly cookie（后端控制）
- * - 降级 localStorage.pixflow.auth.token
- * - HTTP 注入：Authorization: Bearer <jwt>
+ * - 认证状态机由 runtime/authSession.ts 统一拥有
+ * - store 只暴露页面和路由需要的响应式状态
+ * - 路由守卫不直接触发 refresh，避免登录页和跳转时重复打 /api/auth/refresh
  */
-
-const TOKEN_LS_KEY = 'pixflow.auth.token'
-
-function readTokenFromLs(): string | null {
-  try { return localStorage.getItem(TOKEN_LS_KEY) }
-  catch { return null }
-}
-
-function writeTokenToLs(token: string | null): void {
-  try {
-    if (token) localStorage.setItem(TOKEN_LS_KEY, token)
-    else localStorage.removeItem(TOKEN_LS_KEY)
-  } catch { /* ignore */ }
-}
-
-export interface AuthUser {
-  id: string
-  name: string
-}
+export type { AuthUser }
 
 export const useAuthStore = defineStore('auth', () => {
-  const token = ref<string | null>(readTokenFromLs())
-
-  // stub user；R6 阶段接入 /api/auth/me 后实拉
-  const user = ref<AuthUser | null>(token.value ? { id: 'demo', name: '演示账号' } : null)
-
-  const isAuthenticated = computed(() => !!token.value && !!user.value)
+  const session = getAuthSession()
 
   async function login(creds: { username: string; password: string }): Promise<void> {
-    // R6 stub：直接接受任何非空账密
-    if (!creds.username.trim() || !creds.password.trim()) {
-      throw new Error('账号或密码不能为空')
-    }
-    const t = `stub.${Date.now()}.${Math.random().toString(36).slice(2)}`
-    token.value = t
-    user.value = { id: creds.username, name: creds.username }
-    writeTokenToLs(t)
+    await session.login(creds)
+  }
+
+  async function register(creds: { username: string; password: string; displayName?: string }): Promise<void> {
+    await session.register(creds)
+  }
+
+  async function bootstrap(): Promise<boolean> {
+    return await session.bootstrap()
+  }
+
+  async function restore(): Promise<boolean> {
+    return await bootstrap()
   }
 
   async function logout(): Promise<void> {
-    token.value = null
-    user.value = null
-    writeTokenToLs(null)
+    await session.logout()
+  }
+
+  function clear(): void {
+    session.clear()
   }
 
   function getToken(): string | null {
-    return token.value
+    return session.getToken()
   }
 
-  return { token, user, isAuthenticated, login, logout, getToken }
+  function hasBootstrapped(): boolean {
+    return session.hasBootstrapped()
+  }
+
+  return {
+    token: session.token,
+    user: session.user,
+    phase: session.phase,
+    restoring: session.bootstrapping,
+    bootstrapping: session.bootstrapping,
+    isAuthenticated: session.isAuthenticated,
+    login,
+    register,
+    bootstrap,
+    restore,
+    logout,
+    clear,
+    getToken,
+    hasBootstrapped
+  }
 })
