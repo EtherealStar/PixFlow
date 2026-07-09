@@ -3,6 +3,7 @@ import type {
   CompleteUploadResponse,
   InitUploadResponse,
   PackageDetail,
+  AssetImageView,
   PutChunkResponse,
   UploadSessionState,
   WholeFileUploadResponse
@@ -81,20 +82,79 @@ export function uploadWholeFile(zip: File, doc?: File): Promise<WholeFileUploadR
   })
 }
 
-export function getPackage(packageId: number): Promise<PackageDetail> {
-  return request<PackageDetail>(`/api/files/packages/${packageId}`)
+interface BackendPackageDetail extends Omit<Partial<PackageDetail>, 'packageId'> {
+  id?: number
+  packageId?: number
 }
 
-export function listPackages(params: { page?: number; size?: number } = {}): Promise<Page<PackageDetail>> {
+function normalizePackage(raw: BackendPackageDetail): PackageDetail {
+  // 后端 AssetPackage 序列化主键为 id；页面统一使用 packageId。
+  const packageId = raw.packageId ?? raw.id
+  if (packageId == null) {
+    throw new Error('素材包响应缺少 id/packageId')
+  }
+  return {
+    ...raw,
+    packageId,
+    name: raw.name ?? `package-${packageId}`,
+    status: raw.status ?? 'UPLOADED'
+  }
+}
+
+function normalizePackagePage(page: Page<BackendPackageDetail>): Page<PackageDetail> {
+  const items = (page.items ?? page.records ?? []).map(normalizePackage)
+  return { ...page, items, records: items }
+}
+
+function assertNumericPathId(name: string, value: number | string): string {
+  const text = String(value)
+  if (!/^\d+$/.test(text)) {
+    throw new Error(`${name} 必须是数字 ID`)
+  }
+  return text
+}
+
+export async function getPackage(packageId: number): Promise<PackageDetail> {
+  const raw = await request<BackendPackageDetail>(`/api/files/packages/${packageId}`)
+  return normalizePackage(raw)
+}
+
+export async function listPackages(params: { page?: number; size?: number } = {}): Promise<Page<PackageDetail>> {
   const q = new URLSearchParams()
   if (params.page !== undefined) q.set('page', String(params.page))
   if (params.size !== undefined) q.set('size', String(params.size))
   const qs = q.toString()
-  return request<Page<PackageDetail>>(`/api/files/packages${qs ? `?${qs}` : ''}`)
+  const page = await request<Page<BackendPackageDetail>>(`/api/files/packages${qs ? `?${qs}` : ''}`)
+  return normalizePackagePage(page)
+}
+
+export function listPackageImages(packageId: number, params: { page?: number; size?: number } = {}): Promise<Page<AssetImageView>> {
+  const q = new URLSearchParams()
+  if (params.page !== undefined) q.set('page', String(params.page))
+  if (params.size !== undefined) q.set('size', String(params.size))
+  const qs = q.toString()
+  return request<Page<AssetImageView>>(`/api/files/packages/${packageId}/images${qs ? `?${qs}` : ''}`)
 }
 
 export function deletePackage(packageId: number): Promise<void> {
   return request<void>(`/api/files/packages/${packageId}`, { method: 'DELETE', noRetry: true })
+}
+
+export function deletePackageImage(packageId: number, imageId: string): Promise<void> {
+  const numericImageId = assertNumericPathId('imageId', imageId)
+  return request<void>(`/api/files/packages/${packageId}/images/${encodeURIComponent(numericImageId)}`, {
+    method: 'DELETE',
+    noRetry: true
+  })
+}
+
+export function renamePackageImage(packageId: number, imageId: string, displayName: string): Promise<AssetImageView> {
+  const numericImageId = assertNumericPathId('imageId', imageId)
+  return request<AssetImageView>(`/api/files/packages/${packageId}/images/${encodeURIComponent(numericImageId)}`, {
+    method: 'PATCH',
+    body: { displayName },
+    noRetry: true
+  })
 }
 
 export function getPackageErrors(packageId: number, params: { page?: number; size?: number } = {}): Promise<Page<{ originalPath: string; stage: string; code: string; message: string; createdAt: string }>> {

@@ -30,6 +30,7 @@ export interface TraceId {
 
 export interface Page<T> {
   items: T[]
+  records?: T[]
   total: number
   page: number
   size: number

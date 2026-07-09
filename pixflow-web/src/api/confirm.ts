@@ -4,24 +4,25 @@ import type { ChallengeOrToken } from '@/types/agent'
 /**
  * HITL 二次确认端点。
  * 见 web.md §十二。
- * 复用 /challenge：第一次无 body 拿 challenge，第二次带 answer 拿 token。
+ * 后端 /challenge 不读取 body；用户答案必须在 /submit 阶段提交。
  */
-export function challenge(conversationId: string, proposalId: string, body?: { answer: string }): Promise<ChallengeOrToken> {
+export function challenge(conversationId: string, proposalId: string): Promise<ChallengeOrToken> {
   return request<ChallengeOrToken>(
     `/api/conversations/${encodeURIComponent(conversationId)}/confirm/${encodeURIComponent(proposalId)}/challenge`,
-    { method: 'POST', body: body ?? {} }
+    { method: 'POST', body: {} }
   )
 }
 
 export interface SubmitResponse {
+  proposalId: string
   taskId: string
-  status: 'PENDING' | 'RUNNING'
+  status: string
 }
 
 export function submit(
   conversationId: string,
   proposalId: string,
-  body: { challengeAnswer?: string },
+  body: { challengeId?: string; challengeAnswer?: string },
   idempotencyKey: string
 ): Promise<SubmitResponse> {
   return request<SubmitResponse>(

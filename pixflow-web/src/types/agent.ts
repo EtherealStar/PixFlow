@@ -30,14 +30,13 @@ export interface ConfirmationChallenge {
 /** 二次确认 token（needChallenge=false 或答对 challenge 后由后端返回）。 */
 export interface ConfirmationToken {
   token: string
-  expiresAt: string
 }
 
 /** /challenge 响应。 */
 export interface ChallengeOrToken {
   needChallenge: boolean
   challenge?: ConfirmationChallenge
-  token?: ConfirmationToken
+  token?: string | ConfirmationToken
 }
 
 /** Agent 回合摘要状态（Pinia 持久化部分）。deltas 不入 state，留作 composable 内的 ref。 */
@@ -53,6 +52,7 @@ export interface AgentTurnSummary {
 /** SSE 事件类型。 */
 export type AgentEventName =
   | 'assistant_delta'
+  | 'assistant_message_completed'
   | 'tool_call_ready'
   | 'tool_started'
   | 'tool_result'
@@ -67,9 +67,10 @@ export interface AgentEvent<T = unknown> {
 }
 
 export interface AssistantDeltaPayload { text: string }
+export interface AssistantMessageCompletedPayload { finalText: string; messageId?: string; traceId?: string; turnNo?: number }
 export interface ToolCallReadyPayload { toolName: string; toolCallId: string; toolInput: Record<string, unknown> }
 export interface ToolStartedPayload { toolCallId: string }
 export interface ToolResultPayload { toolCallId: string; content: string; externalized: boolean }
 export interface TransitionPayload { reason: string }
-export interface CompletedPayload { finalText: string; traceId: string; turnNo: number }
-export interface ErrorEventPayload { errorCode: string; message: string; traceId: string }
+export interface CompletedPayload { finalText: string; traceId?: string; turnNo?: number }
+export interface ErrorEventPayload { errorCode?: string; message: string; traceId?: string }

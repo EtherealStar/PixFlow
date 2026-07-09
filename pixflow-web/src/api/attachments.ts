@@ -1,13 +1,14 @@
-import { request } from './client'
+import { uploadWholeFile } from './packages'
 
 /**
- * 上传会话附件（multipart）。
- * 见 api.md `Attachment API`。
+ * 会话附件上传兼容入口。
+ * 后端没有 `/api/conversations/{id}/attachments`，这里复用素材包上传端口，
+ * 上传完成后返回可直接用于 `POST /messages` 顶层字段的 packageId。
  */
 export interface UploadAttachmentResponse {
-  attachmentId: string
-  sourceRef: string
-  type: 'UPLOAD_IMAGE'
+  packageId: string
+  metadata: Record<string, unknown>
+  status: string
 }
 
 export function uploadAttachment(
@@ -15,14 +16,16 @@ export function uploadAttachment(
   file: File,
   metadata: { filename?: string; contentType?: string } = {}
 ): Promise<UploadAttachmentResponse> {
-  const form = new FormData()
-  form.append('file', file)
-  form.append('metadata', JSON.stringify({
-    filename: metadata.filename ?? file.name,
-    contentType: metadata.contentType ?? file.type
-  }))
-  return request<UploadAttachmentResponse>(
-    `/api/conversations/${encodeURIComponent(conversationId)}/attachments`,
-    { method: 'POST', multipart: true, body: form, noRetry: true }
-  )
+  void conversationId
+  return uploadWholeFile(file).then((resp) => {
+    const packageId = String(resp.packageId)
+    return {
+      packageId,
+      metadata: {
+        filename: metadata.filename ?? file.name,
+        contentType: metadata.contentType ?? file.type
+      },
+      status: resp.status
+    }
+  })
 }

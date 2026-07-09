@@ -1,4 +1,6 @@
 import type { ApiError } from '@/types/api'
+import { refreshAuthSessionOnce } from '@/transport/authRefresh'
+import { getAccessToken } from '@/transport/authToken'
 import { newTraceId } from '@/utils/id'
 
 /**
@@ -12,7 +14,7 @@ import { newTraceId } from '@/utils/id'
  *  - 暴露 inFlightSignal 全局并发保护（见 §六）
  */
 export interface RequestOptions {
-  method?: 'GET' | 'POST' | 'PUT' | 'DELETE'
+  method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
   body?: BodyInit | unknown
   headers?: Record<string, string>
   /** 调用方传入的 Idempotency-Key；不传则 client 不自动生成 */
@@ -29,6 +31,10 @@ export interface RequestOptions {
   skipInFlight?: boolean
   /** 自定义超时（ms，默认 30000） */
   timeoutMs?: number
+  /** 是否自动注入 access token；登录、注册、刷新入口必须关闭，避免残留坏 token 污染鉴权入口。 */
+  auth?: boolean
+  /** 是否允许 access token 过期后刷新并重试一次；默认跟随 auth。 */
+  authRefresh?: boolean
 }
 
 const DEFAULT_TIMEOUT = 30_000
@@ -114,31 +120,34 @@ export async function request<T = unknown>(path: string, opts: RequestOptions = 
   const method = opts.method ?? 'GET'
   const traceId = opts.traceId ?? newTraceId()
 
-  const headers: Record<string, string> = {
-    Accept: 'application/json',
-    [TRACE_HEADER]: traceId,
-    ...(opts.headers ?? {})
+  const buildHeaders = (): Record<string, string> => {
+    const headers: Record<string, string> = {
+      Accept: 'application/json',
+      [TRACE_HEADER]: traceId,
+      ...(opts.headers ?? {})
+    }
+    const token = opts.auth === false ? null : getAccessToken()
+    if (token && !headers.Authorization) {
+      headers.Authorization = `Bearer ${token}`
+    }
+    if (opts.idempotencyKey) headers[IDEMPOTENCY_HEADER] = opts.idempotencyKey
+    return headers
   }
-  if (opts.idempotencyKey) headers[IDEMPOTENCY_HEADER] = opts.idempotencyKey
 
   let body: BodyInit | undefined
   if (opts.body !== undefined && method !== 'GET') {
-    if (opts.multipart && opts.body instanceof FormData) {
-      body = opts.body
-    } else if (typeof opts.body === 'string') {
-      body = opts.body
-      if (!headers['Content-Type']) headers['Content-Type'] = 'text/plain'
-    } else {
-      body = JSON.stringify(opts.body)
-      if (!headers['Content-Type']) headers['Content-Type'] = 'application/json'
-    }
+    body = toRequestBody(opts.body)
   }
 
-  const doFetch = async (): Promise<T> => {
+  const doFetch = async (allowAuthRefresh = true): Promise<T> => {
     if (!opts.skipInFlight) await inFlight.acquire()
     try {
+      const headers = buildHeaders()
+      if (body !== undefined && !isRawBody(opts.body) && !headers['Content-Type']) {
+        headers['Content-Type'] = typeof opts.body === 'string' ? 'text/plain' : 'application/json'
+      }
       const res = await withTimeout(
-        fetch(path, { method, headers, body, signal: opts.signal }),
+        fetch(path, { method, headers, body, signal: opts.signal, credentials: 'same-origin' }),
         opts.timeoutMs ?? DEFAULT_TIMEOUT,
         opts.signal
       )
@@ -167,12 +176,23 @@ export async function request<T = unknown>(path: string, opts: RequestOptions = 
         }
         const err = normalizeError(res.status, bodyJson, responseTraceId)
         if (retryAfterMs !== undefined) err.retryAfterMs = retryAfterMs
+        if (await shouldRefreshAndRetry(err, opts, allowAuthRefresh)) {
+          return await doFetch(false)
+        }
         throw err
       }
       if (res.status === 204) return undefined as T
       const ct = res.headers.get('content-type') ?? ''
       if (ct.includes('application/json')) {
-        return (await res.json()) as T
+        const json = await res.json()
+        if (json && typeof json === 'object' && 'success' in json && 'data' in json) {
+          const envelope = json as { success?: boolean; data?: unknown; code?: string; message?: string; traceId?: string }
+          if (envelope.success === false) {
+            throw normalizeError(res.status, envelope, responseTraceId)
+          }
+          return normalizePayload(envelope.data) as T
+        }
+        return normalizePayload(json) as T
       }
       return (await res.text()) as unknown as T
     } catch (e: unknown) {
@@ -193,10 +213,43 @@ export async function request<T = unknown>(path: string, opts: RequestOptions = 
       if (err.status === 0 || (err.status >= 500 && err.status < 600)) {
         // 退避 500ms 后重试一次
         await new Promise((r) => setTimeout(r, 500))
-        return await doFetch()
+        return await doFetch(false)
       }
       throw err
     }
   }
   return await doFetch()
+}
+
+function toRequestBody(value: BodyInit | unknown): BodyInit {
+  if (isRawBody(value)) return value
+  return JSON.stringify(value)
+}
+
+function isRawBody(value: unknown): value is BodyInit {
+  return (
+    typeof value === 'string' ||
+    value instanceof FormData ||
+    value instanceof Blob ||
+    value instanceof ArrayBuffer ||
+    value instanceof URLSearchParams ||
+    ArrayBuffer.isView(value)
+  )
+}
+
+async function shouldRefreshAndRetry(err: ApiError, opts: RequestOptions, allowAuthRefresh: boolean): Promise<boolean> {
+  if (!allowAuthRefresh) return false
+  if (opts.auth === false || opts.authRefresh === false) return false
+  if (err.status !== 401 || err.errorCode !== 'AUTH_TOKEN_EXPIRED') return false
+  return await refreshAuthSessionOnce()
+}
+
+function normalizePayload(value: unknown): unknown {
+  if (value && typeof value === 'object') {
+    const obj = value as Record<string, unknown>
+    if (Array.isArray(obj.records) && obj.items === undefined) {
+      return { ...obj, items: obj.records }
+    }
+  }
+  return value
 }
