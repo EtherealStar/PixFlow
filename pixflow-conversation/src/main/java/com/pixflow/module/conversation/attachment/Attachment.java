@@ -15,7 +15,7 @@ public record Attachment(
         type = Objects.requireNonNull(type, "type");
         sourceRef = requireText(sourceRef, "sourceRef");
         packageId = packageId == null || packageId.isBlank() ? null : packageId.trim();
-        metadata = metadata == null ? Map.of() : Map.copyOf(metadata);
+        metadata = AttachmentMetadata.normalize(metadata);
     }
 
     private static String requireText(String value, String fieldName) {

@@ -24,10 +24,11 @@ public class ConversationService {
         this.clock = clock;
     }
 
-    public ConversationView create(CreateConversationRequest request) {
+    public ConversationView create(long ownerUserId, CreateConversationRequest request) {
         Instant now = clock.instant();
         ConversationEntity entity = new ConversationEntity();
         entity.setId(UUID.randomUUID().toString());
+        entity.setOwnerUserId(requireOwner(ownerUserId));
         entity.setTitle(normalizeTitle(request == null ? null : request.title()));
         entity.setPackageId(normalizeNullable(request == null ? null : request.packageId()));
         entity.setArchived(false);
@@ -37,8 +38,9 @@ public class ConversationService {
         return ConversationView.from(entity);
     }
 
-    public PageResponse<ConversationView> list(long page, long size, boolean includeArchived) {
+    public PageResponse<ConversationView> list(long ownerUserId, long page, long size, boolean includeArchived) {
         LambdaQueryWrapper<ConversationEntity> query = new LambdaQueryWrapper<ConversationEntity>()
+                .eq(ConversationEntity::getOwnerUserId, requireOwner(ownerUserId))
                 .orderByDesc(ConversationEntity::getUpdatedAt);
         if (!includeArchived) {
             query.eq(ConversationEntity::getArchived, false);
@@ -51,12 +53,12 @@ public class ConversationService {
                 result.getSize());
     }
 
-    public ConversationView detail(String conversationId) {
-        return ConversationView.from(require(conversationId));
+    public ConversationView detail(long ownerUserId, String conversationId) {
+        return ConversationView.from(require(ownerUserId, conversationId));
     }
 
-    public ConversationEntity requireActive(String conversationId) {
-        ConversationEntity entity = require(conversationId);
+    public ConversationEntity requireActive(long ownerUserId, String conversationId) {
+        ConversationEntity entity = require(ownerUserId, conversationId);
         if (Boolean.TRUE.equals(entity.getArchived())) {
             throw new BusinessException(ConversationErrorCode.CONVERSATION_ARCHIVED,
                     "conversation archived: " + conversationId,
@@ -65,8 +67,8 @@ public class ConversationService {
         return entity;
     }
 
-    public void archive(String conversationId) {
-        ConversationEntity entity = require(conversationId);
+    public void archive(long ownerUserId, String conversationId) {
+        ConversationEntity entity = require(ownerUserId, conversationId);
         if (Boolean.TRUE.equals(entity.getArchived())) {
             return;
         }
@@ -77,15 +79,27 @@ public class ConversationService {
         conversationMapper.updateById(update);
     }
 
-    private ConversationEntity require(String conversationId) {
+    private ConversationEntity require(long ownerUserId, String conversationId) {
         String id = normalizeRequired(conversationId, "conversationId");
-        ConversationEntity entity = conversationMapper.selectById(id);
+        // owner_user_id 过滤放在 service 层，避免 controller 漏传时出现横向读取。
+        ConversationEntity entity = conversationMapper.selectOne(new LambdaQueryWrapper<ConversationEntity>()
+                .eq(ConversationEntity::getId, id)
+                .eq(ConversationEntity::getOwnerUserId, requireOwner(ownerUserId))
+                .last("limit 1"));
         if (entity == null) {
             throw new BusinessException(ConversationErrorCode.CONVERSATION_NOT_FOUND,
                     "conversation not found: " + id,
                     Map.of("conversationId", id));
         }
         return entity;
+    }
+
+    private static long requireOwner(long ownerUserId) {
+        if (ownerUserId <= 0L) {
+            throw new BusinessException(ConversationErrorCode.CONVERSATION_NOT_FOUND,
+                    "conversation owner is required");
+        }
+        return ownerUserId;
     }
 
     private static String normalizeTitle(String title) {

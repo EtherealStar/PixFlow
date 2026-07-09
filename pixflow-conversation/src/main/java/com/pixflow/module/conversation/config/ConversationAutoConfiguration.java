@@ -1,32 +1,43 @@
 package com.pixflow.module.conversation.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.pixflow.common.error.PixFlowException;
 import com.pixflow.common.progress.ProgressNotifier;
 import com.pixflow.harness.permission.token.ConfirmationTokenService;
 import com.pixflow.harness.session.persistence.MessageReadMapper;
-import com.pixflow.module.conversation.app.AgentTurnRunner;
+import com.pixflow.infra.cache.store.CacheStore;
+import com.pixflow.harness.loop.AgentTurnRunner;
+import com.pixflow.module.conversation.app.AgentTurnRunnerRegistry;
 import com.pixflow.module.conversation.app.CancellationService;
 import com.pixflow.module.conversation.app.ConfirmationService;
 import com.pixflow.module.conversation.app.ConversationService;
 import com.pixflow.module.conversation.app.HistoryQueryService;
 import com.pixflow.module.conversation.app.TurnDispatchService;
+import com.pixflow.module.conversation.api.CancellationController;
+import com.pixflow.module.conversation.api.ConfirmationController;
+import com.pixflow.module.conversation.api.ConversationController;
+import com.pixflow.module.conversation.api.HistoryController;
+import com.pixflow.module.conversation.api.MessageController;
 import com.pixflow.module.conversation.attachment.AttachmentCollector;
 import com.pixflow.module.conversation.attachment.AttachmentMapper;
 import com.pixflow.module.conversation.error.ConversationErrorCode;
 import com.pixflow.module.conversation.lock.ConversationLock;
 import com.pixflow.module.conversation.persistence.ConversationMapper;
 import com.pixflow.module.conversation.progress.ConversationProgressBridge;
-import com.pixflow.module.conversation.proposal.PendingPlanPortAdapter;
 import com.pixflow.module.conversation.proposal.PendingProposalRepository;
 import com.pixflow.module.conversation.proposal.ProposalThreshold;
+import com.pixflow.module.dag.expand.BranchExpander;
+import com.pixflow.module.dag.config.DagAutoConfiguration;
 import com.pixflow.module.dag.propose.PendingPlanMapper;
+import com.pixflow.module.dag.propose.PendingPlanService;
 import com.pixflow.module.file.pkg.PackageReferenceResolver;
-import com.pixflow.module.imagegen.port.PendingPlanPort;
+import com.pixflow.module.imagegen.confirm.ImagegenConfirmationSupport;
+import com.pixflow.module.imagegen.config.ImagegenAutoConfiguration;
 import com.pixflow.module.task.api.TaskCommandService;
 import java.time.Clock;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import org.apache.ibatis.annotations.Mapper;
 import org.mybatis.spring.annotation.MapperScan;
 import org.redisson.api.RedissonClient;
 import org.springframework.beans.factory.ObjectProvider;
@@ -36,16 +47,10 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 
-@AutoConfiguration
+@AutoConfiguration(after = {DagAutoConfiguration.class, ImagegenAutoConfiguration.class})
 @EnableConfigurationProperties(ConversationProperties.class)
-@MapperScan("com.pixflow.module.conversation.persistence")
+@MapperScan(value = "com.pixflow.module.conversation.persistence", annotationClass = Mapper.class)
 public class ConversationAutoConfiguration {
-
-    @Bean
-    @ConditionalOnMissingBean(name = "conversationClock")
-    public Clock conversationClock() {
-        return Clock.systemUTC();
-    }
 
     @Bean(destroyMethod = "shutdown")
     @ConditionalOnMissingBean(name = "conversationExecutor")
@@ -57,10 +62,26 @@ public class ConversationAutoConfiguration {
         });
     }
 
+    @Bean(destroyMethod = "shutdown")
+    @ConditionalOnMissingBean(name = "conversationSseHeartbeatScheduler")
+    public ScheduledExecutorService conversationSseHeartbeatScheduler() {
+        return Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread thread = new Thread(r, "conversation-sse-heartbeat");
+            thread.setDaemon(true);
+            return thread;
+        });
+    }
+
     @Bean
     @ConditionalOnMissingBean
-    public ConversationService conversationService(ConversationMapper conversationMapper, Clock conversationClock) {
-        return new ConversationService(conversationMapper, conversationClock);
+    public ConversationService conversationService(ConversationMapper conversationMapper, Clock clock) {
+        return new ConversationService(conversationMapper, clock);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public ConversationController conversationController(ConversationService conversationService) {
+        return new ConversationController(conversationService);
     }
 
     @Bean
@@ -70,6 +91,12 @@ public class ConversationAutoConfiguration {
             MessageReadMapper messageReadMapper,
             ConversationProperties properties) {
         return new HistoryQueryService(conversationService, messageReadMapper, properties);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public HistoryController historyController(HistoryQueryService historyQueryService) {
+        return new HistoryController(historyQueryService);
     }
 
     @Bean
@@ -87,49 +114,65 @@ public class ConversationAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    @ConditionalOnBean(RedissonClient.class)
-    public ConversationLock conversationLock(RedissonClient redissonClient, ConversationProperties properties) {
-        return new ConversationLock(redissonClient, properties);
+    public ConversationLock conversationLock(
+            ObjectProvider<RedissonClient> redissonClientProvider,
+            ConversationProperties properties) {
+        return new ConversationLock(redissonClientProvider.getIfAvailable(), properties);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(name = "agentTurnRunnerRegistry")
+    public AgentTurnRunnerRegistry agentTurnRunnerRegistry(
+            org.springframework.beans.factory.ObjectProvider<AgentTurnRunner> agentTurnRunnerProvider) {
+        // AgentTurnRunner SPI 由 harness-loop 定义，conversation 与 agent 两模块都可见。
+        // agent 模块把 AgentOrchestrator 包装为 AgentTurnRunner bean 发布；本 bean 按 SPI 类型
+        // 查找，避免 conversation 反向依赖 agent 模块的某个具体类。
+        AgentTurnRunner runner = agentTurnRunnerProvider.getIfAvailable();
+        return AgentTurnRunnerRegistry.of(runner);
     }
 
     @Bean
     @ConditionalOnMissingBean
-    public AgentTurnRunner unavailableAgentTurnRunner() {
-        return (conversationId, prompt, attachments, sink) -> {
-            throw new PixFlowException(ConversationErrorCode.TURN_RUNNER_UNAVAILABLE,
-                    "agent turn runner is not configured");
-        };
-    }
-
-    @Bean
-    @ConditionalOnMissingBean
-    @ConditionalOnBean({ConversationLock.class, AttachmentCollector.class, AgentTurnRunner.class})
+    @ConditionalOnBean({ConversationLock.class, AgentTurnRunnerRegistry.class})
     public TurnDispatchService turnDispatchService(
             ConversationService conversationService,
             ConversationLock conversationLock,
-            AttachmentCollector attachmentCollector,
+            ObjectProvider<AttachmentCollector> attachmentCollectorProvider,
             AttachmentMapper attachmentMapper,
-            AgentTurnRunner agentTurnRunner) {
+            AgentTurnRunnerRegistry agentTurnRunnerRegistry) {
         return new TurnDispatchService(
                 conversationService,
                 conversationLock,
-                attachmentCollector,
+                attachmentCollectorProvider.getIfAvailable(),
                 attachmentMapper,
-                agentTurnRunner);
+                agentTurnRunnerRegistry);
     }
 
     @Bean
     @ConditionalOnMissingBean
-    @ConditionalOnBean(PendingPlanMapper.class)
-    public PendingProposalRepository pendingProposalRepository(PendingPlanMapper pendingPlanMapper) {
-        return new PendingProposalRepository(pendingPlanMapper);
+    @ConditionalOnBean(TurnDispatchService.class)
+    public MessageController messageController(
+            TurnDispatchService turnDispatchService,
+            ConversationProperties properties,
+            ObjectMapper objectMapper,
+            ExecutorService conversationExecutor,
+            ScheduledExecutorService conversationSseHeartbeatScheduler) {
+        return new MessageController(turnDispatchService, properties, objectMapper, conversationExecutor,
+                conversationSseHeartbeatScheduler);
     }
 
     @Bean
     @ConditionalOnMissingBean
-    @ConditionalOnBean(PendingPlanMapper.class)
-    public PendingPlanPort pendingPlanPort(PendingPlanMapper pendingPlanMapper) {
-        return new PendingPlanPortAdapter(pendingPlanMapper);
+    @ConditionalOnBean({PendingPlanMapper.class, PendingPlanService.class, PackageReferenceResolver.class,
+            BranchExpander.class})
+    public PendingProposalRepository pendingProposalRepository(
+            PendingPlanMapper pendingPlanMapper,
+            PendingPlanService pendingPlanService,
+            PackageReferenceResolver packageReferenceResolver,
+            BranchExpander branchExpander,
+            ObjectProvider<ImagegenConfirmationSupport> imagegenConfirmationSupportProvider) {
+        return new PendingProposalRepository(pendingPlanMapper, pendingPlanService, packageReferenceResolver,
+                branchExpander, imagegenConfirmationSupportProvider.getIfAvailable());
     }
 
     @Bean
@@ -140,7 +183,7 @@ public class ConversationAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    @ConditionalOnBean({PendingProposalRepository.class, ConfirmationTokenService.class, TaskCommandService.class})
+    @ConditionalOnBean({PendingProposalRepository.class, ConfirmationTokenService.class, TaskCommandService.class, CacheStore.class})
     public ConfirmationService conversationConfirmationService(
             ConversationService conversationService,
             PendingProposalRepository proposalRepository,
@@ -148,7 +191,8 @@ public class ConversationAutoConfiguration {
             ConfirmationTokenService tokenService,
             TaskCommandService taskCommandService,
             ConversationProperties properties,
-            Clock conversationClock) {
+            CacheStore cacheStore,
+            Clock clock) {
         return new ConfirmationService(
                 conversationService,
                 proposalRepository,
@@ -156,7 +200,15 @@ public class ConversationAutoConfiguration {
                 tokenService,
                 taskCommandService,
                 properties,
-                conversationClock);
+                cacheStore,
+                clock);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnBean(ConfirmationService.class)
+    public ConfirmationController confirmationController(ConfirmationService confirmationService) {
+        return new ConfirmationController(confirmationService);
     }
 
     @Bean
@@ -166,6 +218,13 @@ public class ConversationAutoConfiguration {
             ConversationService conversationService,
             TaskCommandService taskCommandService) {
         return new CancellationService(conversationService, taskCommandService);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnBean(CancellationService.class)
+    public CancellationController cancellationController(CancellationService cancellationService) {
+        return new CancellationController(cancellationService);
     }
 
     @Bean

@@ -1,6 +1,8 @@
 package com.pixflow.module.conversation.api;
 
 import com.pixflow.common.web.ApiResponse;
+import com.pixflow.infra.auth.context.AuthPrincipal;
+import com.pixflow.infra.auth.context.CurrentUser;
 import com.pixflow.module.conversation.app.ConfirmationChallengeResponse;
 import com.pixflow.module.conversation.app.ConfirmationService;
 import com.pixflow.module.conversation.app.ConfirmationSubmitRequest;
@@ -8,9 +10,11 @@ import com.pixflow.module.conversation.app.ConfirmationSubmitResponse;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
+@RequestMapping("/api")
 public class ConfirmationController {
     private final ConfirmationService confirmationService;
 
@@ -20,16 +24,18 @@ public class ConfirmationController {
 
     @PostMapping("/conversations/{conversationId}/confirm/{proposalId}/challenge")
     public ApiResponse<ConfirmationChallengeResponse> challenge(
+            @CurrentUser AuthPrincipal principal,
             @PathVariable String conversationId,
             @PathVariable String proposalId) {
-        return ApiResponse.ok(confirmationService.challenge(conversationId, proposalId));
+        return ApiResponse.ok(confirmationService.challenge(principal.userId(), conversationId, proposalId));
     }
 
     @PostMapping("/conversations/{conversationId}/confirm/{proposalId}/submit")
     public ApiResponse<ConfirmationSubmitResponse> submit(
+            @CurrentUser AuthPrincipal principal,
             @PathVariable String conversationId,
             @PathVariable String proposalId,
             @RequestBody(required = false) ConfirmationSubmitRequest request) {
-        return ApiResponse.ok(confirmationService.submit(conversationId, proposalId, request));
+        return ApiResponse.ok(confirmationService.submit(principal.userId(), conversationId, proposalId, request));
     }
 }

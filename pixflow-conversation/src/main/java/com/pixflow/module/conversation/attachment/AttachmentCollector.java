@@ -19,7 +19,7 @@ public class AttachmentCollector {
 
     public List<Attachment> collect(UserPrompt prompt, PackageBinding binding) {
         List<Attachment> result = new ArrayList<>();
-        if (prompt != null) {
+        if (prompt != null && prompt.attachments() != null) {
             for (UserAttachmentInput input : prompt.attachments()) {
                 result.add(fromInput(input));
             }
@@ -49,11 +49,11 @@ public class AttachmentCollector {
             return images.stream()
                     .map(image -> {
                         Map<String, Object> metadata = new LinkedHashMap<>();
-                        metadata.put("imageId", image.imageId());
-                        metadata.put("originalPath", image.originalPath());
-                        metadata.put("skuId", image.skuId());
-                        metadata.put("groupKey", image.groupKey());
-                        metadata.put("viewId", image.viewId());
+                        putIfPresent(metadata, "imageId", image.imageId());
+                        putIfPresent(metadata, "originalPath", image.originalPath());
+                        putIfPresent(metadata, "skuId", image.skuId());
+                        putIfPresent(metadata, "groupKey", image.groupKey());
+                        putIfPresent(metadata, "viewId", image.viewId());
                         return new Attachment(
                                 "pkg-" + packageId + "-" + image.imageId(),
                                 AttachmentType.PACKAGE_REFERENCE,
@@ -62,9 +62,19 @@ public class AttachmentCollector {
                                 metadata);
                     })
                     .toList();
+        } catch (BusinessException ex) {
+            throw ex;
         } catch (RuntimeException ex) {
             throw new BusinessException(ConversationErrorCode.PACKAGE_REFERENCE_INVALID,
-                    "package reference invalid: " + packageId);
+                    "package reference invalid: " + packageId,
+                    ex,
+                    Map.of("packageId", packageId));
+        }
+    }
+
+    private static void putIfPresent(Map<String, Object> metadata, String key, Object value) {
+        if (value != null) {
+            metadata.put(key, value);
         }
     }
 

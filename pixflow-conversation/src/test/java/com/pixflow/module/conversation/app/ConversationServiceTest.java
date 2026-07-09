@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.pixflow.common.error.BusinessException;
 import com.pixflow.module.conversation.persistence.ConversationEntity;
 import com.pixflow.module.conversation.persistence.ConversationMapper;
@@ -22,7 +23,7 @@ class ConversationServiceTest {
 
     @Test
     void createsConversationWithNormalizedFields() {
-        ConversationView view = service.create(new CreateConversationRequest("  新会话  ", " 42 "));
+        ConversationView view = service.create(7L, new CreateConversationRequest("  新会话  ", " 42 "));
 
         assertThat(view.id()).isNotBlank();
         assertThat(view.title()).isEqualTo("新会话");
@@ -33,7 +34,7 @@ class ConversationServiceTest {
 
     @Test
     void rejectsTooLongTitle() {
-        assertThatThrownBy(() -> service.create(new CreateConversationRequest("x".repeat(121), null)))
+        assertThatThrownBy(() -> service.create(7L, new CreateConversationRequest("x".repeat(121), null)))
                 .isInstanceOf(BusinessException.class);
     }
 
@@ -41,10 +42,19 @@ class ConversationServiceTest {
     void rejectsArchivedConversationForActiveUse() {
         ConversationEntity entity = new ConversationEntity();
         entity.setId("conv-1");
+        entity.setOwnerUserId(7L);
         entity.setArchived(true);
-        when(mapper.selectById("conv-1")).thenReturn(entity);
+        when(mapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(entity);
 
-        assertThatThrownBy(() -> service.requireActive("conv-1"))
+        assertThatThrownBy(() -> service.requireActive(7L, "conv-1"))
+                .isInstanceOf(BusinessException.class);
+    }
+
+    @Test
+    void treatsConversationOwnedByAnotherUserAsNotFound() {
+        when(mapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(null);
+
+        assertThatThrownBy(() -> service.requireActive(8L, "conv-1"))
                 .isInstanceOf(BusinessException.class);
     }
 }

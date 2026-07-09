@@ -2,6 +2,8 @@ package com.pixflow.module.conversation.config;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.stream.Collectors;
+import jakarta.annotation.PostConstruct;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 @ConfigurationProperties(prefix = "pixflow.conversation")
@@ -37,6 +39,47 @@ public class ConversationProperties {
         return progress;
     }
 
+    @PostConstruct
+    void validate() {
+        if (sse.timeout == null || sse.timeout.isZero() || sse.timeout.isNegative()) {
+            throw new IllegalStateException("pixflow.conversation.sse.timeout must be positive");
+        }
+        if (sse.heartbeatInterval == null || sse.heartbeatInterval.isNegative()) {
+            throw new IllegalStateException("pixflow.conversation.sse.heartbeat-interval must not be negative");
+        }
+        if (lock.waitTime == null || lock.waitTime.isNegative()) {
+            throw new IllegalStateException("pixflow.conversation.lock.wait-time must not be negative");
+        }
+        if (confirmation.batchThreshold < 1) {
+            throw new IllegalStateException("pixflow.conversation.confirmation.batch-threshold must be >= 1");
+        }
+        if (confirmation.challengeTtl == null || confirmation.challengeTtl.isZero()
+                || confirmation.challengeTtl.isNegative()) {
+            throw new IllegalStateException("pixflow.conversation.confirmation.challenge-ttl must be positive");
+        }
+        if (confirmation.tokenTtl == null || confirmation.tokenTtl.isZero()
+                || confirmation.tokenTtl.isNegative()) {
+            throw new IllegalStateException("pixflow.conversation.confirmation.token-ttl must be positive");
+        }
+        confirmation.permitLiteralAnswers = confirmation.permitLiteralAnswers == null
+                ? List.of()
+                : confirmation.permitLiteralAnswers.stream()
+                        .filter(answer -> answer != null && !answer.isBlank())
+                        .map(String::trim)
+                        .distinct()
+                        .collect(Collectors.toUnmodifiableList());
+        if (confirmation.permitLiteralAnswers.isEmpty()) {
+            throw new IllegalStateException("pixflow.conversation.confirmation.permit-literal-answers must not be empty");
+        }
+        if (history.maxPageSize < 1) {
+            throw new IllegalStateException("pixflow.conversation.history.max-page-size must be >= 1");
+        }
+        if (history.defaultPageSize < 1 || history.defaultPageSize > history.maxPageSize) {
+            throw new IllegalStateException(
+                    "pixflow.conversation.history.default-page-size must be in [1, max-page-size]");
+        }
+    }
+
     public static class Sse {
         private Duration timeout = Duration.ofMinutes(5);
         private Duration heartbeatInterval = Duration.ofSeconds(30);
@@ -59,13 +102,26 @@ public class ConversationProperties {
     }
 
     public static class Lock {
+        /**
+         * @deprecated 由 Redisson 全局 lockWatchdogTimeout 兜底,本字段不再生效。
+         *             保留仅为兼容老 application.yml;新部署应删除。
+         */
+        @Deprecated
         private Duration ttl = Duration.ofSeconds(60);
         private Duration waitTime = Duration.ofSeconds(2);
 
+        /**
+         * @deprecated 见 {@link #ttl} 字段说明。
+         */
+        @Deprecated
         public Duration getTtl() {
             return ttl;
         }
 
+        /**
+         * @deprecated 见 {@link #ttl} 字段说明。
+         */
+        @Deprecated
         public void setTtl(Duration ttl) {
             this.ttl = ttl;
         }

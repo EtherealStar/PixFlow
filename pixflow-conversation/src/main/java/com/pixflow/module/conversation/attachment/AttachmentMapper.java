@@ -29,7 +29,7 @@ public class AttachmentMapper {
         return attachments.stream()
                 .map(attachment -> new com.pixflow.harness.loop.Attachment(
                         attachment.attachmentId(),
-                        "image",
+                        attachment.type() == AttachmentType.PACKAGE_REFERENCE ? "package_image" : "upload_image",
                         attachment.sourceRef(),
                         attachment.metadata()))
                 .toList();

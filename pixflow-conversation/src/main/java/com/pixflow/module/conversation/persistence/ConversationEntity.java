@@ -9,6 +9,7 @@ import java.time.Instant;
 public class ConversationEntity {
     @TableId(type = IdType.INPUT)
     private String id;
+    private Long ownerUserId;
     private String title;
     private String packageId;
     private Boolean archived;
@@ -21,6 +22,14 @@ public class ConversationEntity {
 
     public void setId(String id) {
         this.id = id;
+    }
+
+    public Long getOwnerUserId() {
+        return ownerUserId;
+    }
+
+    public void setOwnerUserId(Long ownerUserId) {
+        this.ownerUserId = ownerUserId;
     }
 
     public String getTitle() {
