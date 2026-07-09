@@ -10,6 +10,7 @@ public class AssetPackage {
     @TableId(type = IdType.AUTO)
     private Long id;
     private String name;
+    private String fileHash;
     private String minioZipKey;
     private String docKey;
     private PackageStatus status;
@@ -34,6 +35,14 @@ public class AssetPackage {
 
     public void setName(String name) {
         this.name = name;
+    }
+
+    public String getFileHash() {
+        return fileHash;
+    }
+
+    public void setFileHash(String fileHash) {
+        this.fileHash = fileHash;
     }
 
     public String getMinioZipKey() {

@@ -40,6 +40,11 @@ class AssetPackageServiceTest {
     }
 
     @Test
+    void conservativeDefaultCheckerTreatsUnknownAsReferenced() {
+        assertThat(new ConservativePackageReferenceChecker().isReferenced(42L)).isTrue();
+    }
+
+    @Test
     void referencedPackageIsSoftDeletedAndObjectsAreKept() {
         AssetPackage assetPackage = packageRow(42L);
         when(packageMapper.selectById(42L)).thenReturn(assetPackage);

@@ -3,6 +3,10 @@ package com.pixflow.module.file.config;
 import com.baomidou.mybatisplus.autoconfigure.MybatisPlusAutoConfiguration;
 import com.pixflow.common.progress.ProgressNotifier;
 import com.pixflow.infra.mq.MessagePublisher;
+import com.pixflow.infra.cache.key.CacheNamespace;
+import com.pixflow.infra.cache.lock.LockTemplate;
+import com.pixflow.infra.cache.store.CacheStore;
+import com.pixflow.infra.cache.config.CacheAutoConfiguration;
 import com.pixflow.infra.mq.consumer.ManagedListenerContainerFactory;
 import com.pixflow.infra.mq.consumer.ManagedMessageContainer;
 import com.pixflow.infra.mq.destination.DestinationRegistrar;
@@ -29,10 +33,12 @@ import com.pixflow.module.file.naming.FileNameParser;
 import com.pixflow.module.file.naming.SkuExtractor;
 import com.pixflow.module.file.pkg.AssetPackageMapper;
 import com.pixflow.module.file.pkg.AssetPackageService;
-import com.pixflow.module.file.pkg.DefaultPackageReferenceChecker;
+import com.pixflow.module.file.pkg.ConservativePackageReferenceChecker;
 import com.pixflow.module.file.pkg.DefaultPackageReferenceResolver;
 import com.pixflow.module.file.pkg.PackageReferenceChecker;
 import com.pixflow.module.file.pkg.PackageReferenceResolver;
+import com.pixflow.module.file.upload.UploadSessionService;
+import com.pixflow.module.file.upload.UploadSessionStore;
 import com.pixflow.module.file.web.FileController;
 import com.pixflow.module.imagegen.port.SourceImageReader;
 import java.time.Clock;
@@ -47,6 +53,7 @@ import org.mybatis.spring.annotation.MapperScan;
 
 @AutoConfiguration(after = {
         StorageAutoConfiguration.class,
+        CacheAutoConfiguration.class,
         MqAutoConfiguration.class,
         MybatisPlusAutoConfiguration.class
 })
@@ -97,7 +104,7 @@ public class FileAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     public PackageReferenceChecker packageReferenceChecker() {
-        return new DefaultPackageReferenceChecker();
+        return new ConservativePackageReferenceChecker();
     }
 
     @Bean
@@ -159,8 +166,36 @@ public class FileAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public FileController fileController(FileService fileService) {
-        return new FileController(fileService);
+    @ConditionalOnBean(CacheStore.class)
+    public UploadSessionStore uploadSessionStore(
+            CacheStore cacheStore,
+            CacheNamespace cacheNamespace,
+            FileProperties properties) {
+        return new UploadSessionStore(cacheStore, cacheNamespace, properties.getUpload().getSessionTtl());
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnBean({UploadSessionStore.class, LockTemplate.class, ObjectStorage.class, ExtractionPublisher.class})
+    public UploadSessionService uploadSessionService(
+            UploadSessionStore uploadSessionStore,
+            LockTemplate lockTemplate,
+            CacheNamespace cacheNamespace,
+            ObjectStorage objectStorage,
+            AssetPackageMapper packageMapper,
+            AssetPackageService packageService,
+            ExtractionPublisher extractionPublisher,
+            FileProperties properties,
+            Clock clock) {
+        return new UploadSessionService(uploadSessionStore, lockTemplate, cacheNamespace, objectStorage,
+                packageMapper, packageService, extractionPublisher, properties, clock);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnBean(UploadSessionService.class)
+    public FileController fileController(FileService fileService, UploadSessionService uploadSessionService) {
+        return new FileController(fileService, uploadSessionService);
     }
 
     @Bean

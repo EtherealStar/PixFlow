@@ -27,9 +27,14 @@ public class AssetPackageService {
     }
 
     public AssetPackage createUploadingPackage(String name) {
+        return createUploadingPackage(name, null);
+    }
+
+    public AssetPackage createUploadingPackage(String name, String fileHash) {
         Instant now = clock.instant();
         AssetPackage assetPackage = new AssetPackage();
         assetPackage.setName(name);
+        assetPackage.setFileHash(fileHash);
         assetPackage.setStatus(PackageStatus.UPLOADED);
         assetPackage.setImageCount(0);
         assetPackage.setExtractedCount(0);

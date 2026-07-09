@@ -1,6 +1,7 @@
 CREATE TABLE IF NOT EXISTS asset_package (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     name VARCHAR(255) NOT NULL,
+    file_hash VARCHAR(64),
     minio_zip_key VARCHAR(512),
     doc_key VARCHAR(512),
     status VARCHAR(32) NOT NULL,
@@ -11,6 +12,7 @@ CREATE TABLE IF NOT EXISTS asset_package (
     created_at TIMESTAMP NOT NULL,
     updated_at TIMESTAMP NOT NULL
 );
+CREATE UNIQUE INDEX uk_asset_package_file_hash ON asset_package (file_hash);
 
 CREATE TABLE IF NOT EXISTS asset_image (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,

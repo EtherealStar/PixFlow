@@ -7,14 +7,26 @@ import com.pixflow.module.file.UploadPackageResponse;
 import com.pixflow.module.file.error.AssetIngestError;
 import com.pixflow.module.file.image.AssetImageView;
 import com.pixflow.module.file.pkg.AssetPackage;
+import com.pixflow.module.file.upload.CancelUploadResponse;
+import com.pixflow.module.file.upload.CompleteUploadRequest;
+import com.pixflow.module.file.upload.CompleteUploadResponse;
+import com.pixflow.module.file.upload.InitUploadRequest;
+import com.pixflow.module.file.upload.InitUploadResponse;
+import com.pixflow.module.file.upload.PutChunkResponse;
+import com.pixflow.module.file.upload.UploadSessionService;
+import com.pixflow.module.file.upload.UploadSessionState;
+import jakarta.servlet.http.HttpServletRequest;
 import java.io.IOException;
+import java.io.InputStream;
 import org.springframework.http.MediaType;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestPart;
@@ -25,9 +37,45 @@ import org.springframework.web.multipart.MultipartFile;
 @RestController
 public class FileController {
     private final FileService fileService;
+    private final UploadSessionService uploadSessionService;
 
-    public FileController(FileService fileService) {
+    public FileController(FileService fileService, UploadSessionService uploadSessionService) {
         this.fileService = fileService;
+        this.uploadSessionService = uploadSessionService;
+    }
+
+    @PostMapping("/api/files/packages/init")
+    public ApiResponse<InitUploadResponse> initUpload(@RequestBody InitUploadRequest request) {
+        return ApiResponse.ok(uploadSessionService.init(request));
+    }
+
+    @GetMapping("/api/files/packages/sessions/{uploadId}")
+    public ApiResponse<UploadSessionState> getSession(@PathVariable String uploadId) {
+        return ApiResponse.ok(uploadSessionService.getSession(uploadId));
+    }
+
+    @PutMapping(path = "/api/files/packages/sessions/{uploadId}/chunks/{index}", consumes = MediaType.APPLICATION_OCTET_STREAM_VALUE)
+    public ApiResponse<PutChunkResponse> putChunk(
+            @PathVariable String uploadId,
+            @PathVariable int index,
+            @RequestHeader("X-Chunk-Hash") String chunkHash,
+            @RequestHeader("X-Chunk-Size") long chunkSize,
+            HttpServletRequest request) throws IOException {
+        try (InputStream inputStream = request.getInputStream()) {
+            return ApiResponse.ok(uploadSessionService.putChunk(uploadId, index, chunkSize, chunkHash, inputStream));
+        }
+    }
+
+    @PostMapping("/api/files/packages/sessions/{uploadId}/complete")
+    public ApiResponse<CompleteUploadResponse> completeUpload(
+            @PathVariable String uploadId,
+            @RequestBody(required = false) CompleteUploadRequest request) {
+        return ApiResponse.ok(uploadSessionService.complete(uploadId, request));
+    }
+
+    @DeleteMapping("/api/files/packages/sessions/{uploadId}")
+    public ApiResponse<CancelUploadResponse> cancelUpload(@PathVariable String uploadId) {
+        return ApiResponse.ok(uploadSessionService.cancel(uploadId));
     }
 
     @PostMapping(path = "/api/files/packages", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)

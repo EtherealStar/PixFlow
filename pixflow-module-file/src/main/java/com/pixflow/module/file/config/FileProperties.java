@@ -42,6 +42,8 @@ public class FileProperties {
     public static class Upload {
         private DataSize maxZipSize = DataSize.ofGigabytes(2);
         private DataSize maxDocSize = DataSize.ofMegabytes(50);
+        private DataSize chunkSize = DataSize.ofMegabytes(5);
+        private Duration sessionTtl = Duration.ofHours(24);
 
         public DataSize getMaxZipSize() {
             return maxZipSize;
@@ -57,6 +59,22 @@ public class FileProperties {
 
         public void setMaxDocSize(DataSize maxDocSize) {
             this.maxDocSize = maxDocSize;
+        }
+
+        public DataSize getChunkSize() {
+            return chunkSize;
+        }
+
+        public void setChunkSize(DataSize chunkSize) {
+            this.chunkSize = chunkSize;
+        }
+
+        public Duration getSessionTtl() {
+            return sessionTtl;
+        }
+
+        public void setSessionTtl(Duration sessionTtl) {
+            this.sessionTtl = sessionTtl;
         }
     }
 

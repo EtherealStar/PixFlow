@@ -7,12 +7,19 @@ import static org.mockito.Mockito.when;
 import com.pixflow.infra.mq.MessagePublisher;
 import com.pixflow.infra.mq.PublishResult;
 import com.pixflow.common.time.TimeAutoConfiguration;
+import com.pixflow.infra.cache.key.CacheKey;
+import com.pixflow.infra.cache.key.CacheNamespace;
+import com.pixflow.infra.cache.key.DefaultCacheNamespace;
+import com.pixflow.infra.cache.lock.LockTemplate;
+import com.pixflow.infra.cache.store.CacheStore;
 import com.pixflow.infra.storage.BucketType;
 import com.pixflow.infra.storage.ObjectLocation;
 import com.pixflow.infra.storage.ObjectRef;
 import com.pixflow.infra.storage.ObjectStorage;
 import com.pixflow.infra.storage.StoredObjectMetadata;
 import com.pixflow.module.file.FileService;
+import com.pixflow.module.file.pkg.ConservativePackageReferenceChecker;
+import com.pixflow.module.file.pkg.PackageReferenceChecker;
 import com.pixflow.module.file.web.FileController;
 import com.pixflow.module.imagegen.port.SourceImageReader;
 import java.io.ByteArrayInputStream;
@@ -20,6 +27,9 @@ import java.io.InputStream;
 import java.net.URL;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Supplier;
 import javax.sql.DataSource;
 import org.apache.ibatis.mapping.Environment;
 import org.apache.ibatis.session.SqlSessionFactory;
@@ -41,6 +51,8 @@ class FileAutoConfigurationTest {
             assertThat(context).hasSingleBean(FileService.class);
             assertThat(context).hasSingleBean(FileController.class);
             assertThat(context).hasSingleBean(SourceImageReader.class);
+            assertThat(context.getBean(PackageReferenceChecker.class))
+                    .isInstanceOf(ConservativePackageReferenceChecker.class);
         });
     }
 
@@ -105,6 +117,68 @@ class FileAutoConfigurationTest {
         @Bean
         MessagePublisher messagePublisher() {
             return request -> PublishResult.confirmed(request.topic(), request.tag(), "message-id", "queue");
+        }
+
+        @Bean
+        CacheNamespace cacheNamespace() {
+            return new DefaultCacheNamespace("test", Duration.ofHours(1));
+        }
+
+        @Bean
+        CacheStore cacheStore() {
+            return new CacheStore() {
+                private final ConcurrentHashMap<String, Object> values = new ConcurrentHashMap<>();
+
+                @Override
+                public <T> Optional<T> get(CacheKey key, Class<T> type) {
+                    Object value = values.get(key.value());
+                    if (value == null) {
+                        return Optional.empty();
+                    }
+                    return Optional.of(type.cast(value));
+                }
+
+                @Override
+                public <T> void put(CacheKey key, T value, Duration ttl) {
+                    values.put(key.value(), value);
+                }
+
+                @Override
+                public <T> boolean putIfAbsent(CacheKey key, T value, Duration ttl) {
+                    return values.putIfAbsent(key.value(), value) == null;
+                }
+
+                @Override
+                public boolean exists(CacheKey key) {
+                    return values.containsKey(key.value());
+                }
+
+                @Override
+                public void delete(CacheKey key) {
+                    values.remove(key.value());
+                }
+            };
+        }
+
+        @Bean
+        LockTemplate lockTemplate() {
+            return new LockTemplate() {
+                @Override
+                public <T> T runWithLock(CacheKey key, Duration waitTime, Supplier<T> action) {
+                    return action.get();
+                }
+
+                @Override
+                public void runWithLock(CacheKey key, Duration waitTime, Runnable action) {
+                    action.run();
+                }
+
+                @Override
+                public boolean tryRunWithLock(CacheKey key, Duration waitTime, Runnable action) {
+                    action.run();
+                    return true;
+                }
+            };
         }
     }
 }
