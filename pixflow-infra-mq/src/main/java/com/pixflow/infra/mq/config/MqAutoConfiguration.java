@@ -15,12 +15,13 @@ import com.pixflow.infra.mq.trace.MdcTraceHeaderPropagator;
 import com.pixflow.infra.mq.trace.TraceHeaderPropagator;
 import org.apache.rocketmq.client.exception.MQClientException;
 import org.apache.rocketmq.client.producer.DefaultMQProducer;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
 
-@Configuration
+@AutoConfiguration
 @EnableConfigurationProperties(MqProperties.class)
 public class MqAutoConfiguration {
 
@@ -46,7 +47,10 @@ public class MqAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public MqMetrics mqMetrics(io.micrometer.core.instrument.MeterRegistry meterRegistry) { return new MicrometerMqMetrics(meterRegistry); }
+    public MqMetrics mqMetrics(ObjectProvider<io.micrometer.core.instrument.MeterRegistry> meterRegistryProvider) {
+        io.micrometer.core.instrument.MeterRegistry meterRegistry = meterRegistryProvider.getIfAvailable();
+        return meterRegistry == null ? new NoopMqMetrics() : new MicrometerMqMetrics(meterRegistry);
+    }
 
     @Bean
     @ConditionalOnMissingBean
@@ -67,5 +71,35 @@ public class MqAutoConfiguration {
     public ManagedListenerContainerFactory managedListenerContainerFactory(MqProperties properties, RocketMessageCodec codec,
             ErrorNormalizer errorNormalizer, TraceHeaderPropagator traceHeaderPropagator, MqMetrics metrics) {
         return new RocketManagedListenerContainerFactory(properties, codec, errorNormalizer, traceHeaderPropagator, metrics);
+    }
+
+    private static final class NoopMqMetrics implements MqMetrics {
+        @Override
+        public void recordPublishConfirmed(String topic, String tag) {
+        }
+
+        @Override
+        public void recordPublishFailed(String topic, String tag, com.pixflow.infra.mq.PublishFailureType failureType) {
+        }
+
+        @Override
+        public void recordConsumeAck(String topic, String consumerGroup) {
+        }
+
+        @Override
+        public void recordConsumeRetry(String topic, String consumerGroup, int retryCount) {
+        }
+
+        @Override
+        public void recordConsumeDeadLetter(String topic, String consumerGroup) {
+        }
+
+        @Override
+        public void recordConsumeAckDrop(String topic, String consumerGroup) {
+        }
+
+        @Override
+        public void recordDlqDepth(String topic, String consumerGroup, long depth) {
+        }
     }
 }
