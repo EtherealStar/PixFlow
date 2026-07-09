@@ -6,7 +6,7 @@ import { useAgentTurnsStore } from '@/stores/agentTurns'
 import { useConversationsStore } from '@/stores/conversations'
 import { useToastStore } from '@/stores/toast'
 import type { ApiError } from '@/types/api'
-import type { ConfirmationChallenge, Proposal } from '@/types/agent'
+import type { ConfirmationChallenge, Proposal, TimelineItem } from '@/types/agent'
 
 export interface ChatRouteLike {
   params: RouteLocationNormalizedLoaded['params']
@@ -37,8 +37,9 @@ export function useChatSession(opts: ChatSessionOptions) {
   let lastAutoSendKey = ''
 
   const cid = computed(() => (opts.route.params.cid as string) || 'new')
-  const streamDeltas = computed(() => turnRef.value?.deltas.value ?? '')
+  const streamTimeline = computed<TimelineItem[]>(() => turnRef.value?.timeline.value ?? [])
   const currentPhase = computed(() => turnRef.value?.phase.value ?? 'idle')
+  const queuedCount = computed(() => turnRef.value?.queuedCount.value ?? 0)
   const turnError = computed(() => turnRef.value?.state.value.error ?? null)
   const visibleProposals = computed(() => {
     const list = turnRef.value?.proposals.value ?? []
@@ -96,12 +97,12 @@ export function useChatSession(opts: ChatSessionOptions) {
     sending.value = true
     const packageId = pendingAttachments.value[0]?.packageId
     const attachmentText = pendingAttachments.value.length > 0 ? `（已附加 ${pendingAttachments.value.length} 个素材包）` : ''
+    pendingAttachments.value = []
     userMessages.value.push({ id: `u-${Date.now()}`, text: sentText || attachmentText })
     try {
       await turnRef.value.send(sentText, {
         packageId
       })
-      pendingAttachments.value = []
       attachTaskIfPresent(turnRef, taskRefs, activeConversationId.value)
     } catch (e) {
       const err = e as ApiError
@@ -177,8 +178,9 @@ export function useChatSession(opts: ChatSessionOptions) {
     composerText,
     sending,
     uploadingAttachment,
-    streamDeltas,
+    streamTimeline,
     currentPhase,
+    queuedCount,
     turnError,
     visibleProposals,
     activeProposal,

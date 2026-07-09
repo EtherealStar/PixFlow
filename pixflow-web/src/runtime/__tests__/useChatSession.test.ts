@@ -43,7 +43,7 @@ describe('useChatSession', () => {
     expect(session.activeConversationId.value).toBe('c1')
     expect(session.turnError.value).toBeNull()
     expect(session.currentPhase.value).toBe('idle')
-    expect(session.streamDeltas.value).toBe('')
+    expect(session.streamTimeline.value).toEqual([])
     expect(session.visibleProposals.value).toEqual([])
   })
 })

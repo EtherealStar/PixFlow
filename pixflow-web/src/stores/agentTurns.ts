@@ -3,8 +3,8 @@ import { ref } from 'vue'
 import type { AgentTurnSummary } from '@/types/agent'
 
 /**
- * 仅存"回合摘要状态"（phase / proposal / taskId），**不**存 deltas。
- * deltas 维护在 useAgentTurn composable 内的 ref<string>。
+ * 仅存"回合摘要状态"（phase / proposal / taskId），**不**存 timeline。
+ * timeline 维护在 useAgentTurn composable 内。
  */
 export const useAgentTurnsStore = defineStore('agentTurns', () => {
   const turns = ref<Map<string, AgentTurnSummary>>(new Map())
