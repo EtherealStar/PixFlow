@@ -3,10 +3,10 @@ services:
     image: mysql:8.4
     container_name: pixflow-mysql
     environment:
-      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_ROOT_PASSWORD: pixflow_root_20260705
       MYSQL_DATABASE: pixflow
       MYSQL_USER: pixflow
-      MYSQL_PASSWORD: pixflow
+      MYSQL_PASSWORD: pixflow_dev_20260705
     ports:
       - "3306:3306"
     volumes:
@@ -15,7 +15,7 @@ services:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_0900_ai_ci
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-prootpass"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-ppixflow_root_20260705"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -34,9 +34,24 @@ services:
       timeout: 5s
       retries: 10
 
+  rocketmq-volume-init:
+    image: apache/rocketmq:5.3.0
+    container_name: pixflow-rocketmq-volume-init
+    user: root
+    command: >
+      sh -c "mkdir -p /home/rocketmq/logs /home/rocketmq/store /home/rocketmq/namesrv-logs
+      && chown -R 3000:3000 /home/rocketmq/logs /home/rocketmq/store /home/rocketmq/namesrv-logs"
+    volumes:
+      - rocketmq_namesrv_logs:/home/rocketmq/namesrv-logs
+      - rocketmq_broker_data:/home/rocketmq/store
+      - rocketmq_broker_logs:/home/rocketmq/logs
+
   rocketmq-namesrv:
     image: apache/rocketmq:5.3.0
     container_name: pixflow-rocketmq-namesrv
+    depends_on:
+      rocketmq-volume-init:
+        condition: service_completed_successfully
     command: sh mqnamesrv
     ports:
       - "9876:9876"
@@ -47,7 +62,10 @@ services:
     image: apache/rocketmq:5.3.0
     container_name: pixflow-rocketmq-broker
     depends_on:
-      - rocketmq-namesrv
+      rocketmq-volume-init:
+        condition: service_completed_successfully
+      rocketmq-namesrv:
+        condition: service_started
     command: sh mqbroker -n rocketmq-namesrv:9876 -c /home/rocketmq/broker.conf
     ports:
       - "10909:10909"
