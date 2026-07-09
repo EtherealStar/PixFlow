@@ -12,7 +12,9 @@ import com.pixflow.harness.loop.permission.DefaultPermissionContextFactory;
 import com.pixflow.infra.ai.chat.ChatStreamEvent;
 import com.pixflow.infra.ai.chat.StopReason;
 import com.pixflow.infra.ai.chat.ToolCall;
+import com.pixflow.infra.ai.error.AiErrorCode;
 import java.util.List;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import reactor.core.publisher.Flux;
@@ -46,7 +48,7 @@ class AgentLoopErrorRecoveryTest {
         };
         AgentLoop loop = newHarness(new RuntimeState(), client, new FakeToolExecutor(),
                 new FakeHookRegistry(), new InMemoryTraceRecorder(), new RecordingErrorRecorder(),
-                FakeModelRetryRunner.noRetryRunner());
+                new com.pixflow.harness.context.store.MessageStore());
 
         String result = loop.stream("q", List.of(), sink, "sys", List.of());
 
@@ -67,7 +69,7 @@ class AgentLoopErrorRecoveryTest {
         InMemoryTraceRecorder rec = new InMemoryTraceRecorder();
         RecordingErrorRecorder errs = new RecordingErrorRecorder();
         AgentLoop loop = newHarness(new RuntimeState(), client, new FakeToolExecutor(),
-                new FakeHookRegistry(), rec, errs, FakeModelRetryRunner.noRetryRunner());
+                new FakeHookRegistry(), rec, errs, new com.pixflow.harness.context.store.MessageStore());
 
         assertThatThrownBy(() -> loop.stream("q", List.of(), sink, "sys", List.of()))
                 .isInstanceOf(PixFlowException.class);
@@ -94,7 +96,7 @@ class AgentLoopErrorRecoveryTest {
 
         AgentLoop loop = newHarness(new RuntimeState(), client, new FakeToolExecutor(),
                 hooks, new InMemoryTraceRecorder(), new RecordingErrorRecorder(),
-                FakeModelRetryRunner.noRetryRunner(), store);
+                store);
 
         String result = loop.continueStream(sink, "sys", List.of());
 
@@ -107,6 +109,32 @@ class AgentLoopErrorRecoveryTest {
         assertThat(sink.eventsOfType(AgentEventType.COMPLETED)).hasSize(1);
     }
 
+    @Test
+    void retryableModelErrorIsNotResubscribedByLoop() {
+        RecordingAgentEventSink sink = new RecordingAgentEventSink();
+        AtomicInteger streamCalls = new AtomicInteger();
+        AtomicInteger subscriptions = new AtomicInteger();
+        FakeChatModelClient client = new FakeChatModelClient() {
+            @Override
+            public Flux<ChatStreamEvent> stream(com.pixflow.infra.ai.chat.ChatRequest request) {
+                streamCalls.incrementAndGet();
+                return Flux.defer(() -> {
+                    subscriptions.incrementAndGet();
+                    return Flux.error(new PixFlowException(AiErrorCode.MODEL_PROVIDER_ERROR, "temporary provider failure"));
+                });
+            }
+        };
+
+        AgentLoop loop = newHarness(new RuntimeState(), client, new FakeToolExecutor(),
+                new FakeHookRegistry(), new InMemoryTraceRecorder(), new RecordingErrorRecorder(),
+                new com.pixflow.harness.context.store.MessageStore());
+
+        assertThatThrownBy(() -> loop.stream("q", List.of(), sink, "sys", List.of()))
+                .isInstanceOf(PixFlowException.class);
+        assertThat(streamCalls).hasValue(1);
+        assertThat(subscriptions).hasValue(1);
+    }
+
     // helper —— 测试用工厂：直接构造 AgentLoop 与它依赖的所有 fake
     private static AgentLoop newHarness(RuntimeState state,
                                          FakeChatModelClient client,
@@ -114,17 +142,6 @@ class AgentLoopErrorRecoveryTest {
                                          FakeHookRegistry hooks,
                                          InMemoryTraceRecorder rec,
                                          RecordingErrorRecorder errs,
-                                         com.pixflow.infra.ai.resilience.ModelRetryRunner retryRunner) {
-        return newHarness(state, client, toolExec, hooks, rec, errs, retryRunner, new com.pixflow.harness.context.store.MessageStore());
-    }
-
-    private static AgentLoop newHarness(RuntimeState state,
-                                         FakeChatModelClient client,
-                                         FakeToolExecutor toolExec,
-                                         FakeHookRegistry hooks,
-                                         InMemoryTraceRecorder rec,
-                                         RecordingErrorRecorder errs,
-                                         com.pixflow.infra.ai.resilience.ModelRetryRunner retryRunner,
                                          com.pixflow.harness.context.store.MessageStore store) {
         state.setConversationId("conv-test");
         com.pixflow.harness.context.budget.ContextBudgetService budgetService = new com.pixflow.harness.context.budget.ContextBudgetService(
@@ -141,12 +158,12 @@ class AgentLoopErrorRecoveryTest {
                 contextEngine,
                 compactionService,
                 client,
-                retryRunner,
                 toolExec,
                 null, null, null,
                 hooks, rec,
                 new DefaultPermissionContextFactory(),
                 errs,
-                new LoopProperties());
+                new LoopProperties(),
+                Executors.newSingleThreadExecutor());
     }
 }

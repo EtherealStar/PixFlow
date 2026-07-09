@@ -13,12 +13,27 @@ public record ToolInvocation(
         Integer turnNo,
         String traceId,
         RuntimeScope runtimeScope,
+        ToolRuntimeContext runtimeContext,
         Map<String, Object> metadata) {
 
     public ToolInvocation {
         arguments = immutableCopy(arguments);
         metadata = immutableCopy(metadata);
         runtimeScope = runtimeScope == null ? RuntimeScope.main() : runtimeScope;
+        runtimeContext = runtimeContext == null ? ToolRuntimeContext.unavailable() : runtimeContext;
+    }
+
+    public ToolInvocation(
+            String toolCallId,
+            String toolName,
+            Map<String, Object> arguments,
+            String conversationId,
+            Integer turnNo,
+            String traceId,
+            RuntimeScope runtimeScope,
+            Map<String, Object> metadata) {
+        this(toolCallId, toolName, arguments, conversationId, turnNo, traceId, runtimeScope,
+                ToolRuntimeContext.unavailable(), metadata);
     }
 
     private static Map<String, Object> immutableCopy(Map<String, ?> source) {

@@ -3,7 +3,6 @@ package com.pixflow.harness.loop.permission;
 import com.pixflow.harness.loop.RuntimeState;
 import com.pixflow.harness.permission.PermissionContext;
 import com.pixflow.harness.permission.subagent.SubagentConstraint;
-import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
@@ -37,7 +36,6 @@ public final class DefaultPermissionContextFactory implements PermissionContextF
         return new PermissionContext(conversationId, null, subagent, denied, disabled);
     }
 
-    @SuppressWarnings("unchecked")
     private static Set<String> toStringSet(Object value) {
         if (value == null) {
             return Set.of();
@@ -51,32 +49,33 @@ public final class DefaultPermissionContextFactory implements PermissionContextF
                     .map(String::valueOf).collect(Collectors.toCollection(LinkedHashSet::new));
         }
         if (value instanceof String text && !text.isBlank()) {
-            return new LinkedHashSet<>(java.util.Arrays.asList(text.split(",")));
+            return java.util.Arrays.stream(text.split(","))
+                    .map(String::trim)
+                    .filter(s -> !s.isEmpty())
+                    .collect(Collectors.toCollection(LinkedHashSet::new));
         }
-        return Set.of();
+        throw new IllegalStateException("permission metadata set must be a collection or comma-separated string");
     }
 
-    @SuppressWarnings("unchecked")
     private static SubagentConstraint toSubagent(Object value) {
         if (value == null) {
             return null;
         }
         if (!(value instanceof Map<?, ?> map)) {
-            return null;
+            throw new IllegalStateException("subagent metadata must be an object");
         }
         Object agentTypeObj = map.get("agentType");
         if (agentTypeObj == null || String.valueOf(agentTypeObj).isBlank()) {
-            return null;
+            throw new IllegalStateException("subagent metadata agentType must not be blank");
         }
         String agentType = String.valueOf(agentTypeObj);
-        boolean readOnly = Boolean.TRUE.equals(map.get("readOnly"));
+        Object readOnlyObj = map.get("readOnly");
+        if (readOnlyObj != null && !(readOnlyObj instanceof Boolean)) {
+            throw new IllegalStateException("subagent metadata readOnly must be boolean");
+        }
+        boolean readOnly = Boolean.TRUE.equals(readOnlyObj);
         Set<String> allowed = toStringSet(map.get("allowedTools"));
         Set<String> disallowed = toStringSet(map.get("disallowedTools"));
         return new SubagentConstraint(agentType, readOnly, allowed, disallowed);
-    }
-
-    /** 仅暴露给测试 —— 把 set 转成不可变视图。 */
-    static Set<String> freeze(Set<String> source) {
-        return Collections.unmodifiableSet(new LinkedHashSet<>(source));
     }
 }

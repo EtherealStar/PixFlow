@@ -4,7 +4,6 @@ import com.pixflow.harness.hooks.payload.RuntimeScope;
 import com.pixflow.infra.ai.model.TokenUsage;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
@@ -154,11 +153,25 @@ public final class RuntimeState {
         if (value == null) {
             return defaultValue;
         }
+        if (defaultValue instanceof java.util.Collection<?> && value instanceof java.util.Collection<?>) {
+            return (T) value;
+        }
+        if (defaultValue instanceof Map<?, ?> && value instanceof Map<?, ?>) {
+            return (T) value;
+        }
+        if (defaultValue != null && !defaultValue.getClass().isInstance(value)) {
+            return defaultValue;
+        }
         return (T) value;
     }
 
     public void putMetadata(String key, Object value) {
-        metadata.put(key, value);
+        String normalizedKey = MetadataValues.validateKey(key);
+        if (value == null) {
+            metadata.remove(normalizedKey);
+            return;
+        }
+        metadata.put(normalizedKey, MetadataValues.normalizeValue(value));
     }
 
     public void putAllMetadata(Map<String, Object> additions) {
@@ -172,11 +185,4 @@ public final class RuntimeState {
         return new TokenUsage(p, c, t);
     }
 
-    /** 工厂：把外部传入的 metadata 合并到内部 mutable 视图（首次初始化时使用）。 */
-    static Map<String, Object> copyMetadata(Map<String, Object> source) {
-        if (source == null || source.isEmpty()) {
-            return new HashMap<>();
-        }
-        return new LinkedHashMap<>(source);
-    }
 }

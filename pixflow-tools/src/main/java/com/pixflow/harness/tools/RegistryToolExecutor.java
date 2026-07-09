@@ -172,6 +172,7 @@ public class RegistryToolExecutor implements ToolExecutor {
                 call.turnNo(),
                 call.traceId(),
                 call.runtimeScope(),
+                context.runtimeContext(),
                 call.metadata());
         ToolHandlerOutput output = descriptor.handler().handle(invocation);
         String content = output.content();

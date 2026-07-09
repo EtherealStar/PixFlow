@@ -11,6 +11,7 @@ import com.pixflow.harness.context.store.MessageStore;
 import com.pixflow.harness.loop.config.LoopProperties;
 import com.pixflow.harness.loop.permission.DefaultPermissionContextFactory;
 import java.util.Objects;
+import java.util.concurrent.Executors;
 
 /**
  * 测试用 AgentLoop 工厂：把所有 fake 拼装起来。
@@ -28,7 +29,6 @@ final class LoopTestSupport {
         RuntimeState state;
         MessageStore store = new MessageStore();
         FakeChatModelClient modelClient = new FakeChatModelClient();
-        com.pixflow.infra.ai.resilience.ModelRetryRunner retryRunner = FakeModelRetryRunner.noRetryRunner();
         FakeToolExecutor toolExecutor = new FakeToolExecutor();
         FakeHookRegistry hookRegistry = new FakeHookRegistry();
         InMemoryTraceRecorder traceRecorder = new InMemoryTraceRecorder();
@@ -56,11 +56,6 @@ final class LoopTestSupport {
             return this;
         }
 
-        Builder retryRunner(com.pixflow.infra.ai.resilience.ModelRetryRunner r) {
-            this.retryRunner = r;
-            return this;
-        }
-
         Builder toolExecutor(FakeToolExecutor t) {
             this.toolExecutor = t;
             return this;
@@ -81,7 +76,6 @@ final class LoopTestSupport {
                     contextEngine,
                     compactionService,
                     modelClient,
-                    retryRunner,
                     toolExecutor,
                     null,                       // permissionPolicy
                     null,                       // resultStorage
@@ -90,7 +84,8 @@ final class LoopTestSupport {
                     traceRecorder,
                     new DefaultPermissionContextFactory(),
                     errorRecorder,
-                    properties);
+                    properties,
+                    Executors.newSingleThreadExecutor());
         }
     }
 }

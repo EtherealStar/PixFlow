@@ -19,6 +19,24 @@ import java.util.Map;
  */
 public record Attachment(String id, String kind, String reference, Map<String, Object> metadata) {
     public Attachment {
-        metadata = metadata == null ? Map.of() : Map.copyOf(metadata);
+        if (id == null || id.isBlank()) {
+            throw new IllegalArgumentException("attachment id must not be blank");
+        }
+        if (kind == null || kind.isBlank()) {
+            throw new IllegalArgumentException("attachment kind must not be blank");
+        }
+        if (reference == null || reference.isBlank()) {
+            throw new IllegalArgumentException("attachment reference must not be blank");
+        }
+        id = id.trim();
+        kind = kind.trim();
+        reference = reference.trim();
+        if (reference.chars().anyMatch(Character::isISOControl)) {
+            throw new IllegalArgumentException("attachment reference must not contain control characters");
+        }
+        if (!reference.startsWith("object://") && !reference.startsWith("attachment://")) {
+            throw new IllegalArgumentException("attachment reference must start with object:// or attachment://");
+        }
+        metadata = MetadataValues.immutableCopy(metadata);
     }
 }

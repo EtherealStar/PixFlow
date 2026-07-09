@@ -17,11 +17,17 @@ import java.util.Map;
 public final class FakeToolExecutor implements ToolExecutor {
 
     private final Map<String, ToolExecutionResult> overrides = new HashMap<>();
+    private final java.util.Set<String> omittedResults = java.util.Collections.synchronizedSet(new java.util.HashSet<>());
     private final List<List<ToolCall>> callHistory = Collections.synchronizedList(new ArrayList<>());
     private final List<ToolExecutionContext> contextHistory = Collections.synchronizedList(new ArrayList<>());
 
     public FakeToolExecutor withOverride(String toolCallId, ToolExecutionResult result) {
         overrides.put(toolCallId, result);
+        return this;
+    }
+
+    public FakeToolExecutor omitResult(String toolCallId) {
+        omittedResults.add(toolCallId);
         return this;
     }
 
@@ -31,6 +37,9 @@ public final class FakeToolExecutor implements ToolExecutor {
         contextHistory.add(context);
         List<ToolExecutionResult> results = new ArrayList<>(calls.size());
         for (ToolCall call : calls) {
+            if (omittedResults.contains(call.toolCallId())) {
+                continue;
+            }
             ToolExecutionResult override = overrides.get(call.toolCallId());
             if (override != null) {
                 results.add(override);

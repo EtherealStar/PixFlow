@@ -60,6 +60,8 @@ class TraceFanoutTest {
         assertThat(tc.name()).isEqualTo("loop.hook.pre_tool_use");
         assertThat(tc.error()).isNotNull();
         assertThat(tc.error().code()).isEqualTo("HOOK_BLOCKED");
+        assertThat(tc.error().category()).isEqualTo("VALIDATION");
+        assertThat(tc.error().recovery()).isEqualTo("SKIP");
         assertThat(tc.error().message()).isEqualTo("blocked by policy");
     }
 
@@ -75,17 +77,4 @@ class TraceFanoutTest {
         assertThat(tr.toolCalls().get(0).name()).isEqualTo("loop.retry");
     }
 
-    @Test
-    void fanoutToolResultRecordsContent() {
-        InMemoryTraceRecorder rec = new InMemoryTraceRecorder();
-        TurnTrace turn = rec.begin("c", 1, "t", RuntimeScope.MAIN);
-        TraceFanout fan = new TraceFanout(turn);
-        fan.fanoutToolResult(com.pixflow.harness.tools.ToolExecutionResult.success(
-                "tc1", "search", "snippet", Map.of("rank", 1)), 7L);
-        turn.commit();
-        InMemoryTraceRecorder.InMemoryTurnTrace tr = rec.traces().get(0);
-        assertThat(tr.toolCalls()).hasSize(1);
-        assertThat(tr.toolCalls().get(0).name()).isEqualTo("search");
-        assertThat(tr.toolCalls().get(0).latencyMs()).isEqualTo(7L);
-    }
 }

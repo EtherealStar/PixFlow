@@ -6,12 +6,13 @@ import com.pixflow.harness.eval.model.TracePruneEntry;
 import com.pixflow.harness.eval.model.TraceToolCall;
 import com.pixflow.harness.hooks.HookEvent;
 import com.pixflow.harness.hooks.HookResult;
+import com.pixflow.harness.loop.MetadataValues;
 import com.pixflow.harness.loop.TransitionReason;
-import com.pixflow.harness.tools.ToolExecutionResult;
 import com.pixflow.harness.tools.result.ToolTraceSink;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 
@@ -60,6 +61,7 @@ public final class TraceFanout {
         if (toolCallId != null) input.put("toolCallId", toolCallId);
         Object resultSummary;
         TraceError error = null;
+        Instant spanStartedAt = Instant.now();
         if (result == null) {
             resultSummary = "noop";
         } else {
@@ -68,29 +70,30 @@ public final class TraceFanout {
                     put("blocked", result.blocked());
                     put("inputRewritten", result.inputRewritten());
                     put("blockingReason", result.blockingReason());
-                    put("metadata", result.metadata());
+                    put("metadata", MetadataValues.immutableCopy(result.metadata()));
                 }
             };
             if (result.blocked()) {
                 error = new TraceError(
-                        Instant.now(),
+                        spanStartedAt,
                         "HOOK_BLOCKED",
-                        "PERMISSION",
-                        "TERMINATE",
+                        "VALIDATION",
+                        "SKIP",
                         result.blockingReason(),
                         null,
-                        result.metadata());
+                        MetadataValues.immutableCopy(result.metadata()));
             }
         }
+        long safeLatencyMs = Math.max(0L, latencyMs);
         TraceToolCall span = new TraceToolCall(
-                Instant.now(),
-                "loop.hook." + event.name().toLowerCase(),
+                spanStartedAt,
+                "loop.hook." + event.name().toLowerCase(Locale.ROOT),
                 input,
                 resultSummary,
                 null,
                 "hook",
                 "ALLOW",
-                latencyMs,
+                safeLatencyMs,
                 error);
         turnTrace.recordToolCall(span);
     }
@@ -116,76 +119,64 @@ public final class TraceFanout {
     }
 
     /**
-     * 工具执行结果转投（用于主循环显式记录单条工具调用，比 ToolTraceSink 更高一层语义）。
-     */
-    public void fanoutToolResult(ToolExecutionResult result, long latencyMs) {
-        if (result == null) {
-            return;
-        }
-        Map<String, Object> input = new LinkedHashMap<>();
-        input.put("toolName", result.toolName());
-        input.put("toolCallId", result.toolCallId());
-        Object payload = result.error() ? result.metadata() : result.content();
-        TraceError error = null;
-        if (result.error()) {
-            error = new TraceError(
-                    Instant.now(),
-                    "TOOL_ERROR",
-                    "TOOL",
-                    "SKIP",
-                    result.content(),
-                    null,
-                    result.metadata());
-        }
-        TraceToolCall span = new TraceToolCall(
-                Instant.now(),
-                result.toolName(),
-                input,
-                payload,
-                null,
-                "tool",
-                "ALLOW",
-                latencyMs,
-                error);
-        turnTrace.recordToolCall(span);
-    }
-
-    /**
      * tools 模块的工具 trace 事件单条转投到当前 TurnTrace。
      */
     public void fanoutToolTraceEvent(ToolTraceSink.ToolTraceEvent event) {
         if (event == null) {
             return;
         }
+        long started = event.startedAtMillis();
+        long finished = event.finishedAtMillis();
+        Map<String, Object> metadata = new LinkedHashMap<>(MetadataValues.immutableCopy(event.metadata()));
+        if (started <= 0L && finished <= 0L) {
+            long now = Instant.now().toEpochMilli();
+            started = now;
+            finished = now;
+            metadata.put("timestampCorrected", true);
+        } else if (started <= 0L) {
+            started = finished;
+            metadata.put("timestampCorrected", true);
+        } else if (finished <= 0L) {
+            finished = started;
+            metadata.put("timestampCorrected", true);
+        } else if (finished < started) {
+            finished = started;
+            metadata.put("timestampCorrected", true);
+        }
+        String toolName = event.toolName();
+        if (toolName == null || toolName.isBlank()) {
+            toolName = "unknown_tool";
+            metadata.put("toolNameMissing", true);
+        }
         Map<String, Object> input = new LinkedHashMap<>();
-        input.put("toolName", event.toolName());
+        input.put("toolName", toolName);
         input.put("toolCallId", event.toolCallId());
-        input.put("startedAtMillis", event.startedAtMillis());
-        input.put("finishedAtMillis", event.finishedAtMillis());
+        input.put("startedAtMillis", started);
+        input.put("finishedAtMillis", finished);
         input.put("rewritten", event.rewritten());
         input.put("resultExternalized", event.resultExternalized());
         if (event.errorCategory() != null) {
             input.put("errorCategory", event.errorCategory());
         }
-        Map<String, Object> output = new LinkedHashMap<>(event.metadata());
+        Map<String, Object> output = new LinkedHashMap<>(metadata);
         output.put("error", event.error());
         TraceError traceError = event.error() ? new TraceError(
-                Instant.ofEpochMilli(event.finishedAtMillis()),
+                Instant.ofEpochMilli(finished),
                 "TOOL_FAILURE",
                 event.errorCategory() == null ? "TOOL" : event.errorCategory(),
                 "SKIP",
                 "tool failed",
                 null,
-                event.metadata()) : null;
+                metadata) : null;
         TraceToolCall span = new TraceToolCall(
-                Instant.ofEpochMilli(event.startedAtMillis()),
-                event.toolName(),
+                Instant.ofEpochMilli(started),
+                toolName,
                 input,
                 output,
                 null,
                 "tool",
                 "ALLOW",
-                event.finishedAtMillis() - event.startedAtMillis(),
+                finished - started,
                 traceError);
         turnTrace.recordToolCall(span);
     }

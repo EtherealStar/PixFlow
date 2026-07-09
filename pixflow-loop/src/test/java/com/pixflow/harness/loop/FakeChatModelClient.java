@@ -19,8 +19,8 @@ import reactor.core.publisher.Flux;
  * 测试用 ChatModelClient：根据调用顺序回放预置的 stream 事件序列。
  *
  * <p>每个调用都用 {@link #next()} 拿出一个 {@link Scenario}（事件序列 + final Result）。
- * 该测试 client 不抛任何错误；CONTEXT_LIMIT 等需要注入错误的场景用
- * {@link FakeModelRetryRunner} 在 retry runner 那一层注入。
+ * 该测试 client 默认不抛任何错误；CONTEXT_LIMIT 等场景可直接覆写
+ * {@link #stream(ChatRequest)} 注入。
  */
 public class FakeChatModelClient implements ChatModelClient {
 

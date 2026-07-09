@@ -35,6 +35,9 @@ public final class RuntimeScopeTranslator {
         if (hooks == null || !hooks.subagent()) {
             return RuntimeScope.MAIN;
         }
+        if ("worker".equalsIgnoreCase(hooks.subagentType())) {
+            return RuntimeScope.WORKER;
+        }
         return RuntimeScope.SUB_AGENT;
     }
 
@@ -46,6 +49,9 @@ public final class RuntimeScopeTranslator {
         if (eval == null || eval == RuntimeScope.MAIN) {
             return com.pixflow.harness.hooks.payload.RuntimeScope.main();
         }
-        return com.pixflow.harness.hooks.payload.RuntimeScope.of(eval.name().toLowerCase());
+        if (eval == RuntimeScope.WORKER) {
+            return com.pixflow.harness.hooks.payload.RuntimeScope.of("worker");
+        }
+        return com.pixflow.harness.hooks.payload.RuntimeScope.of("subagent");
     }
 }

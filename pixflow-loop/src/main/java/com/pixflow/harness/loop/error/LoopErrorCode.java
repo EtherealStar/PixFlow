@@ -12,21 +12,23 @@ import com.pixflow.common.error.ErrorCode;
  */
 public enum LoopErrorCode implements ErrorCode {
     /** RuntimeState 字段在运行中被破坏（如 turnNo 越界、usage 负值）。 */
-    LOOP_RUNTIME_STATE_CORRUPTED(ErrorCategory.INTERNAL),
+    LOOP_RUNTIME_STATE_CORRUPTED("LOOP_RUNTIME_STATE_CORRUPTED", ErrorCategory.INTERNAL),
     /** LoopProperties 配置非法（如 escalatedMaxOutputTokens ≤ 0）。 */
-    LOOP_CONFIGURATION_INVALID(ErrorCategory.VALIDATION),
+    LOOP_CONFIGURATION_INVALID("LOOP_CONFIGURATION_INVALID", ErrorCategory.INTERNAL),
     /** 回合边界被错误打破（如 TurnStopped 未在自然结束路径派发）。 */
-    LOOP_TURN_BOUNDARY_VIOLATION(ErrorCategory.INTERNAL);
+    LOOP_TURN_BOUNDARY_VIOLATION("LOOP_TURN_BOUNDARY_VIOLATION", ErrorCategory.INTERNAL);
 
+    private final String code;
     private final ErrorCategory category;
 
-    LoopErrorCode(ErrorCategory category) {
+    LoopErrorCode(String code, ErrorCategory category) {
+        this.code = code;
         this.category = category;
     }
 
     @Override
     public String code() {
-        return name();
+        return code;
     }
 
     @Override

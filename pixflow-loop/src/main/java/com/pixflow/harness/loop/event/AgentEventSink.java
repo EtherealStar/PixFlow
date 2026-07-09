@@ -11,10 +11,13 @@ package com.pixflow.harness.loop.event;
  * 推荐实现保持实现极简（同步写 / 转发到 SSE 帧），把跨线程的工作交给下游。
  */
 public interface AgentEventSink {
+    /**
+     * 接收非 null loop 事件。实现应在入口拒绝 null，避免 SSE/日志投影吞掉协议错误。
+     */
     void emit(AgentEvent event);
 
     /**
      * no-op 实现，用于测试与不需要事件流接出的场景（如子 Agent fork 内部循环）。
      */
-    AgentEventSink NOOP = event -> { };
+    AgentEventSink NOOP = event -> java.util.Objects.requireNonNull(event, "event");
 }

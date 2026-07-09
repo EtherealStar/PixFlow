@@ -1,5 +1,7 @@
 package com.pixflow.harness.loop.stream;
 
+import com.pixflow.common.error.PixFlowException;
+import com.pixflow.common.sanitize.Sanitizer;
 import com.pixflow.harness.loop.RuntimeState;
 import com.pixflow.harness.loop.TransitionReason;
 import com.pixflow.harness.loop.event.AgentEvent;
@@ -28,13 +30,13 @@ import reactor.core.scheduler.Schedulers;
  *       保证 {@code sink.emit} 与 {@code onCompleted} 在同一线程串行执行
  *       （与 {@code harness/loop.md} §七的「阻塞主循环 + 事件回调」口径一致）。</li>
  *   <li>{@code TextDelta} → {@code ASSISTANT_DELTA}；{@code AttemptReset} →
- *       {@code TRANSITION(RATE_LIMIT_RETRY)}（仅日志级别，不阻塞）；{@code Completed}
+ *       {@code TRANSITION(RATE_LIMIT_RETRY)}（非终态重试提示）；{@code Completed}
  *       → 累积 finalText / toolCalls / usage + 由 {@code AgentLoop} 统一 emit
  *       {@code ASSISTANT_MESSAGE_COMPLETED}。</li>
  * </ol>
  *
- * <p>失败 attempt 的 partial delta 由 infra/ai 的 {@code ModelRetryRunner} 缓冲式丢弃，
- * 本消费者只看到成功 attempt 的事件。
+ * <p>模型 retry 只归 infra/ai 所有；本消费者只把 {@code AttemptReset} 投影成 loop
+ * transition，不能在这里重新订阅模型流。
  */
 public final class ModelStreamConsumer {
 
@@ -50,14 +52,17 @@ public final class ModelStreamConsumer {
      */
     public ModelOutcome consume(Flux<ChatStreamEvent> flux,
                                 AgentEventSink sink,
-                                RuntimeState state) {
+                                RuntimeState state,
+                                Map<String, Object> eventMetadata) {
         Objects.requireNonNull(flux, "flux");
         Objects.requireNonNull(sink, "sink");
         Objects.requireNonNull(state, "state");
 
+        Map<String, Object> baseEventMetadata = eventMetadata == null ? Map.of() : Map.copyOf(eventMetadata);
         StringBuilder textBuilder = new StringBuilder();
         List<ToolCall> toolCalls = new ArrayList<>();
         AtomicReference<TokenUsage> lastUsage = new AtomicReference<>(new TokenUsage(0, 0, 0));
+        AtomicReference<StopReason> stopReason = new AtomicReference<>(StopReason.STOP);
 
         flux.publishOn(Schedulers.boundedElastic())
                 .doOnNext(event -> {
@@ -67,18 +72,19 @@ public final class ModelStreamConsumer {
                     if (event instanceof ChatStreamEvent.TextDelta delta) {
                         if (delta.text() != null && !delta.text().isEmpty()) {
                             textBuilder.append(delta.text());
-                            sink.emit(AgentEvent.delta(delta.text(), state.metadata()));
+                            sink.emit(AgentEvent.delta(delta.text(), baseEventMetadata));
                         }
                     } else if (event instanceof ChatStreamEvent.AttemptReset reset) {
-                        // 退避在 infra/ai；loop 仅记录
+                        // 退避在 infra/ai；loop 只发非终态 transition 让前端 timeline 可见。
                         state.setTransition(TransitionReason.RATE_LIMIT_RETRY);
                         sink.emit(AgentEvent.transition(
                                 TransitionReason.RATE_LIMIT_RETRY,
-                                metaOf("attempt", reset.nextAttempt(),
-                                        "retriesRemaining", reset.retriesRemaining(),
-                                        "traceId", state.traceId())));
+                                retryMetadata(baseEventMetadata, reset, state.traceId())));
                     } else if (event instanceof ChatStreamEvent.Completed completed) {
                         toolCalls.addAll(completed.toolCalls());
+                        if (completed.stopReason() != null) {
+                            stopReason.set(completed.stopReason());
+                        }
                         if (completed.usage() != null) {
                             lastUsage.set(completed.usage());
                         }
@@ -91,13 +97,14 @@ public final class ModelStreamConsumer {
                 .blockLast(SUBSCRIBE_TIMEOUT);
 
         TokenUsage usage = lastUsage.get();
+        StopReason finalStopReason = stopReason.get();
         return new ModelOutcome(
                 !toolCalls.isEmpty(),
                 List.copyOf(toolCalls),
                 textBuilder.toString(),
-                StopReason.STOP,
+                finalStopReason,
                 usage,
-                false,
+                finalStopReason == StopReason.LENGTH,
                 null);
     }
 
@@ -108,12 +115,36 @@ public final class ModelStreamConsumer {
         return new RuntimeException(error);
     }
 
-    private static Map<String, Object> metaOf(Object... kv) {
+    private static Map<String, Object> metaOf(Map<String, Object> base, Object... kv) {
         Map<String, Object> map = new LinkedHashMap<>();
+        if (base != null) {
+            map.putAll(base);
+        }
         for (int i = 0; i + 1 < kv.length; i += 2) {
             map.put(String.valueOf(kv[i]), kv[i + 1]);
         }
         return map;
+    }
+
+    private static Map<String, Object> retryMetadata(Map<String, Object> base,
+                                                     ChatStreamEvent.AttemptReset reset,
+                                                     String fallbackTraceId) {
+        PixFlowException error = reset.error();
+        String errorCode = error == null || error.code() == null
+                ? "MODEL_PROVIDER_ERROR"
+                : error.code().code();
+        String message = Sanitizer.sanitizeMessage(error == null ? "" : error.getMessage());
+        String traceId = error != null && error.traceId() != null ? error.traceId() : fallbackTraceId;
+        Map<String, Object> metadata = metaOf(base,
+                "attempt", reset.nextAttempt(),
+                "retriesRemaining", reset.retriesRemaining(),
+                "errorCode", errorCode,
+                "message", message == null || message.isBlank() ? "model stream interrupted, retrying" : message,
+                "retrying", true);
+        if (traceId != null && !traceId.isBlank()) {
+            metadata.put("traceId", traceId);
+        }
+        return metadata;
     }
 
     /**

@@ -56,12 +56,25 @@ class DefaultPermissionContextFactoryTest {
     }
 
     @Test
-    void subagentWithoutAgentTypeIsIgnored() {
+    void malformedSubagentMetadataFailsClosed() {
         RuntimeState state = new RuntimeState();
         state.setConversationId("c-1");
         state.putMetadata("subagent", Map.of("readOnly", true));
-        var ctx = new DefaultPermissionContextFactory().create(state);
-        assertThat(ctx.subagent()).isNull();
+        assertThatThrownBy(() -> new DefaultPermissionContextFactory().create(state))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("agentType");
+    }
+
+    @Test
+    void malformedSubagentFieldTypeFailsClosed() {
+        RuntimeState state = new RuntimeState();
+        state.setConversationId("c-1");
+        state.putMetadata("subagent", Map.of(
+                "agentType", "vision",
+                "readOnly", "true"));
+        assertThatThrownBy(() -> new DefaultPermissionContextFactory().create(state))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("readOnly");
     }
 
     @Test

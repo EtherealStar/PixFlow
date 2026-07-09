@@ -1,6 +1,8 @@
 package com.pixflow.harness.loop.event;
 
+import com.pixflow.harness.loop.MetadataValues;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * loop 事件载体 record。
@@ -21,16 +23,21 @@ public record AgentEvent(
         Object payload,
         Map<String, Object> metadata) {
     public AgentEvent {
+        Objects.requireNonNull(type, "type");
         text = text == null ? "" : text;
-        metadata = metadata == null ? Map.of() : Map.copyOf(metadata);
+        metadata = MetadataValues.immutableCopy(metadata);
     }
 
     public static AgentEvent delta(String text, Map<String, Object> metadata) {
         return new AgentEvent(AgentEventType.ASSISTANT_DELTA, text, null, metadata);
     }
 
-    public static AgentEvent assistantCompleted(String finalText, Object payload, Map<String, Object> metadata) {
-        return new AgentEvent(AgentEventType.ASSISTANT_MESSAGE_COMPLETED, finalText, payload, metadata);
+    public static AgentEvent assistantCompleted(String finalText, String messageId, Map<String, Object> metadata) {
+        if (messageId == null || messageId.isBlank()) {
+            throw new IllegalArgumentException("messageId must not be blank");
+        }
+        return new AgentEvent(AgentEventType.ASSISTANT_MESSAGE_COMPLETED, finalText,
+                Map.of("messageId", messageId), metadata);
     }
 
     public static AgentEvent toolCallReady(Object payload, Map<String, Object> metadata) {

@@ -16,11 +16,26 @@ public record ToolExecutionContext(
         ToolResultStorage resultStorage,
         ToolTraceSink traceSink,
         PlanModeView planModeView,
+        ToolRuntimeContext runtimeContext,
         ExecutorService executor,
         Set<String> hiddenTools) {
 
     public ToolExecutionContext {
+        runtimeContext = runtimeContext == null ? ToolRuntimeContext.unavailable() : runtimeContext;
         hiddenTools = immutableSet(hiddenTools);
+    }
+
+    public ToolExecutionContext(
+            com.pixflow.harness.permission.PermissionPolicy permissionPolicy,
+            com.pixflow.harness.permission.PermissionContext permissionContext,
+            HookRegistry hookRegistry,
+            ToolResultStorage resultStorage,
+            ToolTraceSink traceSink,
+            PlanModeView planModeView,
+            ExecutorService executor,
+            Set<String> hiddenTools) {
+        this(permissionPolicy, permissionContext, hookRegistry, resultStorage, traceSink, planModeView,
+                ToolRuntimeContext.unavailable(), executor, hiddenTools);
     }
 
     public ToolVisibilityContext visibilityContext() {

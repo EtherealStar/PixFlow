@@ -16,6 +16,9 @@ import com.pixflow.harness.permission.PermissionContext;
  * {@code state.metadata.subagent}（{@code Map<String,Object>}，至少含
  * {@code agentType}，可选 {@code readOnly} / {@code allowedTools} /
  * {@code disallowedTools}）。
+ *
+ * <p>默认实现要求 {@code state} 与 {@code state.conversationId} 非空；逗号分隔的
+ * 工具集合会 trim 并过滤空段；非法 subagent metadata 会被视为无 subagent 约束。
  */
 public interface PermissionContextFactory {
     PermissionContext create(RuntimeState state);

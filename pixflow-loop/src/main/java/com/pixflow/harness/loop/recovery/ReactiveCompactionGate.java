@@ -48,11 +48,11 @@ public final class ReactiveCompactionGate {
             // 防抖：同回合不再尝试 reactive，把决策上交给 OutputInterruptHandler
             return new GateDecision.Abort(error);
         }
-        state.markReactiveCompactAttempted();
         Map<String, Object> metadata = new LinkedHashMap<>();
         metadata.put("source", properties.compactionSource().isBlank()
                 ? "loop.reactive" : properties.compactionSource());
         compactionService.reactiveCompact(store, error, metadata);
+        state.markReactiveCompactAttempted();
         return new GateDecision.Retry(TransitionReason.REACTIVE_COMPACT_RETRY);
     }
 }

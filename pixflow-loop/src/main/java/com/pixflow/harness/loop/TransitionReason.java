@@ -11,7 +11,7 @@ public enum TransitionReason {
     TOOL_USE,
     /** 本轮无工具调用，自然结束 → 返回 final text 并 commit trace。 */
     COMPLETED,
-    /** infra/ai 的 ModelRetryRunner 触发重试（退避在 infra/ai，loop 仅记录）。 */
+    /** ChatModelClient.stream 内部触发模型重试（退避在 infra/ai，loop 仅记录）。 */
     RATE_LIMIT_RETRY,
     /** CONTEXT_LIMIT 首次 → 已触发 reactiveCompact，重试本迭代（不 append assistant）。 */
     REACTIVE_COMPACT_RETRY,

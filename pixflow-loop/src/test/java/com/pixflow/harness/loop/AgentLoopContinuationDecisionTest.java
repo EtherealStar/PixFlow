@@ -12,8 +12,10 @@ import com.pixflow.harness.context.runtime.CurrentModelContext;
 import com.pixflow.harness.context.store.MessageStore;
 import com.pixflow.harness.loop.event.AgentEventType;
 import com.pixflow.harness.loop.permission.DefaultPermissionContextFactory;
+import com.pixflow.infra.ai.chat.ChatMessage;
 import com.pixflow.infra.ai.chat.ToolCall;
 import java.util.List;
+import java.util.concurrent.Executors;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -64,6 +66,19 @@ class AgentLoopContinuationDecisionTest {
         assertThat(sink.eventsOfType(AgentEventType.TOOL_CALL_READY)).hasSize(1);
         assertThat(sink.eventsOfType(AgentEventType.TOOL_RESULT)).hasSize(1);
         assertThat(sink.eventsOfType(AgentEventType.COMPLETED)).hasSize(1);
+        assertThat(sink.eventsOfType(AgentEventType.ASSISTANT_DELTA).get(0).metadata())
+                .containsEntry("assistantCallId", loop.state().traceId() + ":assistant:1")
+                .containsEntry("modelTurnIndex", 1);
+        assertThat(sink.eventsOfType(AgentEventType.TOOL_CALL_READY).get(0).metadata())
+                .containsEntry("assistantCallId", loop.state().traceId() + ":assistant:1")
+                .containsEntry("modelTurnIndex", 1);
+        assertThat(sink.eventsOfType(AgentEventType.TOOL_RESULT).get(0).metadata())
+                .containsEntry("assistantCallId", loop.state().traceId() + ":assistant:1")
+                .containsEntry("modelTurnIndex", 1);
+        assertThat(sink.eventsOfType(AgentEventType.COMPLETED).get(0).metadata())
+                .containsEntry("assistantCallId", loop.state().traceId() + ":assistant:2")
+                .containsEntry("modelTurnIndex", 2);
+        ChatRequestShapeAssert.assertContainsToolProtocol(client.seenRequests().get(1).messages());
         long toolUse = sink.eventsOfType(AgentEventType.TRANSITION).stream()
                 .filter(e -> e.payload() == TransitionReason.TOOL_USE).count();
         long completed = sink.eventsOfType(AgentEventType.TRANSITION).stream()
@@ -93,6 +108,71 @@ class AgentLoopContinuationDecisionTest {
         assertThat(loop.state().lastTransition()).isEqualTo(TransitionReason.COMPLETED);
     }
 
+    @Test
+    void malformedToolArgumentsReturnToolErrorWithoutCallingExecutor() {
+        RecordingAgentEventSink sink = new RecordingAgentEventSink();
+        FakeChatModelClient client = new FakeChatModelClient()
+                .enqueueToolCalls(List.of(new ToolCall("bad", "search", "{not-json")), "Looking...")
+                .enqueueText("recovered");
+        FakeToolExecutor toolExec = new FakeToolExecutor();
+
+        AgentLoop loop = newHarness(new RuntimeState(), client, toolExec,
+                new FakeHookRegistry(), new InMemoryTraceRecorder(), new RecordingErrorRecorder());
+        String result = loop.stream("q", List.of(), sink, "sys", List.of());
+
+        assertThat(result).isEqualTo("recovered");
+        assertThat(toolExec.totalCalls()).isZero();
+        assertThat(sink.eventsOfType(AgentEventType.TOOL_RESULT)).hasSize(1);
+        Object payload = sink.eventsOfType(AgentEventType.TOOL_RESULT).get(0).payload();
+        assertThat(payload).isInstanceOf(com.pixflow.harness.tools.ToolExecutionResult.class);
+        var toolResult = (com.pixflow.harness.tools.ToolExecutionResult) payload;
+        assertThat(toolResult.error()).isTrue();
+        assertThat(toolResult.content()).contains("invalid_tool_input");
+        assertThat(toolResult.metadata()).containsEntry("errorCategory", "VALIDATION");
+        assertThat(toolResult.metadata()).doesNotContainKey("raw");
+    }
+
+    @Test
+    void missingExecutorResultIsReturnedAsInternalToolError() {
+        RecordingAgentEventSink sink = new RecordingAgentEventSink();
+        FakeChatModelClient client = new FakeChatModelClient()
+                .enqueueToolCalls(List.of(
+                        new ToolCall("ok", "search", "{}"),
+                        new ToolCall("missing", "read", "{}")), "Looking...")
+                .enqueueText("recovered");
+        FakeToolExecutor toolExec = new FakeToolExecutor().omitResult("missing");
+
+        AgentLoop loop = newHarness(new RuntimeState(), client, toolExec,
+                new FakeHookRegistry(), new InMemoryTraceRecorder(), new RecordingErrorRecorder());
+        loop.stream("q", List.of(), sink, "sys", List.of());
+
+        List<Object> payloads = sink.eventsOfType(AgentEventType.TOOL_RESULT).stream()
+                .map(e -> e.payload())
+                .toList();
+        assertThat(payloads).hasSize(2);
+        var missing = (com.pixflow.harness.tools.ToolExecutionResult) payloads.get(1);
+        assertThat(missing.toolCallId()).isEqualTo("missing");
+        assertThat(missing.error()).isTrue();
+        assertThat(missing.content()).contains("tool_execution_missing_result");
+        assertThat(missing.metadata()).containsEntry("errorCategory", "INTERNAL");
+        assertThat(missing.metadata()).containsEntry("missingToolResult", true);
+    }
+
+    private static final class ChatRequestShapeAssert {
+        private static void assertContainsToolProtocol(List<ChatMessage> messages) {
+            ChatMessage assistant = messages.stream()
+                    .filter(m -> m.role() == ChatMessage.Role.ASSISTANT)
+                    .findFirst()
+                    .orElseThrow();
+            assertThat(assistant.parts()).anyMatch(ChatMessage.ToolCallPart.class::isInstance);
+            ChatMessage tool = messages.stream()
+                    .filter(m -> m.role() == ChatMessage.Role.TOOL)
+                    .findFirst()
+                    .orElseThrow();
+            assertThat(tool.parts()).singleElement().isInstanceOf(ChatMessage.ToolResultPart.class);
+        }
+    }
+
     // helper —— 测试用工厂：直接构造 AgentLoop 与它依赖的所有 fake
     private static AgentLoop newHarness(RuntimeState state,
                                          FakeChatModelClient client,
@@ -113,7 +193,6 @@ class AgentLoopContinuationDecisionTest {
                 contextEngine,
                 compactionService,
                 client,
-                FakeModelRetryRunner.noRetryRunner(),
                 toolExec,
                 null,                       // permissionPolicy
                 null,                       // resultStorage
@@ -122,7 +201,8 @@ class AgentLoopContinuationDecisionTest {
                 rec,
                 new DefaultPermissionContextFactory(),
                 errs,
-                new com.pixflow.harness.loop.config.LoopProperties());
+                new com.pixflow.harness.loop.config.LoopProperties(),
+                Executors.newSingleThreadExecutor());
     }
 
     private static Object field(Object instance, String name) {
