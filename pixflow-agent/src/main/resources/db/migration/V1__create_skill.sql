@@ -3,7 +3,7 @@
 -- source / version / body_hash / created_at / updated_at）+ 索引
 -- 本期 BUILTIN 由 SkillLoader 启动期同步入表。
 
-CREATE TABLE IF NOT EXISTS skill (
+CREATE TABLE skill (
     id           VARCHAR(64)  NOT NULL,
     name         VARCHAR(50)  NOT NULL,
     description  VARCHAR(200) NOT NULL,
@@ -15,6 +15,8 @@ CREATE TABLE IF NOT EXISTS skill (
     created_at   DATETIME     NOT NULL,
     updated_at   DATETIME     NOT NULL,
     PRIMARY KEY (id),
-    UNIQUE KEY uk_skill_name (name),
-    KEY idx_skill_source (source)
+    UNIQUE KEY uk_skill_source_name (source, name),
+    KEY idx_skill_source (source),
+    CONSTRAINT chk_skill_source CHECK (source IN ('BUILTIN', 'PROJECT', 'TEAM')),
+    CONSTRAINT chk_skill_version CHECK (version > 0)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

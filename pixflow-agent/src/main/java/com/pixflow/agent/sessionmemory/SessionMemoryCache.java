@@ -38,7 +38,7 @@ public class SessionMemoryCache {
             Object value = redissonClient.getBucket(CACHE_KEY_PREFIX + conversationId).get();
             return Optional.ofNullable(value == null ? null : value.toString());
         } catch (Exception e) {
-            log.debug("SessionMemoryCache: get failed: {}", e.getMessage());
+            log.debug("SessionMemoryCache: get failed for conversationId={}", conversationId, e);
             return Optional.empty();
         }
     }
@@ -48,7 +48,7 @@ public class SessionMemoryCache {
             redissonClient.getBucket(CACHE_KEY_PREFIX + conversationId)
                     .set(content, ttlSeconds, TimeUnit.SECONDS);
         } catch (Exception e) {
-            log.debug("SessionMemoryCache: set failed: {}", e.getMessage());
+            log.debug("SessionMemoryCache: set failed for conversationId={}", conversationId, e);
         }
     }
 
@@ -56,7 +56,7 @@ public class SessionMemoryCache {
         try {
             redissonClient.getBucket(CACHE_KEY_PREFIX + conversationId).delete();
         } catch (Exception e) {
-            log.debug("SessionMemoryCache: invalidate failed: {}", e.getMessage());
+            log.debug("SessionMemoryCache: invalidate failed for conversationId={}", conversationId, e);
         }
     }
 }

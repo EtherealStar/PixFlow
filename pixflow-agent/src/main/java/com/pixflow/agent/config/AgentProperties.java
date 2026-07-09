@@ -2,9 +2,6 @@ package com.pixflow.agent.config;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
-import java.util.ArrayList;
-import java.util.List;
-
 /**
  * Agent 模块集中配置（{@code @ConfigurationProperties(prefix="pixflow.agent")}）。
  *
@@ -104,36 +101,10 @@ public class AgentProperties {
         public void setRecall(Recall recall) { this.recall = recall; }
 
         public static class Recall {
-            private int recentAssistantTurns = 3;
-            private int rrfK = 60;
-            private int maxItems = 50;
             private int maxTokens = 4000;
-            private List<String> skuPatterns = new ArrayList<>(List.of(
-                    "^SKU\\d+$", "^[A-Z]{2,}\\d{4,}$"
-            ));
-            private boolean skuLlmFallback = true;
-            private boolean categoryFilterEnabled = false;
-
-            public int getRecentAssistantTurns() { return recentAssistantTurns; }
-            public void setRecentAssistantTurns(int recentAssistantTurns) { this.recentAssistantTurns = recentAssistantTurns; }
-
-            public int getRrfK() { return rrfK; }
-            public void setRrfK(int rrfK) { this.rrfK = rrfK; }
-
-            public int getMaxItems() { return maxItems; }
-            public void setMaxItems(int maxItems) { this.maxItems = maxItems; }
 
             public int getMaxTokens() { return maxTokens; }
             public void setMaxTokens(int maxTokens) { this.maxTokens = maxTokens; }
-
-            public List<String> getSkuPatterns() { return skuPatterns; }
-            public void setSkuPatterns(List<String> skuPatterns) { this.skuPatterns = skuPatterns; }
-
-            public boolean isSkuLlmFallback() { return skuLlmFallback; }
-            public void setSkuLlmFallback(boolean skuLlmFallback) { this.skuLlmFallback = skuLlmFallback; }
-
-            public boolean isCategoryFilterEnabled() { return categoryFilterEnabled; }
-            public void setCategoryFilterEnabled(boolean categoryFilterEnabled) { this.categoryFilterEnabled = categoryFilterEnabled; }
         }
     }
 

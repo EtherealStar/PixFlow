@@ -4,10 +4,10 @@ import com.pixflow.agent.prompt.PromptSection;
 import com.pixflow.agent.prompt.SectionRenderer;
 import org.springframework.stereotype.Component;
 
+import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
-import java.util.TreeMap;
 
 /**
  * 动态 section 10：可用技能目录（available_skills）。
@@ -65,7 +65,7 @@ public final class ActiveSkillsSection implements SectionRenderer {
     private static String sha256(String input) {
         try {
             MessageDigest md = MessageDigest.getInstance("SHA-256");
-            return HexFormat.of().formatHex(md.digest(input.getBytes()));
+            return HexFormat.of().formatHex(md.digest(input.getBytes(StandardCharsets.UTF_8)));
         } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException(e);
         }

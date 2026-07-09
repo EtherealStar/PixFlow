@@ -1,5 +1,6 @@
 package com.pixflow.agent.sessionmemory;
 
+import com.pixflow.agent.config.AgentSubagentAutoConfiguration;
 import com.pixflow.agent.config.AgentProperties;
 import com.pixflow.agent.error.AgentErrorCode;
 import com.pixflow.common.error.PixFlowException;
@@ -8,6 +9,7 @@ import com.pixflow.harness.context.sessionmemory.SessionMemoryPort;
 import com.pixflow.harness.context.sessionmemory.SessionMemoryThreshold;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
@@ -18,7 +20,8 @@ import java.time.Instant;
 import java.util.HexFormat;
 import java.util.Optional;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -48,24 +51,21 @@ public class SessionMemoryService implements SessionMemoryPort {
     private final SessionMemoryUpdater updater;
     private final AgentProperties props;
     private final ExecutorService extractionPool;
-    private final AtomicInteger consecutiveFailures = new AtomicInteger(0);
+    private final ConcurrentHashMap<String, AtomicInteger> consecutiveFailures = new ConcurrentHashMap<>();
 
     public SessionMemoryService(SessionMemoryRepository repository,
                                 SessionMemoryCache cache,
                                 SessionMemoryExtractor extractor,
                                 SessionMemoryUpdater updater,
-                                AgentProperties props) {
+                                AgentProperties props,
+                                @Qualifier(AgentSubagentAutoConfiguration.SESSION_MEMORY_EXECUTOR_BEAN)
+                                ExecutorService extractionPool) {
         this.repository = repository;
         this.cache = cache;
         this.extractor = extractor;
         this.updater = updater;
         this.props = props;
-        // 独立线程池：core=2/max=4/queue=100（agent.md §十四 默认）
-        this.extractionPool = Executors.newFixedThreadPool(2, r -> {
-            Thread t = new Thread(r, "agent-session-memory-extractor");
-            t.setDaemon(true);
-            return t;
-        });
+        this.extractionPool = extractionPool;
         log.info("SessionMemoryService initialized: threshold tokens={}, turns={}, maxFailures={}",
                 props.getSessionMemory().getThreshold().getTokens(),
                 props.getSessionMemory().getThreshold().getTurns(),
@@ -96,26 +96,26 @@ public class SessionMemoryService implements SessionMemoryPort {
             throw new PixFlowException(AgentErrorCode.AGENT_SESSION_MEMORY_EXTRACTION_FAILED,
                     "SessionMemoryContent must not be null");
         }
-        SessionMemory memory = repository.findByConversationId(conversationId)
-                .orElseGet(() -> {
-                    SessionMemory m = new SessionMemory();
-                    m.setConversationId(conversationId);
-                    m.setCreatedAt(Instant.now());
-                    m.setCoveredTurnCount(0);
-                    return m;
-                });
+        SessionMemory memory = new SessionMemory();
+        memory.setConversationId(conversationId);
         memory.setContent(content.markdown());
         memory.setLastSummarizedSeq(lastSummarizedSeq);
         memory.setContentHash(content.contentHash());
         memory.setSource(SessionMemorySource.EXTRACTION.name());
+        memory.setCreatedAt(Instant.now());
         memory.setUpdatedAt(Instant.now());
-        memory.setCoveredTurnCount(memory.getCoveredTurnCount() + 1);
+        memory.setCoveredTurnCount(toCoveredTurnCount(lastSummarizedSeq));
         // 1. MySQL（事实源）
-        repository.upsert(memory);
-        // 2. Redis cache
-        cache.set(conversationId, content.markdown());
-        log.debug("SessionMemoryService: saved conversationId={}, lastSummarizedSeq={}, contentHash={}",
-                conversationId, lastSummarizedSeq, content.contentHash());
+        SessionMemoryRepository.SaveResult result = repository.saveIfAdvances(memory);
+        if (result == SessionMemoryRepository.SaveResult.INSERTED
+                || result == SessionMemoryRepository.SaveResult.ADVANCED) {
+            // 2. Redis cache
+            cache.set(conversationId, content.markdown());
+        } else {
+            cache.invalidate(conversationId);
+        }
+        log.debug("SessionMemoryService: save result={}, conversationId={}, lastSummarizedSeq={}, contentHash={}",
+                result, conversationId, lastSummarizedSeq, content.contentHash());
     }
 
     @Override
@@ -137,7 +137,12 @@ public class SessionMemoryService implements SessionMemoryPort {
 
     @Override
     public void scheduleExtraction(String conversationId, int turnNo) {
-        extractionPool.submit(() -> doExtraction(conversationId, turnNo));
+        try {
+            extractionPool.submit(() -> doExtraction(conversationId, turnNo));
+        } catch (RejectedExecutionException e) {
+            log.warn("SessionMemoryService: extraction rejected for conversationId={}", conversationId, e);
+            failureCounter(conversationId).incrementAndGet();
+        }
     }
 
     private void doExtraction(String conversationId, int turnNo) {
@@ -152,19 +157,19 @@ public class SessionMemoryService implements SessionMemoryPort {
             // 估算 token；超阈值截断
             String contentHash = md5(newContent);
             SessionMemoryContent content = new SessionMemoryContent(newContent, contentHash);
-            // lastSummarizedSeq 用 turnNo 估算（本期简化）
             save(conversationId, content, turnNo);
             // 成功 → 重置断路器
-            consecutiveFailures.set(0);
+            failureCounter(conversationId).set(0);
         } catch (Exception e) {
-            int failures = consecutiveFailures.incrementAndGet();
-            log.warn("SessionMemoryService: extraction failed (consecutive={}): {}",
-                    failures, e.getMessage());
+            int failures = failureCounter(conversationId).incrementAndGet();
+            log.warn("SessionMemoryService: extraction failed (conversationId={}, consecutive={})",
+                    conversationId, failures, e);
             // 断路器触发 → 切 fallback
             if (failures >= props.getSessionMemory().getCircuitBreaker().getMaxConsecutiveFailures()) {
-                log.warn("SessionMemoryService: circuit breaker triggered, switching to FALLBACK_RULE");
+                log.warn("SessionMemoryService: circuit breaker triggered for conversationId={}, switching to FALLBACK_RULE",
+                        conversationId);
                 doFallbackExtraction(conversationId, turnNo);
-                consecutiveFailures.set(0);
+                failureCounter(conversationId).set(0);
             }
         }
     }
@@ -176,25 +181,36 @@ public class SessionMemoryService implements SessionMemoryPort {
             String fallback = updater.extractFallback(previous, null, null);
             SessionMemoryContent content = new SessionMemoryContent(fallback, md5(fallback));
             // source 字段标记 FALLBACK_RULE
-            SessionMemory memory = repository.findByConversationId(conversationId)
-                    .orElseGet(() -> {
-                        SessionMemory m = new SessionMemory();
-                        m.setConversationId(conversationId);
-                        m.setCreatedAt(Instant.now());
-                        m.setCoveredTurnCount(0);
-                        return m;
-                    });
+            SessionMemory memory = new SessionMemory();
+            memory.setConversationId(conversationId);
             memory.setContent(content.markdown());
             memory.setLastSummarizedSeq((long) turnNo);
             memory.setContentHash(content.contentHash());
             memory.setSource(SessionMemorySource.FALLBACK_RULE.name());
+            memory.setCreatedAt(Instant.now());
             memory.setUpdatedAt(Instant.now());
-            memory.setCoveredTurnCount(memory.getCoveredTurnCount() + 1);
-            repository.upsert(memory);
-            cache.set(conversationId, content.markdown());
+            memory.setCoveredTurnCount(toCoveredTurnCount(turnNo));
+            SessionMemoryRepository.SaveResult result = repository.saveIfAdvances(memory);
+            if (result == SessionMemoryRepository.SaveResult.INSERTED
+                    || result == SessionMemoryRepository.SaveResult.ADVANCED) {
+                cache.set(conversationId, content.markdown());
+            } else {
+                cache.invalidate(conversationId);
+            }
         } catch (Exception e) {
-            log.error("SessionMemoryService: fallback extraction also failed: {}", e.getMessage());
+            log.error("SessionMemoryService: fallback extraction also failed for conversationId={}", conversationId, e);
         }
+    }
+
+    private AtomicInteger failureCounter(String conversationId) {
+        return consecutiveFailures.computeIfAbsent(conversationId, ignored -> new AtomicInteger());
+    }
+
+    private static int toCoveredTurnCount(long lastSummarizedSeq) {
+        if (lastSummarizedSeq <= 0) {
+            return 0;
+        }
+        return lastSummarizedSeq > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) lastSummarizedSeq;
     }
 
     private static String md5(String content) {

@@ -1,1 +1,2 @@
 com.pixflow.agent.config.AgentAutoConfiguration
+com.pixflow.agent.config.AgentSubagentAutoConfiguration

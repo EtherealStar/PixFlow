@@ -27,8 +27,8 @@ class SubagentRunnerTest {
         try {
             SubagentResult result = future.get(5, TimeUnit.SECONDS);
             assertNotNull(result);
-            assertFalse(result.isError());
-            assertTrue(result.finalText().contains("EXPLORE"));
+            assertTrue(result.isError());
+            assertEquals("subagent_runtime_unavailable", result.errorMessage());
         } catch (InterruptedException | ExecutionException | TimeoutException e) {
             throw new AssertionError("Future did not complete: " + e.getMessage(), e);
         }
@@ -44,7 +44,8 @@ class SubagentRunnerTest {
                 "describe this image"
         );
         SubagentResult result = runner.runAsync(req).join();
-        assertTrue(result.finalText().contains("VISION"));
+        assertTrue(result.isError());
+        assertEquals("subagent_runtime_unavailable", result.errorMessage());
         assertEquals(0, result.toolResultCount());
     }
 }

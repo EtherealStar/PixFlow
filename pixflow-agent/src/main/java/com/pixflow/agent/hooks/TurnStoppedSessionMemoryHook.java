@@ -63,7 +63,8 @@ public class TurnStoppedSessionMemoryHook implements HookCallback {
             log.debug("TurnStoppedSessionMemoryHook: scheduled extraction for conversationId={}",
                     turnStopped.conversationId());
         } catch (Exception e) {
-            log.warn("TurnStoppedSessionMemoryHook: schedule failed: {}", e.getMessage());
+            log.warn("TurnStoppedSessionMemoryHook: schedule failed for conversationId={}",
+                    turnStopped.conversationId(), e);
         }
         return HookResult.noop();
     }

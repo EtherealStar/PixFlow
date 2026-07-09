@@ -2,6 +2,9 @@ package com.pixflow.agent.planmode;
 
 import com.pixflow.agent.config.AgentProperties;
 import com.pixflow.harness.loop.RuntimeState;
+import com.pixflow.harness.tools.ToolRuntimeContext;
+import java.util.Map;
+import java.util.function.BiConsumer;
 import org.springframework.stereotype.Component;
 
 /**
@@ -33,11 +36,11 @@ public class PlanModeController {
      * @throws IllegalStateException 当前已是 ACTIVE 时
      */
     public void enter(RuntimeState state) {
-        PlanModeState current = readPlanMode(state);
-        if (current == PlanModeState.ACTIVE) {
-            throw new IllegalStateException("Already in Plan mode. Use plan_exit to leave.");
-        }
-        state.putMetadata(PLAN_MODE_KEY, Boolean.TRUE);
+        enter(state == null ? Map.of() : state.metadata(), state == null ? null : state::putMetadata);
+    }
+
+    public void enter(ToolRuntimeContext context) {
+        enter(context == null ? Map.of() : context.metadata(), context == null ? null : context::putMetadata);
     }
 
     /**
@@ -47,25 +50,56 @@ public class PlanModeController {
      * @throws IllegalStateException 当前不是 ACTIVE 时
      */
     public void exit(RuntimeState state, String draftPlan) {
-        PlanModeState current = readPlanMode(state);
-        if (current != PlanModeState.ACTIVE) {
-            throw new IllegalStateException("Not in Plan mode. Use plan to enter first.");
-        }
-        state.putMetadata(PLAN_MODE_KEY, Boolean.FALSE);
-        if (props.getPlanMode().isKeepDraftOnExit() && draftPlan != null && !draftPlan.isBlank()) {
-            state.putMetadata(LAST_PLAN_DRAFT_KEY, draftPlan);
-        }
+        exit(state == null ? Map.of() : state.metadata(), state == null ? null : state::putMetadata, draftPlan);
+    }
+
+    public void exit(ToolRuntimeContext context, String draftPlan) {
+        exit(context == null ? Map.of() : context.metadata(), context == null ? null : context::putMetadata, draftPlan);
     }
 
     /**
      * 读当前 Plan 模式状态。
      */
     public PlanModeState readPlanMode(RuntimeState state) {
-        if (state == null) return PlanModeState.OFF;
-        Object value = state.metadataOrDefault(PLAN_MODE_KEY, Boolean.FALSE);
+        return readPlanMode(state == null ? Map.of() : state.metadata());
+    }
+
+    public PlanModeState readPlanMode(ToolRuntimeContext context) {
+        return readPlanMode(context == null ? Map.of() : context.metadata());
+    }
+
+    private void enter(Map<String, Object> metadata, BiConsumer<String, Object> writer) {
+        PlanModeState current = readPlanMode(metadata);
+        if (current == PlanModeState.ACTIVE) {
+            throw new IllegalStateException("Already in Plan mode. Use plan_exit to leave.");
+        }
+        requireWriter(writer).accept(PLAN_MODE_KEY, Boolean.TRUE);
+    }
+
+    private void exit(Map<String, Object> metadata, BiConsumer<String, Object> writer, String draftPlan) {
+        PlanModeState current = readPlanMode(metadata);
+        if (current != PlanModeState.ACTIVE) {
+            throw new IllegalStateException("Not in Plan mode. Use plan to enter first.");
+        }
+        BiConsumer<String, Object> checkedWriter = requireWriter(writer);
+        checkedWriter.accept(PLAN_MODE_KEY, Boolean.FALSE);
+        if (props.getPlanMode().isKeepDraftOnExit() && draftPlan != null && !draftPlan.isBlank()) {
+            checkedWriter.accept(LAST_PLAN_DRAFT_KEY, draftPlan);
+        }
+    }
+
+    private PlanModeState readPlanMode(Map<String, Object> metadata) {
+        Object value = metadata.getOrDefault(PLAN_MODE_KEY, Boolean.FALSE);
         if (value instanceof Boolean b && b) {
             return PlanModeState.ACTIVE;
         }
         return PlanModeState.OFF;
+    }
+
+    private static BiConsumer<String, Object> requireWriter(BiConsumer<String, Object> writer) {
+        if (writer == null) {
+            throw new IllegalStateException("Tool runtime context is not available");
+        }
+        return writer;
     }
 }

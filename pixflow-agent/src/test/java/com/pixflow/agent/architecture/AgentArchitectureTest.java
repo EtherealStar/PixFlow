@@ -6,6 +6,7 @@ import com.tngtech.archunit.core.importer.ImportOption;
 import com.tngtech.archunit.lang.ArchRule;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.springframework.context.annotation.Configuration;
 
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.methods;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
@@ -60,6 +61,21 @@ class AgentArchitectureTest {
     }
 
     @Test
+    void agent_should_not_depend_on_module_memory_internal_packages() {
+        ArchRule rule = noClasses().that().resideInAPackage("com.pixflow.agent..")
+                .should().dependOnClassesThat().resideInAnyPackage(
+                        "com.pixflow.module.memory.preference..",
+                        "com.pixflow.module.memory.skuhistory..",
+                        "com.pixflow.module.memory.insight..",
+                        "com.pixflow.module.memory.recall..",
+                        "com.pixflow.module.memory.lifecycle..",
+                        "com.pixflow.module.memory.ingest..",
+                        "com.pixflow.module.memory.config.."
+                );
+        rule.check(importedClasses);
+    }
+
+    @Test
     void agent_should_not_hold_persistence_entities() {
         ArchRule rule = noClasses().that().resideInAPackage("com.pixflow.agent..")
                 .should().dependOnClassesThat().haveSimpleName("MessageEntity")
@@ -74,6 +90,22 @@ class AgentArchitectureTest {
                 .and().arePublic()
                 .and().haveNameMatching("run.*")
                 .should().haveName("runAsync");
+        rule.check(importedClasses);
+    }
+
+    @Test
+    void subagent_package_should_not_hold_configuration_classes() {
+        ArchRule rule = noClasses().that().resideInAPackage("com.pixflow.agent.subagent..")
+                .should().beAnnotatedWith(Configuration.class);
+        rule.check(importedClasses);
+    }
+
+    @Test
+    void tool_handlers_should_not_depend_on_loop_runtime_state() {
+        ArchRule rule = noClasses().that().resideInAPackage("com.pixflow.agent..")
+                .and().implement(com.pixflow.harness.tools.ToolHandler.class)
+                .should().dependOnClassesThat()
+                .haveFullyQualifiedName("com.pixflow.harness.loop.RuntimeState");
         rule.check(importedClasses);
     }
 

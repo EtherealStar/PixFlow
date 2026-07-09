@@ -1,11 +1,11 @@
 package com.pixflow.agent.sessionmemory;
 
 import com.pixflow.agent.config.AgentProperties;
-import com.pixflow.agent.memory.TokenEstimator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
+import java.nio.charset.StandardCharsets;
 import java.util.Optional;
 
 /**
@@ -22,11 +22,9 @@ public class SessionMemoryExtractor {
     private static final Logger log = LoggerFactory.getLogger(SessionMemoryExtractor.class);
 
     private final AgentProperties props;
-    private final TokenEstimator tokenEstimator;
 
-    public SessionMemoryExtractor(AgentProperties props, TokenEstimator tokenEstimator) {
+    public SessionMemoryExtractor(AgentProperties props) {
         this.props = props;
-        this.tokenEstimator = tokenEstimator;
     }
 
     /**
@@ -47,12 +45,39 @@ public class SessionMemoryExtractor {
                 + newMessagesJson;
         // 截断到 maxContentBytes（防 LLM 提取爆量）
         int maxBytes = props.getSessionMemory().getMaxContentBytes();
-        if (merged.getBytes().length > maxBytes) {
-            merged = merged.substring(0, Math.min(merged.length(), maxBytes / 2));
-            log.warn("SessionMemoryExtractor: content truncated to {} bytes", maxBytes / 2);
+        if (merged.getBytes(StandardCharsets.UTF_8).length > maxBytes) {
+            merged = truncateUtf8(merged, maxBytes);
+            log.warn("SessionMemoryExtractor: content truncated to {} UTF-8 bytes", maxBytes);
         }
         log.debug("SessionMemoryExtractor: merged content size = {} chars, ~{} tokens",
-                merged.length(), tokenEstimator.estimate(merged));
+                merged.length(), estimateTokens(merged));
         return Optional.of(merged);
+    }
+
+    private static int estimateTokens(String text) {
+        if (text == null || text.isBlank()) {
+            return 0;
+        }
+        return Math.max(1, (int) Math.ceil(text.length() / 2.5d));
+    }
+
+    private static String truncateUtf8(String text, int maxBytes) {
+        if (text == null || maxBytes <= 0) {
+            return "";
+        }
+        StringBuilder out = new StringBuilder(text.length());
+        int used = 0;
+        for (int i = 0; i < text.length(); ) {
+            int codePoint = text.codePointAt(i);
+            String chunk = new String(Character.toChars(codePoint));
+            int bytes = chunk.getBytes(StandardCharsets.UTF_8).length;
+            if (used + bytes > maxBytes) {
+                break;
+            }
+            out.append(chunk);
+            used += bytes;
+            i += Character.charCount(codePoint);
+        }
+        return out.toString();
     }
 }

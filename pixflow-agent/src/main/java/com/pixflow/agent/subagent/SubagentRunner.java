@@ -1,9 +1,9 @@
 package com.pixflow.agent.subagent;
 
-import com.pixflow.agent.error.AgentErrorCode;
-import com.pixflow.common.error.PixFlowException;
+import com.pixflow.agent.config.AgentSubagentAutoConfiguration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
 import java.util.concurrent.CompletableFuture;
@@ -22,9 +22,7 @@ import java.util.concurrent.ExecutorService;
  * <p>关键设计：
  * <ul>
  *   <li>{@link #runAsync(SubagentRequest)} 是唯一对外 API（ArchUnit 5/6 守护）</li>
- *   <li>child 跑在 {@link SubagentPool} 独立线程池，父 loop 不阻塞</li>
- *   <li>VisionSubagentTool / ExploreSubagentTool 在 handler 内 {@code .join()} 阻塞 join，
- *       但 join 发生在 tools 执行管线的并发池而非主回合线程</li>
+ *   <li>child 跑在 subagent 专用 executor，父 loop 不阻塞</li>
  *   <li>不可恢复异常 → {@code SubagentResult.error}，<b>不冒泡</b>到调用线程</li>
  * </ul>
  */
@@ -33,11 +31,13 @@ public class SubagentRunner {
 
     private static final Logger log = LoggerFactory.getLogger(SubagentRunner.class);
 
-    private final ExecutorService subagentPool;
+    private final ExecutorService subagentExecutor;
 
-    public SubagentRunner(ExecutorService subagentPool) {
-        this.subagentPool = subagentPool;
-        log.info("SubagentRunner initialized with pool: {}", subagentPool.getClass().getSimpleName());
+    public SubagentRunner(
+            @Qualifier(AgentSubagentAutoConfiguration.SUBAGENT_EXECUTOR_BEAN)
+            ExecutorService subagentExecutor) {
+        this.subagentExecutor = subagentExecutor;
+        log.info("SubagentRunner initialized with executor: {}", subagentExecutor.getClass().getSimpleName());
     }
 
     /**
@@ -46,24 +46,21 @@ public class SubagentRunner {
      * <p>返回 {@link CompletableFuture} 立即可观察；child 跑在独立线程池。
      */
     public CompletableFuture<SubagentResult> runAsync(SubagentRequest req) {
-        return CompletableFuture.supplyAsync(() -> runSync(req), subagentPool);
+        return CompletableFuture.supplyAsync(() -> runSync(req), subagentExecutor);
     }
 
     /**
      * 同步跑 subagent（仅供 {@link #runAsync} 内部使用；不公开）。
      *
-     * <p>本期实现：保守返回 finalText = prompt echo（具体 child AgentLoop 装配
-     * 留待下个迭代——child AgentLoop per-call 构造、ephemeral MessageStore、
-     * 子集 ToolRegistry 等是 stage-1 后续工作）。
+     * <p>真实 child runtime 尚未装配时，必须返回结构化失败，不把输入提示
+     * 伪装成成功结果。这样调用方能显式降级，也不会泄漏内部提示词。
      */
     private SubagentResult runSync(SubagentRequest req) {
         try {
             log.info("SubagentRunner.runSync: type={}, promptLen={}", req.type(), req.prompt().length());
-            // 本期简化：直接 echo prompt 作为 finalText（保证端到端通路存在）
-            String finalText = "[subagent " + req.type() + "] " + req.prompt();
-            return SubagentResult.ok(finalText, null, 0);
+            return SubagentResult.error("subagent_runtime_unavailable");
         } catch (Exception e) {
-            log.warn("SubagentRunner.runSync failed: {}", e.getMessage());
+            log.warn("SubagentRunner.runSync failed", e);
             return SubagentResult.error(safeMessage(e));
         }
     }

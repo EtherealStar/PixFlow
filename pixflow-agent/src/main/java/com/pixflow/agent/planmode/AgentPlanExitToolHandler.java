@@ -1,13 +1,11 @@
 package com.pixflow.agent.planmode;
 
-import com.pixflow.harness.loop.RuntimeState;
 import com.pixflow.harness.tools.ToolHandler;
 import com.pixflow.harness.tools.ToolHandlerOutput;
 import com.pixflow.harness.tools.ToolInvocation;
-import org.springframework.stereotype.Component;
-
 import java.util.LinkedHashMap;
 import java.util.Map;
+import org.springframework.stereotype.Component;
 
 /**
  * {@code plan_exit} 工具 handler。
@@ -19,11 +17,9 @@ import java.util.Map;
 public class AgentPlanExitToolHandler implements ToolHandler {
 
     private final PlanModeController controller;
-    private final RuntimeState runtimeState;
 
-    public AgentPlanExitToolHandler(PlanModeController controller, RuntimeState runtimeState) {
+    public AgentPlanExitToolHandler(PlanModeController controller) {
         this.controller = controller;
-        this.runtimeState = runtimeState;
     }
 
     @Override
@@ -31,9 +27,10 @@ public class AgentPlanExitToolHandler implements ToolHandler {
         Map<String, Object> args = invocation.arguments();
         String draftPlan = (String) args.getOrDefault("draftPlan", "");
         try {
-            controller.exit(runtimeState, draftPlan);
+            controller.exit(invocation.runtimeContext(), draftPlan);
         } catch (IllegalStateException e) {
-            return new ToolHandlerOutput(e.getMessage(), Map.of("error", true));
+            return new ToolHandlerOutput("Plan mode transition rejected",
+                    Map.of("error", true, "error_code", "plan_mode_transition_rejected"));
         }
         Map<String, Object> metadata = new LinkedHashMap<>();
         metadata.put("plan_mode", "OFF");

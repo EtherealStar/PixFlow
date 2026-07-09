@@ -1,10 +1,10 @@
 package com.pixflow.agent.prompt;
 
-import com.pixflow.harness.context.sessionmemory.SessionMemoryContent;
-import com.pixflow.agent.memory.MemoryRecallResult;
 import com.pixflow.agent.planmode.PlanModeState;
+import com.pixflow.harness.context.sessionmemory.SessionMemoryContent;
 import com.pixflow.harness.loop.RuntimeState;
 import com.pixflow.harness.tools.ToolDescriptor;
+import com.pixflow.module.memory.context.MemoryContext;
 
 import java.util.List;
 
@@ -64,7 +64,7 @@ public interface SectionRenderer {
             List<String> recentAssistantMessageIds,
             String userMessage,
             PlanModeState planMode,
-            MemoryRecallResult recall,
+            MemoryContext memoryContext,
             SessionMemoryContent sessionMemory,
             List<ToolDescriptor> visibleTools
     ) {}

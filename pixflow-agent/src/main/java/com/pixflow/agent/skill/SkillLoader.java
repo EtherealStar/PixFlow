@@ -8,6 +8,7 @@ import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 import org.springframework.core.io.support.ResourcePatternResolver;
 import org.springframework.stereotype.Component;
 
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -51,23 +52,26 @@ public class SkillLoader {
         try {
             resources = resolver.getResources(SKILL_PATTERN);
         } catch (Exception e) {
-            log.warn("SkillLoader: failed to scan classpath:skills/ - {}", e.getMessage());
+            log.warn("SkillLoader: failed to scan classpath:skills/", e);
             return;
         }
         Set<String> seenNames = new HashSet<>();
         for (Resource res : resources) {
             String path = res.getDescription();
             try {
-                String content = new String(res.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+                String content;
+                try (InputStream in = res.getInputStream()) {
+                    content = new String(in.readAllBytes(), StandardCharsets.UTF_8);
+                }
                 var parsed = parser.parse(content);
                 String name = parsed.frontmatter().name();
                 String bodyHash = md5(content);
                 seenNames.add(name);
                 upsertSkill(parsed, bodyHash);
             } catch (SkillParseException e) {
-                log.warn("SkillLoader: invalid SKILL.md at {}: {}", path, e.getMessage());
+                log.warn("SkillLoader: invalid SKILL.md at {}", path, e);
             } catch (Exception e) {
-                log.warn("SkillLoader: failed to load {} - {}", path, e.getMessage());
+                log.warn("SkillLoader: failed to load {}", path, e);
             }
         }
         // 删除启动时未出现的 BUILTIN skill（被移除场景）
@@ -79,7 +83,7 @@ public class SkillLoader {
                 }
             }
         } catch (Exception e) {
-            log.warn("SkillLoader: stale-skill cleanup failed - {}", e.getMessage());
+            log.warn("SkillLoader: stale-skill cleanup failed", e);
         }
     }
 
