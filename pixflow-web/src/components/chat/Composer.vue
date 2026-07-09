@@ -138,27 +138,28 @@ const canSend = computed(() => ((props.modelValue ?? '').trim().length > 0 || pr
         <IconPaperclip :size="20" />
       </button>
 
-      <!-- Right: Send / Stop -->
-      <button 
-        v-if="streaming"
-        type="button"
-        class="flex items-center justify-center w-8 h-8 rounded-full bg-bg-sunken hover:bg-border text-fg-primary transition-colors"
-        @click="$emit('stop')"
-        aria-label="停止"
-      >
-        <span class="w-3 h-3 bg-fg-primary rounded-sm"></span>
-      </button>
-      <button 
-        v-else
-        type="button"
-        class="flex items-center justify-center w-8 h-8 rounded-full transition-colors"
-        :class="canSend ? 'bg-fg-primary text-bg-panel hover:opacity-90' : 'bg-bg-sunken text-fg-muted cursor-not-allowed'"
-        :disabled="!canSend"
-        @click="$emit('send')"
-        aria-label="发送"
-      >
-        <IconSend :size="16" />
-      </button>
+      <!-- Right: Stop + Send -->
+      <div class="flex items-center gap-2">
+        <button 
+          v-if="streaming"
+          type="button"
+          class="flex items-center justify-center w-8 h-8 rounded-full bg-bg-sunken hover:bg-border text-fg-primary transition-colors"
+          @click="$emit('stop')"
+          aria-label="停止"
+        >
+          <span class="w-3 h-3 bg-fg-primary rounded-sm"></span>
+        </button>
+        <button 
+          type="button"
+          class="flex items-center justify-center w-8 h-8 rounded-full transition-colors"
+          :class="canSend ? 'bg-fg-primary text-bg-panel hover:opacity-90' : 'bg-bg-sunken text-fg-muted cursor-not-allowed'"
+          :disabled="!canSend"
+          @click="$emit('send')"
+          :aria-label="streaming ? '加入发送队列' : '发送'"
+        >
+          <IconSend :size="16" />
+        </button>
+      </div>
     </div>
   </div>
 </template>

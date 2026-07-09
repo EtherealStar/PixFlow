@@ -11,7 +11,7 @@ import { useChatSession } from '@/runtime/useChatSession'
  * 会话页（/chat/:cid），web.md §十一 / §二十一
  *
  * - Composer 接管输入（@ 提及 / Ctrl+Enter / 附件）
- * - MessageStream 渲染 agent deltas + 用户消息
+ * - MessageStream 渲染 agent timeline + 用户消息
  * - ProposalCard 列表：HITL 二次确认入口
  * - ChallengeDialog：答案错误时弹出
  * - TaskProgressCard：当消息流中带 taskId 时挂载
@@ -30,7 +30,7 @@ const chat = useChatSession({ route, router })
     </header>
 
     <div class="chat-body flex-1 overflow-y-auto">
-      <MessageStream :deltas="chat.streamDeltas.value" :user-messages="chat.userMessages.value" />
+      <MessageStream :timeline="chat.streamTimeline.value" :user-messages="chat.userMessages.value" />
 
       <ProposalCard
         v-for="p in chat.visibleProposals.value"
@@ -38,7 +38,7 @@ const chat = useChatSession({ route, router })
         :proposal="p"
         :challenge-prompt="chat.currentChallenge.value?.prompt"
         :awaiting-challenge="chat.currentPhase.value === 'awaiting_challenge'"
-        :busy="chat.sending.value || chat.currentPhase.value === 'awaiting_confirm'"
+        :busy="chat.currentPhase.value === 'awaiting_confirm'"
         @confirm="(ans?: string) => chat.confirmProposal(p, ans)"
         @reject="chat.rejectProposal(p)"
       />
@@ -66,7 +66,7 @@ const chat = useChatSession({ route, router })
     <footer class="chat-foot border-t border-border bg-bg-panel px-4 py-3">
       <Composer
         v-model="chat.composerText.value"
-        :sending="chat.sending.value || chat.uploadingAttachment.value || chat.currentPhase.value === 'sending'"
+        :sending="chat.uploadingAttachment.value"
         :streaming="chat.currentPhase.value === 'streaming' || chat.currentPhase.value === 'sending'"
         :has-attachments="chat.pendingAttachments.value.length > 0"
         @attach-files="chat.attachFiles"
