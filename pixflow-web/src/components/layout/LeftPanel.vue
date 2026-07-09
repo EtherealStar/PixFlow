@@ -47,7 +47,8 @@ function onLeave(): void {
 
 const effectiveExpanded = computed(() => ui.leftPanelPinned || hovering.value)
 
-const userInitial = computed(() => auth.user?.name?.[0] ?? 'U')
+const displayName = computed(() => auth.user?.displayName || auth.user?.username || '未登录')
+const userInitial = computed(() => displayName.value[0] ?? 'U')
 
 async function handleLogout(): Promise<void> {
   await auth.logout()
@@ -135,7 +136,7 @@ function startNewChat(): void {
           <template #trigger>
             <button class="user-trigger flex items-center gap-2 w-full px-2 py-2 rounded-md hover:bg-bg-sunken transition-colors">
               <AppAvatar :text="userInitial" :size="30" />
-              <span class="flex-1 text-left text-sm font-medium text-fg-primary truncate">{{ auth.user?.name ?? '未登录' }}</span>
+              <span class="flex-1 text-left text-sm font-medium text-fg-primary truncate">{{ displayName }}</span>
               <IconMoreHorizontal :size="16" class="text-fg-muted" />
             </button>
           </template>

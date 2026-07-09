@@ -2,6 +2,7 @@ import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import App from './App.vue'
 import { router } from './router'
+import { useAuthStore } from './stores/auth'
 import { installDevConsoleGuard } from './utils/devConsoleGuard'
 import './styles/global.css'
 
@@ -15,8 +16,11 @@ import './styles/global.css'
  * - 鉴权走 radix-vue headless（见 R3.3）+ 自绘 AppDialog/AppDropdownMenu 等
  */
 const app = createApp(App)
-app.use(createPinia())
+const pinia = createPinia()
+app.use(pinia)
 app.use(router)
+
+void useAuthStore(pinia).bootstrap()
 
 if (__DEV__) {
   installDevConsoleGuard()

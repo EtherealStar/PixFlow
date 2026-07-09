@@ -8,7 +8,7 @@ import { sha256Blob } from './hasher'
  * 见 web.md §7.5、§7.6。
  *
  *  - 退避：1s → 2s → 4s → 8s → 16s → 30s（封顶）；同分片最多 5 次
- *  - 触发自动重试：网络错 / 5xx / 429 / UPLOAD_SESSION_NOT_UPLOADING
+ *  - 触发自动重试：网络错 / 5xx / 通用 429 / UPLOAD_SESSION_NOT_UPLOADING
  *  - 不重试：CHUNK_HASH_MISMATCH / CHUNK_SIZE_MISMATCH / CHUNK_OUT_OF_RANGE / INCOMPLETE_CHUNKS
  *  - ALREADY_EXISTS 视为成功
  *  - 单分片累计退避 > 60s → FAILED → 整文件 error
@@ -23,7 +23,6 @@ const RETRYABLE_CODES = new Set([
   'NETWORK_ERROR',
   'INTERNAL_ERROR',
   'DEPENDENCY_UNAVAILABLE',
-  'UPLOAD_RATE_LIMITED',
   'UPLOAD_SESSION_NOT_UPLOADING'
 ])
 

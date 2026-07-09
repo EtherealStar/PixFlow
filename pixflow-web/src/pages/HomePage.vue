@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { useRouter } from 'vue-router'
 import { useUiStore } from '@/stores/ui'
+import { useAuthRedirect } from '@/composables/useAuthRedirect'
 import AppCard from '@/components/ui/AppCard.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import IconChat from '@/components/icons/IconChat.vue'
@@ -16,8 +16,8 @@ import Composer from '@/components/chat/Composer.vue'
  * 提供 4 个入口：新建对话 / 我的素材 / 任务列表 / 上传。
  * 视觉走 token；颜色 / 圆角 / 间距全部走 design tokens。
  */
-const router = useRouter()
 const ui = useUiStore()
+const { goProtected } = useAuthRedirect()
 
 const prompt = ref('')
 
@@ -25,7 +25,7 @@ function onSend() {
   if (!prompt.value.trim()) return
   const q = encodeURIComponent(prompt.value)
   prompt.value = ''
-  router.push(`/chat/new?q=${q}`)
+  goProtected(`/chat/new?q=${q}`)
 }
 
 const cards: Array<{
@@ -88,7 +88,7 @@ const cards: Array<{
           <h2 class="text-base font-medium text-fg-primary mb-1">{{ card.title }}</h2>
           <p class="text-sm text-fg-secondary">{{ card.description }}</p>
         </div>
-        <AppButton variant="primary" size="sm" @click="card.action ? card.action() : router.push(card.to!)">
+        <AppButton variant="primary" size="sm" @click="card.action ? card.action() : goProtected(card.to!)">
           {{ card.cta }}
         </AppButton>
       </AppCard>

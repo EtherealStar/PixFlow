@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onBeforeUnmount, onMounted } from 'vue'
 import AppCard from '@/components/ui/AppCard.vue'
 import AppProgressBar from '@/components/ui/AppProgressBar.vue'
 import IconCheck from '@/components/icons/IconCheck.vue'
@@ -20,16 +20,22 @@ const props = defineProps<{
 
 // 懒加载建立 WS 订阅
 const task = createTask({ taskId: props.taskId, conversationId: props.conversationId })
-void task.attach()
+onMounted(() => {
+  void task.refresh()
+  task.subscribeWS()
+})
+onBeforeUnmount(() => task.unsubscribeWS())
+
+const currentState = computed(() => task.state.value)
 
 const percent = computed(() => {
-  const total = task.state.value.progress.total || 0
+  const total = currentState.value.progress.total || 0
   if (total <= 0) return 0
-  return Math.round((task.state.value.progress.done / total) * 100)
+  return Math.round((currentState.value.progress.done / total) * 100)
 })
 
 const icon = computed(() => {
-  switch (task.state.value.phase) {
+  switch (currentState.value.phase) {
     case 'completed': return IconCheck
     case 'failed':
     case 'cancelled': return IconX
@@ -45,10 +51,10 @@ const icon = computed(() => {
         :is="icon"
         :size="16"
         :class="[
-          task.state.phase === 'completed' ? 'text-success' :
-          task.state.phase === 'failed' || task.state.phase === 'cancelled' ? 'text-danger' :
+          currentState.phase === 'completed' ? 'text-success' :
+          currentState.phase === 'failed' || currentState.phase === 'cancelled' ? 'text-danger' :
           'text-accent',
-          task.state.phase === 'queued' || task.state.phase === 'running' ? 'animate-spin' : ''
+          currentState.phase === 'queued' || currentState.phase === 'running' ? 'animate-spin' : ''
         ]"
       />
       <span class="text-sm text-fg-primary">任务进度</span>
@@ -57,13 +63,13 @@ const icon = computed(() => {
     <AppProgressBar
       :percent="percent"
       :tone="
-        task.state.phase === 'failed' ? 'danger' :
-        task.state.phase === 'partial' ? 'warning' :
-        task.state.phase === 'completed' ? 'success' : 'accent'
+        currentState.phase === 'failed' ? 'danger' :
+        currentState.phase === 'partial' ? 'warning' :
+        currentState.phase === 'completed' ? 'success' : 'accent'
       "
     />
-    <div v-if="task.state.value.error" class="mt-2 text-xs text-danger">
-      错误：{{ task.state.value.error.message }}
+    <div v-if="currentState.error || currentState.lastError" class="mt-2 text-xs text-danger">
+      错误：{{ currentState.error?.message ?? currentState.lastError }}
     </div>
   </AppCard>
 </template>

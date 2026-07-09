@@ -71,15 +71,13 @@ export function errorToMessage(err: ApiError): { type: 'info' | 'warning' | 'err
     case 'CHUNK_SIZE_MISMATCH':
     case 'CHUNK_OUT_OF_RANGE':
     case 'INCOMPLETE_CHUNKS':
-    case 'FILE_HASH_INVALID':
     case 'FILE_HASH_MISMATCH':
-    case 'FILE_SIZE_OUT_OF_RANGE':
+    case 'UPLOAD_TOO_LARGE':
+    case 'PACKAGE_DEDUP_CONFLICT':
+    case 'PACKAGE_ALREADY_REFERENCED':
     case 'UPLOAD_SESSION_NOT_FOUND':
     case 'UPLOAD_SESSION_NOT_UPLOADING':
       return { type: 'error', message: m }
-    // 上传 429
-    case 'UPLOAD_RATE_LIMITED':
-      return { type: 'info', message: `${m}（自动重试中...）` }
     // 网络/通用
     case 'NETWORK_ERROR':
     case 'STREAM_INTERRUPTED':
@@ -109,7 +107,6 @@ export type ErrorCategory =
   | 'ws'
   | 'biz-4xx'
   | 'biz-410'
-  | 'upload-429'
   | 'upload-400'
   | '5xx'
   | 'unknown'
@@ -119,8 +116,13 @@ export function categorize(err: ApiError): ErrorCategory {
   if (err.errorCode === 'STREAM_INTERRUPTED') return 'stream'
   if (err.status === 0 || err.errorCode === 'NETWORK_ERROR') return 'network'
   if (err.status === 410) return 'biz-410'
-  if (err.errorCode === 'UPLOAD_RATE_LIMITED') return 'upload-429'
-  if (err.errorCode?.startsWith('UPLOAD_') || err.errorCode?.startsWith('CHUNK_') || err.errorCode?.startsWith('FILE_') || err.errorCode === 'INCOMPLETE_CHUNKS') return 'upload-400'
+  if (
+    err.errorCode?.startsWith('UPLOAD_') ||
+    err.errorCode?.startsWith('CHUNK_') ||
+    err.errorCode === 'FILE_HASH_MISMATCH' ||
+    err.errorCode?.startsWith('PACKAGE_') ||
+    err.errorCode === 'INCOMPLETE_CHUNKS'
+  ) return 'upload-400'
   if (err.status >= 400 && err.status < 500) return 'biz-4xx'
   if (err.status >= 500 && err.status < 600) return '5xx'
   return 'unknown'

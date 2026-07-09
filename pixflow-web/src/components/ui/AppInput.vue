@@ -24,6 +24,10 @@ const props = withDefaults(
     disabled?: boolean
     /** input type */
     type?: 'text' | 'password' | 'email' | 'number' | 'search'
+    /** 浏览器自动填充提示，透传到原生 input。 */
+    autocomplete?: string
+    /** 原生 input name，便于密码管理器识别表单字段。 */
+    name?: string
   }>(),
   {
     type: 'text',
@@ -62,6 +66,8 @@ const hasSuffix = computed(() => !!slots.suffix)
         :value="modelValue"
         :placeholder="placeholder"
         :type="type"
+        :autocomplete="autocomplete"
+        :name="name"
         :disabled="disabled"
         class="flex-1 min-w-0 h-10 px-3 text-base bg-transparent text-fg-primary placeholder:text-fg-muted focus:outline-none disabled:cursor-not-allowed"
         @input="(ev: Event) => $emit('update:modelValue', (ev.target as HTMLInputElement).value)"

@@ -22,7 +22,8 @@ describe('errorToMessage', () => {
     ['CHUNK_HASH_MISMATCH', make({ status: 400, errorCode: 'CHUNK_HASH_MISMATCH' }), 'error'],
     ['CHUNK_SIZE_MISMATCH', make({ status: 400, errorCode: 'CHUNK_SIZE_MISMATCH' }), 'error'],
     ['INCOMPLETE_CHUNKS', make({ status: 400, errorCode: 'INCOMPLETE_CHUNKS' }), 'error'],
-    ['UPLOAD_RATE_LIMITED', make({ status: 429, errorCode: 'UPLOAD_RATE_LIMITED' }), 'info'],
+    ['UPLOAD_TOO_LARGE', make({ status: 400, errorCode: 'UPLOAD_TOO_LARGE' }), 'error'],
+    ['PACKAGE_DEDUP_CONFLICT', make({ status: 409, errorCode: 'PACKAGE_DEDUP_CONFLICT' }), 'error'],
     ['NETWORK_ERROR', make({ status: 0, errorCode: 'NETWORK_ERROR' }), 'warning'],
     ['STREAM_INTERRUPTED', make({ status: 0, errorCode: 'STREAM_INTERRUPTED' }), 'warning'],
     ['INTERNAL_ERROR', make({ status: 500, errorCode: 'INTERNAL_ERROR' }), 'error'],
@@ -38,7 +39,7 @@ describe('errorToMessage', () => {
 describe('categorize', () => {
   it('network', () => expect(categorize(make({ status: 0 }))).toBe('network'))
   it('biz-410', () => expect(categorize(make({ status: 410 }))).toBe('biz-410'))
-  it('upload-429', () => expect(categorize(make({ status: 429, errorCode: 'UPLOAD_RATE_LIMITED' }))).toBe('upload-429'))
+  it('generic 429', () => expect(categorize(make({ status: 429, errorCode: 'RATE_LIMITED' }))).toBe('biz-4xx'))
   it('5xx', () => expect(categorize(make({ status: 503 }))).toBe('5xx'))
   it('biz-4xx', () => expect(categorize(make({ status: 400, errorCode: 'OTHER' }))).toBe('biz-4xx'))
   it('upload-400', () => expect(categorize(make({ status: 400, errorCode: 'CHUNK_HASH_MISMATCH' }))).toBe('upload-400'))

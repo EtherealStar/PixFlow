@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
+import { useAuthStore } from '@/stores/auth'
 
 /**
  * 路由表（web.md §十一）
@@ -12,7 +13,7 @@ import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
  * 占位路由（Wave 6 范畴）：
  * - /rubrics, /settings
  *
- * 鉴权守卫：未登录访问 /chat / /files / /tasks/:tid 时 redirect → /login。
+ * 鉴权守卫：未登录访问 /chat / /files / /tasks/:tid 时 redirect → 注册优先的 /login。
  * 登录页 meta.standalone = true，App.vue 中全屏渲染不套三栏。
  */
 export const routes: RouteRecordRaw[] = [
@@ -71,14 +72,21 @@ export const router = createRouter({
   routes,
 })
 
-// 全局前置守卫：未登录 → /login
-router.beforeEach((to) => {
+// 全局前置守卫：先恢复 JWT / refresh cookie，再判断登录态。
+router.beforeEach(async (to) => {
+  const auth = useAuthStore()
+  if (to.name === 'login') {
+    if (auth.isAuthenticated) {
+      const redirect = typeof to.query.redirect === 'string' ? to.query.redirect : '/'
+      return redirect
+    }
+    return true
+  }
   if (to.meta?.public) return true
   if (!to.meta?.requiresAuth) return true
-  // 动态 import auth store 避免循环依赖
-  // 同步读 localStorage 兜底（store 初始化之前的导航场景）
-  let token: string | null = null
-  try { token = localStorage.getItem('pixflow.auth.token') } catch { /* noop */ }
-  if (token) return true
-  return { name: 'login', query: { redirect: to.fullPath } }
+  if (!auth.hasBootstrapped()) {
+    await auth.bootstrap()
+  }
+  if (auth.isAuthenticated) return true
+  return { name: 'login', query: { mode: 'register', redirect: to.fullPath } }
 })

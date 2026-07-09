@@ -13,9 +13,10 @@ import type { FileIndexNode } from '@/stores/fileIndex'
  * - Ctrl+Enter 发送
  */
 const props = defineProps<{
-  modelValue: string
+  modelValue?: string
   sending?: boolean
   streaming?: boolean
+  hasAttachments?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -73,7 +74,7 @@ function onInput(v: string): void {
 }
 
 function onSelectMention(node: FileIndexNode): void {
-  const v = props.modelValue
+  const v = props.modelValue ?? ''
   const atIdx = v.lastIndexOf('@')
   if (atIdx >= 0) {
     const next = `${v.slice(0, atIdx)}@${node.label} `
@@ -85,7 +86,7 @@ function onSelectMention(node: FileIndexNode): void {
 function onKeydown(ev: KeyboardEvent): void {
   if (ev.ctrlKey && ev.key === 'Enter') {
     ev.preventDefault()
-    emit('send')
+    if (canSend.value) emit('send')
     return
   }
   if (!mentionOpen.value) return
@@ -94,7 +95,7 @@ function onKeydown(ev: KeyboardEvent): void {
   }
 }
 
-const canSend = computed(() => props.modelValue.trim().length > 0 && !props.sending)
+const canSend = computed(() => ((props.modelValue ?? '').trim().length > 0 || props.hasAttachments) && !props.sending)
 </script>
 
 <template>
