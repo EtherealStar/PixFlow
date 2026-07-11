@@ -3,7 +3,8 @@ package com.pixflow.harness.eval.model;
 public enum TurnStatus {
     OPEN(0),
     COMMITTED(1),
-    ABORTED(2);
+    ABORTED(2),
+    CANCELLED(3);
 
     private final int code;
 

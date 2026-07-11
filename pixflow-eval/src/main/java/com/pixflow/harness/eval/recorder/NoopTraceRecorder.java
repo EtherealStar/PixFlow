@@ -38,6 +38,10 @@ public final class NoopTraceRecorder implements TraceRecorder {
         @Override
         public void abort(PixFlowException error) {
         }
+
+        @Override
+        public void cancel() {
+        }
     };
 
     @Override

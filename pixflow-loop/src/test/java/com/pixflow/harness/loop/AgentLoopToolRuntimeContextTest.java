@@ -1,5 +1,6 @@
 package com.pixflow.harness.loop;
 
+import com.pixflow.common.concurrent.CancellationToken;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.pixflow.infra.ai.chat.ToolCall;
@@ -21,7 +22,7 @@ class AgentLoopToolRuntimeContextTest {
                 .toolExecutor(toolExecutor)
                 .build();
 
-        loop.stream("make a plan", List.of(), new RecordingAgentEventSink(), "system", List.of());
+        loop.stream("make a plan", List.of(), new RecordingAgentEventSink(), "system", List.of(), CancellationToken.NONE);
 
         assertThat(toolExecutor.contextHistory()).hasSize(1);
         toolExecutor.contextHistory().get(0).runtimeContext().putMetadata("planMode", true);

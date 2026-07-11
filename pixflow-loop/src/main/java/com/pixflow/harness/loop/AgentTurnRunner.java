@@ -1,7 +1,6 @@
 package com.pixflow.harness.loop;
 
 import com.pixflow.harness.loop.event.AgentEventSink;
-import java.util.List;
 
 /**
  * 回合驱动 SPI — 由 harness-loop 拥有。
@@ -18,13 +17,13 @@ import java.util.List;
  *
  * <p>契约：
  * <ul>
- *   <li>参数对齐 {@code AgentLoop.stream(prompt, attachments, sink, systemPrompt, toolSchemas)}：
- *       前 4 参为 caller 控制，第 5 / 6 参 systemPrompt / toolSchemas 由实现方自决</li>
+ *   <li>{@link AgentTurnRequest} 由 conversation 构造，显式携带 conversation、prompt、附件和取消令牌；
+ *       systemPrompt / toolSchemas 仍由 agent 实现方装配</li>
  *   <li>返回最终 assistant 文本（与 SSE {@code event: completed} 帧 finalText 一致）</li>
- *   <li>异常向上抛给 web 层归一化为 HTTP / SSE error 帧</li>
+ *   <li>业务异常向上抛给 web 层归一化；取消异常保持控制流语义，不写 ErrorRecorder</li>
  * </ul>
  */
 @FunctionalInterface
 public interface AgentTurnRunner {
-    String stream(String conversationId, String prompt, List<Attachment> attachments, AgentEventSink sink);
+    String stream(AgentTurnRequest request, AgentEventSink sink);
 }

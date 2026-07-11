@@ -3,6 +3,7 @@ package com.pixflow.harness.loop;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.pixflow.common.error.PixFlowException;
+import com.pixflow.common.concurrent.CancellationToken;
 import com.pixflow.harness.loop.event.AgentEventType;
 import com.pixflow.harness.loop.stream.ModelStreamConsumer;
 import com.pixflow.infra.ai.chat.ChatStreamEvent;
@@ -24,7 +25,8 @@ class ModelStreamConsumerTest {
                 new ChatStreamEvent.Completed("partial", List.of(), StopReason.LENGTH, new TokenUsage(1, 2, 3))),
                 new RecordingAgentEventSink(),
                 state,
-                java.util.Map.of("assistantCallId", "a1", "modelTurnIndex", 1));
+                java.util.Map.of("assistantCallId", "a1", "modelTurnIndex", 1),
+                CancellationToken.NONE);
 
         assertThat(outcome.stopReason()).isEqualTo(StopReason.LENGTH);
         assertThat(outcome.outputInterrupted()).isTrue();
@@ -47,7 +49,8 @@ class ModelStreamConsumerTest {
                 new ChatStreamEvent.Completed("ok", List.of(), StopReason.STOP, new TokenUsage(1, 2, 3))),
                 sink,
                 state,
-                java.util.Map.of("assistantCallId", "a1", "modelTurnIndex", 1));
+                java.util.Map.of("assistantCallId", "a1", "modelTurnIndex", 1),
+                CancellationToken.NONE);
 
         var transition = sink.eventsOfType(AgentEventType.TRANSITION).get(0);
         assertThat(transition.payload()).isEqualTo(TransitionReason.RATE_LIMIT_RETRY);

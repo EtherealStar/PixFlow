@@ -1,5 +1,6 @@
 package com.pixflow.harness.loop;
 
+import com.pixflow.common.concurrent.CancellationToken;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -50,7 +51,7 @@ class AgentLoopErrorRecoveryTest {
                 new FakeHookRegistry(), new InMemoryTraceRecorder(), new RecordingErrorRecorder(),
                 new com.pixflow.harness.context.store.MessageStore());
 
-        String result = loop.stream("q", List.of(), sink, "sys", List.of());
+        String result = loop.stream("q", List.of(), sink, "sys", List.of(), CancellationToken.NONE);
 
         assertThat(result).isEqualTo("recovered");
         assertThat(loop.state().hasAttemptedReactiveCompact()).isTrue();
@@ -71,7 +72,7 @@ class AgentLoopErrorRecoveryTest {
         AgentLoop loop = newHarness(new RuntimeState(), client, new FakeToolExecutor(),
                 new FakeHookRegistry(), rec, errs, new com.pixflow.harness.context.store.MessageStore());
 
-        assertThatThrownBy(() -> loop.stream("q", List.of(), sink, "sys", List.of()))
+        assertThatThrownBy(() -> loop.stream("q", List.of(), sink, "sys", List.of(), CancellationToken.NONE))
                 .isInstanceOf(PixFlowException.class);
 
         assertThat(errs.count()).isEqualTo(1);
@@ -98,7 +99,7 @@ class AgentLoopErrorRecoveryTest {
                 hooks, new InMemoryTraceRecorder(), new RecordingErrorRecorder(),
                 store);
 
-        String result = loop.continueStream(sink, "sys", List.of());
+        String result = loop.continueStream(sink, "sys", List.of(), CancellationToken.NONE);
 
         assertThat(result).isEqualTo("ok");
         assertThat(hooks.dispatchedOfType(HookEvent.USER_PROMPT_SUBMIT)).isEmpty();
@@ -129,7 +130,7 @@ class AgentLoopErrorRecoveryTest {
                 new FakeHookRegistry(), new InMemoryTraceRecorder(), new RecordingErrorRecorder(),
                 new com.pixflow.harness.context.store.MessageStore());
 
-        assertThatThrownBy(() -> loop.stream("q", List.of(), sink, "sys", List.of()))
+        assertThatThrownBy(() -> loop.stream("q", List.of(), sink, "sys", List.of(), CancellationToken.NONE))
                 .isInstanceOf(PixFlowException.class);
         assertThat(streamCalls).hasValue(1);
         assertThat(subscriptions).hasValue(1);

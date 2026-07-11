@@ -10,6 +10,7 @@ import com.pixflow.harness.context.runtime.CurrentModelContext;
 import com.pixflow.harness.context.store.MessageStore;
 import com.pixflow.harness.loop.config.LoopProperties;
 import com.pixflow.harness.loop.permission.DefaultPermissionContextFactory;
+import com.pixflow.harness.tools.ToolExecutor;
 import java.util.Objects;
 import java.util.concurrent.Executors;
 
@@ -29,7 +30,7 @@ final class LoopTestSupport {
         RuntimeState state;
         MessageStore store = new MessageStore();
         FakeChatModelClient modelClient = new FakeChatModelClient();
-        FakeToolExecutor toolExecutor = new FakeToolExecutor();
+        ToolExecutor toolExecutor = new FakeToolExecutor();
         FakeHookRegistry hookRegistry = new FakeHookRegistry();
         InMemoryTraceRecorder traceRecorder = new InMemoryTraceRecorder();
         RecordingErrorRecorder errorRecorder = new RecordingErrorRecorder();
@@ -56,7 +57,7 @@ final class LoopTestSupport {
             return this;
         }
 
-        Builder toolExecutor(FakeToolExecutor t) {
+        Builder toolExecutor(ToolExecutor t) {
             this.toolExecutor = t;
             return this;
         }

@@ -116,6 +116,20 @@ class TraceRecorderTest {
                 .isEqualTo(1);
     }
 
+    @Test
+    void recordsCancelledTurnWithoutAnErrorPayload() {
+        Fixture fixture = new Fixture(10_000, 10);
+        TraceRecorder recorder = new DefaultTraceRecorder(fixture.buffer);
+        TurnTrace trace = recorder.begin("conv-cancel", 1, "trace-cancel", RuntimeScope.MAIN);
+
+        trace.cancel();
+        fixture.buffer.flushNow();
+
+        AgentTraceEntity row = fixture.repository.findByTurn("conv-cancel", 1).orElseThrow();
+        assertThat(row.turnStatus()).isEqualTo(TurnStatus.CANCELLED);
+        assertThat(row.errorJson()).isEqualTo("[]");
+    }
+
     private static final class Fixture {
         final EvalProperties properties = new EvalProperties();
         final InMemoryAgentTraceRepository repository = new InMemoryAgentTraceRepository();

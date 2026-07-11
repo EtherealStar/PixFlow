@@ -97,6 +97,13 @@ public final class BufferedTurnTrace implements TurnTrace {
         }
     }
 
+    @Override
+    public void cancel() {
+        if (completed.compareAndSet(false, true)) {
+            buffer.offer(snapshot(TurnStatus.CANCELLED));
+        }
+    }
+
     private TraceCommand snapshot(TurnStatus status) {
         return new TraceCommand(
                 conversationId,

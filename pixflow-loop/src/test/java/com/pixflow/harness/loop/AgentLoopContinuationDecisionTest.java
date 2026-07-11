@@ -1,5 +1,6 @@
 package com.pixflow.harness.loop;
 
+import com.pixflow.common.concurrent.CancellationToken;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.pixflow.harness.context.budget.ConservativeTokenEstimator;
@@ -36,7 +37,7 @@ class AgentLoopContinuationDecisionTest {
 
         AgentLoop loop = newHarness(new RuntimeState(), client, new FakeToolExecutor(),
                 new FakeHookRegistry(), new InMemoryTraceRecorder(), new RecordingErrorRecorder());
-        String result = loop.stream("hi", List.of(), sink, "system-prompt", List.of());
+        String result = loop.stream("hi", List.of(), sink, "system-prompt", List.of(), CancellationToken.NONE);
 
         assertThat(result).isEqualTo("hello back");
         assertThat(sink.eventsOfType(AgentEventType.COMPLETED)).hasSize(1);
@@ -59,7 +60,7 @@ class AgentLoopContinuationDecisionTest {
 
         AgentLoop loop = newHarness(new RuntimeState(), client, toolExec,
                 new FakeHookRegistry(), new InMemoryTraceRecorder(), new RecordingErrorRecorder());
-        String result = loop.stream("q", List.of(), sink, "sys", List.of());
+        String result = loop.stream("q", List.of(), sink, "sys", List.of(), CancellationToken.NONE);
 
         assertThat(result).isEqualTo("search result processed");
         assertThat(toolExec.totalCalls()).isEqualTo(1);
@@ -99,7 +100,7 @@ class AgentLoopContinuationDecisionTest {
 
         AgentLoop loop = newHarness(new RuntimeState(), client, toolExec,
                 new FakeHookRegistry(), new InMemoryTraceRecorder(), new RecordingErrorRecorder());
-        String result = loop.stream("q", List.of(), sink, "sys", List.of());
+        String result = loop.stream("q", List.of(), sink, "sys", List.of(), CancellationToken.NONE);
 
         assertThat(result).isEqualTo("done");
         assertThat(toolExec.totalCalls()).isEqualTo(3);
@@ -118,7 +119,7 @@ class AgentLoopContinuationDecisionTest {
 
         AgentLoop loop = newHarness(new RuntimeState(), client, toolExec,
                 new FakeHookRegistry(), new InMemoryTraceRecorder(), new RecordingErrorRecorder());
-        String result = loop.stream("q", List.of(), sink, "sys", List.of());
+        String result = loop.stream("q", List.of(), sink, "sys", List.of(), CancellationToken.NONE);
 
         assertThat(result).isEqualTo("recovered");
         assertThat(toolExec.totalCalls()).isZero();
@@ -144,7 +145,7 @@ class AgentLoopContinuationDecisionTest {
 
         AgentLoop loop = newHarness(new RuntimeState(), client, toolExec,
                 new FakeHookRegistry(), new InMemoryTraceRecorder(), new RecordingErrorRecorder());
-        loop.stream("q", List.of(), sink, "sys", List.of());
+        loop.stream("q", List.of(), sink, "sys", List.of(), CancellationToken.NONE);
 
         List<Object> payloads = sink.eventsOfType(AgentEventType.TOOL_RESULT).stream()
                 .map(e -> e.payload())

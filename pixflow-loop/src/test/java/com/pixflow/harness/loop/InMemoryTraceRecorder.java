@@ -47,6 +47,7 @@ public final class InMemoryTraceRecorder implements TraceRecorder {
         private final List<TraceError> errors = new ArrayList<>();
         private boolean committed;
         private boolean aborted;
+        private boolean cancelled;
 
         InMemoryTurnTrace(String conversationId, int turnNo, String traceId, RuntimeScope runtimeScope) {
             this.conversationId = conversationId;
@@ -58,7 +59,7 @@ public final class InMemoryTraceRecorder implements TraceRecorder {
         @Override
         public void close() {
             // abort 后 close 不应覆盖状态
-            if (!aborted && !committed) {
+            if (!aborted && !committed && !cancelled) {
                 commit();
             }
         }
@@ -74,6 +75,7 @@ public final class InMemoryTraceRecorder implements TraceRecorder {
         public List<TraceError> errors() { return List.copyOf(errors); }
         public boolean committed() { return committed; }
         public boolean aborted() { return aborted; }
+        public boolean cancelled() { return cancelled; }
 
         @Override public void recordInput(TraceInput input) { if (input != null) inputs.add(input); }
         @Override public void recordToolCall(TraceToolCall call) { if (call != null) toolCalls.add(call); }
@@ -87,6 +89,11 @@ public final class InMemoryTraceRecorder implements TraceRecorder {
             recordError(error);
             aborted = true;
             committed = false;
+        }
+        @Override public void cancel() {
+            cancelled = true;
+            committed = false;
+            aborted = false;
         }
     }
 }

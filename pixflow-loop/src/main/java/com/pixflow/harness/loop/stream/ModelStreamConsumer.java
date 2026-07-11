@@ -1,5 +1,6 @@
 package com.pixflow.harness.loop.stream;
 
+import com.pixflow.common.concurrent.CancellationToken;
 import com.pixflow.common.error.PixFlowException;
 import com.pixflow.common.sanitize.Sanitizer;
 import com.pixflow.harness.loop.RuntimeState;
@@ -18,6 +19,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicReference;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
 /**
@@ -53,10 +55,13 @@ public final class ModelStreamConsumer {
     public ModelOutcome consume(Flux<ChatStreamEvent> flux,
                                 AgentEventSink sink,
                                 RuntimeState state,
-                                Map<String, Object> eventMetadata) {
+                                Map<String, Object> eventMetadata,
+                                CancellationToken cancellation) {
         Objects.requireNonNull(flux, "flux");
         Objects.requireNonNull(sink, "sink");
         Objects.requireNonNull(state, "state");
+        Objects.requireNonNull(cancellation, "cancellation");
+        cancellation.throwIfCancellationRequested();
 
         Map<String, Object> baseEventMetadata = eventMetadata == null ? Map.of() : Map.copyOf(eventMetadata);
         StringBuilder textBuilder = new StringBuilder();
@@ -64,8 +69,16 @@ public final class ModelStreamConsumer {
         AtomicReference<TokenUsage> lastUsage = new AtomicReference<>(new TokenUsage(0, 0, 0));
         AtomicReference<StopReason> stopReason = new AtomicReference<>(StopReason.STOP);
 
-        flux.publishOn(Schedulers.boundedElastic())
+        // 模型流先结束时 Reactor 只取消自己的订阅，不能反向 cancel 公共 token signal。
+        Flux<ChatStreamEvent> cancellable = flux
+                .publishOn(Schedulers.boundedElastic())
+                .takeUntilOther(Mono.fromFuture(
+                        cancellation.cancellationSignal().toCompletableFuture(),
+                        true));
+        try {
+            cancellable
                 .doOnNext(event -> {
+                    cancellation.throwIfCancellationRequested();
                     if (event == null) {
                         return;
                     }
@@ -95,6 +108,11 @@ public final class ModelStreamConsumer {
                 })
                 .doOnError(error -> { throw rethrow(error); })
                 .blockLast(SUBSCRIBE_TIMEOUT);
+        } catch (RuntimeException error) {
+            cancellation.throwIfCancellationRequested();
+            throw error;
+        }
+        cancellation.throwIfCancellationRequested();
 
         TokenUsage usage = lastUsage.get();
         StopReason finalStopReason = stopReason.get();

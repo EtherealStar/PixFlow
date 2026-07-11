@@ -3,6 +3,8 @@ package com.pixflow.harness.loop;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.pixflow.common.concurrent.CancellationToken;
+import com.pixflow.common.concurrent.OperationCancelledException;
 import com.pixflow.common.error.ErrorCategory;
 import com.pixflow.common.error.PixFlowException;
 import com.pixflow.common.observability.ErrorRecorder;
@@ -171,9 +173,12 @@ public final class AgentLoop {
                          List<Attachment> attachments,
                          AgentEventSink sink,
                          String systemPrompt,
-                         List<ToolSchemaView> toolSchemas) {
+                         List<ToolSchemaView> toolSchemas,
+                         CancellationToken cancellation) {
         Objects.requireNonNull(prompt, "prompt");
         Objects.requireNonNull(sink, "sink");
+        Objects.requireNonNull(cancellation, "cancellation");
+        cancellation.throwIfCancellationRequested();
         state.setTraceId(UUID.randomUUID().toString());
         state.setTurnNo(state.turnNo() + 1);
 
@@ -187,6 +192,7 @@ public final class AgentLoop {
                 state.metadata());
         hookRegistry.dispatch(HookEvent.USER_PROMPT_SUBMIT, upsPayload);
 
+        cancellation.throwIfCancellationRequested();
         messageStore.appendUser(prompt);
         if (attachments != null && !attachments.isEmpty()) {
             List<Message> attachmentMessages = attachments.stream()
@@ -194,23 +200,27 @@ public final class AgentLoop {
                     .collect(Collectors.toList());
             messageStore.appendAttachments(attachmentMessages);
         }
-        return runLoop(sink, systemPrompt, toolSchemas);
+        return runLoop(sink, systemPrompt, toolSchemas, cancellation);
     }
 
     public String continueStream(AgentEventSink sink,
                                  String systemPrompt,
-                                 List<ToolSchemaView> toolSchemas) {
+                                 List<ToolSchemaView> toolSchemas,
+                                 CancellationToken cancellation) {
         Objects.requireNonNull(sink, "sink");
+        Objects.requireNonNull(cancellation, "cancellation");
+        cancellation.throwIfCancellationRequested();
         if (state.traceId() == null || state.traceId().isBlank()) {
             state.setTraceId(UUID.randomUUID().toString());
         }
         state.setTurnNo(state.turnNo() + 1);
-        return runLoop(sink, systemPrompt, toolSchemas);
+        return runLoop(sink, systemPrompt, toolSchemas, cancellation);
     }
 
     private String runLoop(AgentEventSink sink,
                            String systemPrompt,
-                           List<ToolSchemaView> toolSchemas) {
+                           List<ToolSchemaView> toolSchemas,
+                           CancellationToken cancellation) {
         if (state.conversationId() == null || state.conversationId().isBlank()) {
             throw new IllegalStateException("RuntimeState.conversationId must be set before running loop");
         }
@@ -223,6 +233,7 @@ public final class AgentLoop {
             String finalText = "";
             try {
                 while (true) {
+                    cancellation.throwIfCancellationRequested();
                     state.incrementIteration();
                     int modelTurnIndex = state.iterationCount();
                     String assistantCallId = state.traceId() + ":assistant:" + modelTurnIndex;
@@ -244,15 +255,16 @@ public final class AgentLoop {
 
                     ChatRequest request = toChatRequest(snapshot);
                     // 模型调用级 retry 只能由 infra/ai 的 ChatModelClient.stream 内部负责。
+                    cancellation.throwIfCancellationRequested();
                     Flux<com.pixflow.infra.ai.chat.ChatStreamEvent> flux = modelClient.stream(request);
                     ModelOutcome outcome;
                     try {
-                        outcome = streamConsumer.consume(flux, sink, state, eventMetadata);
+                        outcome = streamConsumer.consume(flux, sink, state, eventMetadata, cancellation);
                     } catch (RuntimeException ex) {
                         if (isContextLimit(ex)) {
                             PixFlowException ctxErr = toPixFlow(ex);
                             GateDecision gate = reactiveCompactionGate.onContextLimit(state, messageStore, ctxErr);
-                            applyTransition(state, gate, sink, traceFanout, eventMetadata);
+                            applyTransition(state, gate, sink, traceFanout, eventMetadata, cancellation);
                             continue;
                         }
                         throw ex;
@@ -262,7 +274,7 @@ public final class AgentLoop {
                     if (outcome.outputInterrupted()) {
                         GateDecision gate = outputInterruptHandler.onOutputInterrupted(
                                 state, messageStore, outcome.finalText(), defaultContinuationPrompt);
-                        applyTransition(state, gate, sink, traceFanout, eventMetadata);
+                        applyTransition(state, gate, sink, traceFanout, eventMetadata, cancellation);
                         continue;
                     }
 
@@ -287,12 +299,12 @@ public final class AgentLoop {
                     HookResult ampResult = hookRegistry.dispatch(HookEvent.ASSISTANT_MESSAGE_COMPLETED, ampPayload);
                     traceFanout.fanoutHookSpan(HookEvent.ASSISTANT_MESSAGE_COMPLETED, ampResult, null, null, 0L);
 
-                    sink.emit(AgentEvent.assistantCompleted(finalText, assistantMsg.id(), eventMetadata));
+                    emit(sink, AgentEvent.assistantCompleted(finalText, assistantMsg.id(), eventMetadata), cancellation);
 
                     if (!outcome.hasToolCalls()) {
                         state.setTransition(TransitionReason.COMPLETED);
-                        sink.emit(AgentEvent.transition(TransitionReason.COMPLETED,
-                                eventMetadata(eventMetadata, Map.of("iteration", state.iterationCount()))));
+                        emit(sink, AgentEvent.transition(TransitionReason.COMPLETED,
+                                eventMetadata(eventMetadata, Map.of("iteration", state.iterationCount()))), cancellation);
 
                         HookResult stopped = hookRegistry.dispatch(HookEvent.TURN_STOPPED,
                                 new TurnStoppedPayload(
@@ -310,23 +322,40 @@ public final class AgentLoop {
                             // flush 当前 no-op；保留入口以对齐 session 生命周期
                         }
                         turnTrace.commit();
-                        sink.emit(AgentEvent.completed(finalText, eventMetadata(eventMetadata, Map.of(
+                        emit(sink, AgentEvent.completed(finalText, eventMetadata(eventMetadata, Map.of(
                                 "turnNo", state.turnNo(),
-                                "iterationCount", state.iterationCount()))));
+                                "iterationCount", state.iterationCount()))), cancellation);
                         return finalText;
                     }
 
                     state.setTransition(TransitionReason.TOOL_USE);
-                    sink.emit(AgentEvent.transition(TransitionReason.TOOL_USE,
-                            eventMetadata(eventMetadata, Map.of("iteration", state.iterationCount()))));
+                    emit(sink, AgentEvent.transition(TransitionReason.TOOL_USE,
+                            eventMetadata(eventMetadata, Map.of("iteration", state.iterationCount()))), cancellation);
 
-                    List<ToolExecutionResult> results = executeToolCalls(outcome.toolCalls(), traceFanout, turnTrace, sink, eventMetadata);
+                    List<ToolExecutionResult> results = executeToolCalls(
+                            outcome.toolCalls(), traceFanout, turnTrace, sink, eventMetadata, cancellation);
 
                     List<Message> toolResultMessages = results.stream()
                             .map(r -> Message.toolResult(r.toolCallId(), r.content()))
                             .collect(Collectors.toList());
                     messageStore.appendToolResults(toolResultMessages);
                 }
+            } catch (OperationCancelledException cancelled) {
+                try {
+                    turnTrace.cancel();
+                } catch (RuntimeException ignored) {
+                }
+                try {
+                    hookRegistry.dispatch(HookEvent.TURN_STOPPED, new TurnStoppedPayload(
+                            state.conversationId(),
+                            state.turnNo(),
+                            state.traceId(),
+                            state.runtimeScope(),
+                            "cancelled:" + cancelled.reason().name(),
+                            state.metadata()));
+                } catch (RuntimeException ignored) {
+                }
+                throw cancelled;
             } catch (RuntimeException terminalError) {
                 PixFlowException error = toPixFlow(terminalError);
                 errorRecorder.record(error);
@@ -346,16 +375,17 @@ public final class AgentLoop {
                                  GateDecision gate,
                                  AgentEventSink sink,
                                  TraceFanout traceFanout,
-                                 Map<String, Object> eventMetadata) {
+                                 Map<String, Object> eventMetadata,
+                                 CancellationToken cancellation) {
         if (gate instanceof GateDecision.Retry retry) {
             state.setTransition(retry.reason());
-            sink.emit(AgentEvent.transition(retry.reason(),
-                    eventMetadata(eventMetadata, Map.of("phase", "retry", "iteration", state.iterationCount()))));
+            emit(sink, AgentEvent.transition(retry.reason(),
+                    eventMetadata(eventMetadata, Map.of("phase", "retry", "iteration", state.iterationCount()))), cancellation);
             traceFanout.fanoutRetry(retry.reason(), 0L);
         } else if (gate instanceof GateDecision.ContinueAfterAppend cont) {
             state.setTransition(cont.reason());
-            sink.emit(AgentEvent.transition(cont.reason(),
-                    eventMetadata(eventMetadata, Map.of("phase", "continueAfterAppend", "iteration", state.iterationCount()))));
+            emit(sink, AgentEvent.transition(cont.reason(),
+                    eventMetadata(eventMetadata, Map.of("phase", "continueAfterAppend", "iteration", state.iterationCount()))), cancellation);
         } else if (gate instanceof GateDecision.Abort abort) {
             throw abort.error();
         }
@@ -365,7 +395,9 @@ public final class AgentLoop {
                                                       TraceFanout traceFanout,
                                                       TurnTrace turnTrace,
                                                       AgentEventSink sink,
-                                                      Map<String, Object> eventMetadata) {
+                                                      Map<String, Object> eventMetadata,
+                                                      CancellationToken cancellation) {
+        cancellation.throwIfCancellationRequested();
         if (calls == null || calls.isEmpty()) {
             return List.of();
         }
@@ -392,7 +424,8 @@ public final class AgentLoop {
                 planModeView,
                 runtimeContext,
                 toolExecutorService,
-                hiddenTools);
+                hiddenTools,
+                cancellation);
 
         List<ParsedToolCall> parsedCalls = calls.stream()
                 .map(this::parseToolCall)
@@ -403,12 +436,13 @@ public final class AgentLoop {
                 .collect(Collectors.toList());
 
         for (ToolCall call : harnessCalls) {
+            cancellation.throwIfCancellationRequested();
             Map<String, Object> readyMeta = new LinkedHashMap<>(eventMetadata);
             if (properties.emitToolInputPreview()) {
                 readyMeta.put("inputPreview", String.valueOf(call.arguments()));
             }
-            sink.emit(AgentEvent.toolCallReady(call, readyMeta));
-            sink.emit(AgentEvent.toolStarted(call, readyMeta));
+            emit(sink, AgentEvent.toolCallReady(call, readyMeta), cancellation);
+            emit(sink, AgentEvent.toolStarted(call, readyMeta), cancellation);
         }
 
         List<ToolExecutionResult> executedResults = harnessCalls.isEmpty()
@@ -417,9 +451,15 @@ public final class AgentLoop {
         List<ToolExecutionResult> results = mergeToolResults(parsedCalls, executedResults);
 
         for (ToolExecutionResult result : results) {
-            sink.emit(AgentEvent.toolResult(result, eventMetadata));
+            emit(sink, AgentEvent.toolResult(result, eventMetadata), cancellation);
         }
         return results;
+    }
+
+    private static void emit(AgentEventSink sink, AgentEvent event, CancellationToken cancellation) {
+        cancellation.throwIfCancellationRequested();
+        sink.emit(event);
+        cancellation.throwIfCancellationRequested();
     }
 
     private Map<String, Object> eventMetadata(String assistantCallId, int modelTurnIndex) {

@@ -21,6 +21,8 @@ public interface TurnTrace extends AutoCloseable {
 
     void abort(PixFlowException error);
 
+    void cancel();
+
     @Override
     default void close() {
         commit();
