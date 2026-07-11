@@ -41,7 +41,7 @@
 5. **分组由文件名编号决定**。SKU / 分组 / 视图全部从文件名编号解析，不做视觉识别（对齐 `design.md §9.5`）。
 6. **安全是硬约束**。zip slip、zip bomb、路径穿越在解压侧前置拦截，超阈值即拒（见 [§七](#七zip-安全slip--bomb)）。
 7. **生产级、不简化**。流式 I/O、可靠投递、毒包 DLQ、断点续跑、Testcontainers 集成测试齐备。
-8. **整包 SHA-256 去重**。前端对文件流式计算 SHA-256（4 MB 分片，Web Crypto），上传前先 `POST /api/files/packages/init` 携带 `fileHash`；若 `asset_package.file_hash` 已存在同值记录，直接返回已有包（`mode: "DEDUP"`），避免重复上传与存储浪费。Redisson 锁 `lock:package-upload:{fileHash}` 保证同 hash 并发上传的互斥（见 [§五](#五分片上传与整包去重)）。
+8. **整包 SHA-256 去重**。前端对完整文件原始字节计算标准 SHA-256，上传前先 `POST /api/files/packages/init` 携带 `fileHash`；若 `asset_package.file_hash` 已存在同值记录，直接返回已有包（`mode: "DEDUP"`），避免重复上传与存储浪费。每个上传分片另行计算 `chunkHash = SHA256(chunkBytes)`，由后端校验分片完整性。Redisson 锁 `lock:package-upload:{fileHash}` 保证同 hash 并发上传互斥（见 [§五](#五分片上传与整包去重)）。
 
 ---
 
@@ -69,7 +69,8 @@ module/file/
 ├── FileService.java                  # 对外门面：upload / 查询 / 删除（解压触发委托给 ingest）
 ├── upload/
 │   ├── UploadSessionService.java     # 上传会话生命周期：init / chunk PUT / complete / cancel
-│   ├── UploadSessionStore.java       # Redis 会话读写（package_upload_session 五类 key）
+│   ├── UploadSessionStore.java       # 深模块 interface：快照、分片幂等结果、状态迁移
+│   ├── RedisUploadSessionStore.java  # production adapter：fileHash/session KV + chunks Redis Hash
 │   ├── ChunkAssembler.java           # MinIO composeObject 分片合龙
 │   ├── ChunkIntegrityVerifier.java   # X-Chunk-Hash 校验 + 全量 chunk 完整性检查
 │   └── FileHashService.java          # fileHash → 已有包查重 / Redisson 锁协调
@@ -143,26 +144,38 @@ module/file ──► MySQL / MyBatis-Plus + POI + commons-csv
 
 ### 4.2 Redis（上传会话）
 
-`package_upload_session` 为 Redis-only 存储（不落 MySQL），TTL 默认 1 小时，完成或取消后延迟清理。共五类 key：
+`package_upload_session` 为 Redis-only 存储（不落 MySQL），TTL 默认 24 小时，上传活动会续期，完成或取消后延迟清理。生产 adapter 使用三个业务 key；分片索引与元数据合并在同一个 Redis Hash 中，不再为每个分片创建独立 Redis key，也不再额外维护一份 Set：
 
-| Key 模式 | 类型 | 说明 |
+| Key 模式 | Redis 类型 | 说明 |
 |---|---|---|
-| `pixflow:upload:session:{uploadId}` | Hash | 会话元数据：`filename`、`size`、`fileHash`、`chunkSize`、`totalChunks`、`status`（`INIT`/`UPLOADING`/`COMPLETING`/`READY`/`CANCELLED`/`EXPIRED`）、`createdAt`、`ttl` |
-| `pixflow:upload:chunks:{uploadId}` | Set | 已完成上传的分片索引集合（如 `"0"`, `"1"`, `"5"`） |
-| `pixflow:upload:lock:{uploadId}:chunk:{index}` | String（带 TTL） | 单分片写入锁，防止同一分片并发 PUT 脏写 |
-| `pixflow:upload:lock:{uploadId}:terminal` | String（带 TTL） | Complete / Cancel 共用的终态锁，串行化 `COMPLETING`、`READY`、`CANCELLED` 等终态迁移 |
+| `pixflow:upload:filehash:{fileHash}` | String | 标准整包 SHA-256 到当前 active `uploadId` 的索引；用于刷新、断网或客户端重启后找回会话 |
+| `pixflow:upload:session:{uploadId}` | Hash | 会话元数据：`filename`、`size`、`fileHash`、`chunkSize`、`expectedChunks`、`status`、`packageId`、`createdAt`、`updatedAt`、`expiresAt` |
+| `pixflow:upload:chunks:{uploadId}` | Hash | field=`index`，value=`ChunkMetadata{chunkHash,chunkSize,minioKey}`；`HKEYS` 一次返回已成功落盘的分片编号，`HGETALL` 为 complete 提供全部元数据 |
 
-此外，整包去重互斥锁独立于会话：
+锁使用独立的 Redisson key：`lock:package-upload:{fileHash}` 串行化 init，`lock:package-chunk:{uploadId}:{index}` 串行化单分片 PUT，`lock:package-terminal:{uploadId}` 串行化 complete/cancel。锁不是上传事实源，不进入恢复快照。
 
-| Key 模式 | 类型 | 说明 |
-|---|---|---|
-| `lock:package-upload:{fileHash}` | Redisson RLock | 同 `fileHash` 的 init 互斥（watch-dog 自动续期），防止两个客户端同时上传同一文件 |
+- 会话在 `init` 时创建；每次成功分片写入和有效 resume 都以同一 `expiresAt` 刷新 fileHash 索引、session Hash、chunks Hash 的 TTL。
+- 分片上传幂等：同一 `(uploadId, index, chunkHash)` 重复 PUT 返回 `ALREADY_EXISTS`；同 index 不同 hash 返回 `CHUNK_HASH_MISMATCH`。
+- MinIO 对象成功落盘后才允许 `HSET chunks[index]`。Redis 已记录但 MinIO 对象缺失时不得返回成功，应删除失效 field 并允许重传；complete 再次验证对象存在、大小和整包 hash。
+- 该语义只覆盖当前上传会话，不表示跨上传或跨会话的物理分片复用。
+- TTL 会话过期由 Redis key TTL 驱逐；后台清理器删除失去会话引用的 MinIO 临时分片。生产 Redis 必须启用 AOF 与持久化磁盘，保证服务重启后的恢复能力。
 
-- 会话在 `init` 时创建，`complete` 成功后延迟删除（保留窗口供前端轮询结果），`cancel` 后延迟删除。
-- 分片上传幂等：同一 `(uploadId, index)` 重复 PUT 返回 `ALREADY_EXISTS`，不产生副作用。
-- TTL 会话过期由 Redis key TTL 自动驱逐，`EXPIRED` 状态由 `GET /api/files/packages/sessions/{uploadId}` 按需判定。
+### 4.3 UploadSessionStore 深模块
 
-### 4.3 素材包状态机
+上传状态的 seam 固定在 `UploadSessionStore`。这是 module/file 内部唯一允许理解 Redis key、Hash field、TTL 和序列化格式的 interface；`UploadSessionService`、controller 和前端都不得直接依赖 `ExpiringStateStore`、`ExpiringHashStore`、Redisson `RMap` 或 Redis 命令。
+
+Interface 只暴露上传语义：
+
+- 按 `fileHash` 或 `uploadId` 读取不可变 `UploadSnapshot`；快照同时包含 session 与已成功落盘的 `Map<Integer, ChunkMetadata>`。
+- 创建新会话或保存状态迁移。
+- 原子记录一个成功分片，返回 `CREATED | ALREADY_EXISTS | HASH_CONFLICT`，并统一刷新相关 TTL。
+- 删除/终结会话及其 Redis 状态。
+
+Redis Hash、key 命名、`HKEYS/HGETALL`、TTL 刷新和冲突判定属于 implementation，不进入 interface。生产 adapter 为 `RedisUploadSessionStore`，接口测试使用内存 adapter；测试从同一 interface 观察 resume 快照、幂等结果和生命周期，不越过 seam 断言具体 Redis 命令。
+
+这个 module 的深度来自以下隐藏行为：一次“记录成功分片”同时完成 metadata 写入、重复 hash 判定和三类 key 续期；一次“读取快照”同时解析会话、批量读取 chunks Hash 并返回排序后的已上传编号。调用方不自行拼 Redis key，也不自行扫描 `expectedChunks` 次 `EXISTS`。
+
+### 4.4 素材包状态机
 
 ```
             上传请求落 zip + 建包
@@ -195,11 +208,12 @@ module/file ──► MySQL / MyBatis-Plus + POI + commons-csv
 六阶段流程（`web.md §16.1`）：
 
 ```
-前端：Streaming SHA-256（4MB chunks, Web Crypto）
+前端：标准整文件 SHA-256（流式/增量计算）
   → POST /api/files/packages/init  {filename, size, fileHash, chunkSize}
        后端：fileHash 查重 → Redisson lock:package-upload:{fileHash} 互斥
-         ├─ 命中已有包 → {mode: "DEDUP", packageId, status}         // 去重命中
-         └─ 未命中     → {mode: "UPLOAD", uploadId}                 // 正常上传
+         ├─ 命中已有包   → {mode: "DEDUP", packageId, status}       // 整包去重命中
+         ├─ 命中 active  → {mode: "RESUME", uploadId, uploadedChunks} // 断点续传
+         └─ 均未命中     → {mode: "UPLOAD", uploadId}               // 新上传
   → 前端：filter 已上传分片（GET sessions/{uploadId} → uploadedChunks）
   → 前端：并行 PUT chunk（固定 worker pool, 默认 4）
        PUT /api/files/packages/sessions/{uploadId}/chunks/{index}
@@ -216,9 +230,10 @@ module/file ──► MySQL / MyBatis-Plus + POI + commons-csv
 
 | 层级 | 机制 | 说明 |
 |---|---|---|
-| **去重判定** | `asset_package.file_hash` UNIQUE 索引 | `init` 时只查 `file_hash = ? AND status = READY AND deleted_at IS NULL`，命中才返回 `mode: "DEDUP"` 和已有 `packageId` |
+| **去重判定** | `asset_package.file_hash` UNIQUE 索引 | `init` 时只查标准整包 `fileHash`；命中才返回 `mode: "DEDUP"` 和已有 `packageId` |
 | **并发互斥** | Redisson `lock:package-upload:{fileHash}` | 同 `fileHash` 的两个 init 请求互斥，watch-dog 自动续期；先到者正常上传，后到者要么等待要么在锁释放后读到已创建的包记录 → DEDUP |
 | **去重响应** | `mode: "DEDUP"` + `packageId` + `status` | 前端收到 DEDUP 后跳过上传，直接进入已有包的进度订阅 |
+| **续传响应** | `mode: "RESUME"` + `uploadId` + `uploadedChunks` | 同 `fileHash` 存在 active session；前端接管该会话并只上传差集 |
 | **正常上传** | `mode: "UPLOAD"` + `uploadId` | 前端进入分片上传流程 |
 
 - **幂等保护**：即使两个请求同时 `init` 且锁机制未能完全串行化，`asset_package.file_hash` 的 UNIQUE 约束在最终 `complete` 建包时兜底——第二个 `INSERT` 会触发 `DuplicateKeyException`，`complete` 转为幂等返回已有包信息。
@@ -228,20 +243,22 @@ module/file ──► MySQL / MyBatis-Plus + POI + commons-csv
 
 `api.md` Upload Session Storage：
 
-- **会话生命周期**：`init` 创建（`INIT`）→ 首片上传进入 `UPLOADING` → `complete` 进入 `COMPLETING` → 合龙成功 `READY` / 失败回滚；`cancel` → `CANCELLED`；TTL 超期 → `EXPIRED`。
-- **Redis-only**：会话状态、已上传分片集合、分片锁、complete/cancel 锁全部存储在 Redis，不落 MySQL（见 [§4.2](#42-redis上传会话)）。
+- **会话生命周期**：`init` 创建（`UPLOADING`）→ `pause` 仅停止客户端请求、后端状态不变 → `complete` 进入 `COMPLETING` → 合龙成功 `READY` / 失败回滚；`cancel` → `CANCELLED`；TTL 超期 → `EXPIRED`。
+- **Redis-only**：会话状态、fileHash 索引和 chunks Hash 存储在 Redis，不落 MySQL；锁只负责并发串行化（见 [§4.2](#42-redis上传会话)）。
 - **chunkSize**：固定 5 MiB（`web.md §16.4`），前端按此切片；最后一个分片可小于 5 MiB。
 - **并发控制**：前端固定 worker pool（默认 4），后端 429 + `Retry-After` 头限流；单分片锁 `lock:{uploadId}:chunk:{index}` 防并发 PUT 同一分片。
 
 ### 5.4 分片完整性
 
-- **单分片校验**：`PUT /chunks/{index}` 必须携带 `X-Chunk-Hash`（分片字节的 SHA-256 hex），后端以流式限长读取写入临时对象，并同步计算 SHA-256；声明长度、实际读取长度或 hash 不匹配时失败并清理临时对象。
+- **单分片校验**：`PUT /chunks/{index}` 必须携带 `X-Chunk-Hash`（当前分片原始字节的 SHA-256 hex），后端以流式限长读取写入临时对象，并同步计算 SHA-256；声明长度、实际读取长度或 hash 不匹配时失败并清理临时对象。
+- **整包校验**：`complete` 合并所有分片后，对完整 zip 原始字节计算标准 `SHA-256(fileBytes)`，必须与 init/complete 携带的 `fileHash` 相等；整包 hash 不能由分片 hash 拼接推导。
 - **全量校验**：`complete` 时检查 `uploadedChunks` 集合是否覆盖 `[0, totalChunks)` → 不完整 → `INCOMPLETE_CHUNKS`。
 - **合龙**：MinIO `composeObject` 将各分片按索引顺序拼接为最终 zip 对象，key = `StorageKeys.packageSource(packageId)`。
 
 ### 5.5 断点续传与取消
 
-- **断点续传**：前端在 `localStorage` 中按 `fileHash` 存储 `uploadId` + 7 天 TTL（`web.md §16.3`）。页面刷新后：若会话未过期 → `GET sessions/{uploadId}` 拿到 `uploadedChunks`，过滤已上传分片，续传剩余分片；若会话已过期 → 重新发起 `init`。
+- **断点续传**：前端本地 `fileHash -> uploadId` 只是优化，后端 `fileHash -> active uploadId` 才是权威恢复路径。页面刷新、断网或客户端重启后重新计算标准 `fileHash` 并调用 init；后端返回 `RESUME + uploadedChunks`，前端只上传 `[0, expectedChunks)` 与该集合的差集。
+- **暂停**：只中止客户端在飞请求，不调用 DELETE，不清 Redis/MinIO，之后按上述 resume 流程继续。
 - **取消**：`DELETE /api/files/packages/sessions/{uploadId}` → 清理 Redis 会话 + 已上传临时分片 → `CANCELLED`。幂等：重复 cancel 返回 204。
 
 ### 5.6 前端状态机
@@ -469,7 +486,7 @@ pixflow:
 |---|---|
 | `infra/storage` | 用 `StorageKeys.package*` 写 zip/原图/文档；解压期 `getStream` 取回 zip、`put` 流式上传图；上传期用 `put` 写临时分片对象 + `composeObject` 合龙为最终 zip；仅在素材包未被引用且执行物理删除时用 `deleteByPrefix(PACKAGES, "{packageId}/")` |
 | `infra/mq` | `ExtractionDestination` 声明 `pixflow-file` topic、`PACKAGE_EXTRACT` tag 与 `pixflow-file-extractor` consumer group；`ExtractionPublisher` 经 `MessagePublisher` 发布并据 `PublishResult` 补偿；`ExtractionConsumer` process-then-ack；`ExtractionErrorHandler` 实现 `ConsumerErrorHandler` |
-| `infra/cache` | Redisson `RLock` 用于 `lock:package-upload:{fileHash}`（整包上传互斥）+ `lock:{uploadId}:chunk:{index}`（分片写入串行化）+ `lock:{uploadId}:terminal`（complete/cancel 终态操作串行化）；Redis `String`/`Set`/`Hash` 用于上传会话 key（见 [§4.2](#42-redis上传会话)） |
+| `infra/cache` | Redisson `RLock` 用于 fileHash/chunk/terminal 串行化；fail-closed 的 `ExpiringStateStore` 保存 fileHash 索引和 session，`ExpiringHashStore` 保存 `index -> ChunkMetadata`（见 [§4.2](#42-redis上传会话)） |
 | `common` | 错误归一化 / `Sanitizer` / `ApiResponse`；实现侧消费 `ProgressNotifier` SPI（接口在 common，STOMP 实现在 app 级） |
 | `module/dag` | 读 `asset_image` 的 `sku_id`/`group_key`/`view_id` 做 `BranchExpander` 分组展开与 `compose_group` 成员归组 |
 | `module/conversation` | `message.attached_package_id` 关联素材包；只读查询包详情；后续为 `PackageReferenceChecker` 提供引用检查，防止已被对话引用的包被物理删除 |
@@ -497,10 +514,14 @@ pixflow:
 - **`ProgressNotifier` 测试**：用 fake notifier 断言进度按 `extracted_count` 推进、channel/事件正确；轮询端点与 WS 事件同源一致。
 - **错误码目录一致性**：`FileErrorCode` 并入 `common` 启动期聚合测试（code 唯一 + i18n 齐全 + category 非空）。
 - **分片上传集成测试（Testcontainers：MinIO + Redis）**：init → 并行 chunk PUT → complete → composeObject 合龙 → `asset_package` 创建全链路。
-- **整包去重测试**：同一 `fileHash` 两次 init → 首次正常 UPLOAD、第二次 DEDUP → 验证 `asset_package` 只有一条记录；DEDUP 命中后前端跳过上传直接获得 `packageId`。
-- **整包上传互斥测试**：两个并发 init 同 `fileHash` → Redisson 锁串行化 → 先到者完成建包、后到者转为 DEDUP。
-- **分片断点续传测试**：上传部分分片后模拟中断 → `GET sessions/{uploadId}` 拿到 `uploadedChunks` → 过滤后续传剩余分片 → complete 成功。
-- **分片幂等测试**：同一 `(uploadId, index)` 重复 PUT → 第二次返回 `ALREADY_EXISTS`，分片集合不变。
+- **整包去重测试**：已有 READY 包时同一 `fileHash` init → 返回 DEDUP + `packageId`，不创建新 session、不写临时分片。
+- **整包上传互斥测试**：两个并发 init 同 `fileHash` → Redisson 锁串行化 → 只创建一个 active session，两个调用分别得到 UPLOAD 与 RESUME，`uploadId` 相同。
+- **分片断点续传测试**：上传部分分片后模拟浏览器刷新/网络中断 → 再次 init 同 `fileHash` 返回 RESUME + `uploadedChunks` → 过滤后续传剩余分片 → complete 成功。
+- **Redis Hash 快照测试**：多个成功分片写入后，`UploadSessionStore` 一次读取返回排序后的 `Map<Integer, ChunkMetadata>`；不得通过遍历 `expectedChunks` 次 `EXISTS` 构造进度。
+- **TTL 与断电恢复测试**：成功分片和 resume 会同步续期 fileHash/session/chunks 三类 key；重启 Redis（AOF）后仍可按 fileHash 找回相同 active session。
+- **跨存储一致性测试**：MinIO 写成功后才记录 Redis field；Redis field 存在但 MinIO 对象缺失时返回可重传状态，complete 不得信任缺失对象。
+- **分片幂等测试**：同一 `(uploadId, index, chunkHash)` 重复 PUT → 第二次返回 `ALREADY_EXISTS`，分片集合不变；不同 hash 必须拒绝。
+- **整包 hash 测试**：complete 对合并后的完整文件原始字节计算标准 SHA-256，并与 `fileHash` 比对；不得使用分片 hash 拼接后的二次摘要。
 - **分片校验测试**：`X-Chunk-Hash` 不匹配 → `CHUNK_HASH_MISMATCH`；complete 时分片不完整 → `INCOMPLETE_CHUNKS`；index 越界 → `CHUNK_OUT_OF_RANGE`。
 - **上传会话生命周期测试**：init→UPLOADING→complete→READY；cancel→CANCELLED；TTL 超期→EXPIRED。
 
@@ -542,3 +563,5 @@ pixflow:
 2026-07-04 / Claude Code: 同步 `web.md §16` 与 `api.md` Asset Package API 的当前设计，将上传协议从简单 multipart POST 更新为分片上传 + 整包 SHA-256 去重。新增 §五「分片上传与整包去重」，原 §五.2 解压管线独立为 §六，后续章节序号顺延。关键变更：`asset_package` 新增 `file_hash VARCHAR(64) UNIQUE`；新增 Redis `package_upload_session` 五类 key + Redisson `lock:package-upload:{fileHash}`；新增 `upload/` 包（`UploadSessionService`/`UploadSessionStore`/`ChunkAssembler`/`ChunkIntegrityVerifier`/`FileHashService`）；新增依赖 `infra/cache`；新增 9 个上传相关错误码；新增上传配置段（`chunk-size`/`session-ttl`/`dedup-enable` 等）；§十七移除「素材包版本管理 / 去重：不做内容级去重」与「增量/断点续传上传」过时条目。
 
 2026-07-09 / Codex: 按上传安全重构计划同步实现口径：分片写入改为流式限长校验，不再先整块读入堆；complete/cancel 共用 `terminal` 终态锁，complete 先进入 `COMPLETING` 并校验分片覆盖与大小；整包去重只命中 `READY` 且未软删的包；默认 `PackageReferenceChecker` 改为保守实现，未知引用状态只软删，避免默认物理删除历史事实源。
+
+2026-07-11 / Codex: 确定断点续传目标方案。`fileHash` 为标准整文件 SHA-256，init 返回 `UPLOAD | RESUME | DEDUP`；`UploadSessionStore` 成为深模块 interface，生产 adapter 使用 fileHash 索引、session Hash 和 chunks Hash，隐藏 Redis/TTL/冲突细节；MinIO 成功落盘后才记录 chunk metadata；暂停保留状态，取消才清理；权威临时状态通过 infra/cache 的 fail-closed `ExpiringStateStore/ExpiringHashStore` 持久化，并要求 AOF、统一续期、孤儿对象清理和跨存储一致性测试。

@@ -15,9 +15,19 @@ import com.pixflow.infra.cache.key.CacheNamespace;
 import com.pixflow.infra.cache.key.DefaultCacheNamespace;
 import com.pixflow.infra.cache.observability.NoopCacheMetrics;
 import com.pixflow.infra.cache.store.RedissonCacheStore;
+import com.pixflow.infra.cache.state.RedissonExpiringHashStore;
+import com.pixflow.infra.cache.state.RedissonExpiringStateStore;
+import com.pixflow.infra.cache.tokenbucket.RedisLuaTokenBucket;
+import com.pixflow.infra.cache.tokenbucket.TokenBucketDecision;
+import com.pixflow.infra.cache.tokenbucket.TokenBucketPolicy;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.Callable;
+import java.util.concurrent.Executors;
+import java.util.stream.IntStream;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -79,6 +89,35 @@ class RedisIntegrationTest {
         assertThat(store.putIfAbsent(key, "first", Duration.ofSeconds(2))).isTrue();
         assertThat(store.putIfAbsent(key, "second", Duration.ofSeconds(2))).isFalse();
         assertThat(store.get(key, String.class)).contains("first");
+    }
+
+    @Test
+    void expiringStateStoreRoundTripsPlainJsonAndExpires() throws InterruptedException {
+        RedissonExpiringStateStore store = new RedissonExpiringStateStore(redissonClient, objectMapper);
+        CacheKey key = namespace.key("state", "authoritative");
+
+        store.put(key, new SampleValue("ok", 9), Duration.ofMillis(300));
+
+        assertThat(store.get(key, SampleValue.class)).contains(new SampleValue("ok", 9));
+        assertThat(redissonClient.<String>getBucket(key.value(), StringCodec.INSTANCE).get()).doesNotContain("@class");
+        Thread.sleep(450);
+        assertThat(store.get(key, SampleValue.class)).isEmpty();
+    }
+
+    @Test
+    void expiringHashStoreReadsEntriesAndFieldsInOneKey() {
+        RedissonExpiringHashStore store = new RedissonExpiringHashStore(redissonClient, objectMapper);
+        CacheKey key = namespace.key("hash", "snapshot");
+
+        store.put(key, "2", new SampleValue("two", 2), Duration.ofSeconds(5));
+        store.put(key, "0", new SampleValue("zero", 0), Duration.ofSeconds(5));
+
+        assertThat(store.fields(key)).containsExactlyInAnyOrder("0", "2");
+        assertThat(store.entries(key, SampleValue.class)).containsAllEntriesOf(Map.of(
+                "0", new SampleValue("zero", 0),
+                "2", new SampleValue("two", 2)));
+        store.deleteField(key, "0");
+        assertThat(store.get(key, "0", SampleValue.class)).isEmpty();
     }
 
     @Test
@@ -144,6 +183,48 @@ class RedisIntegrationTest {
         long ttlAfter = redissonClient.getBucket(key.value()).remainTimeToLive();
 
         assertThat(ttlAfter).isLessThanOrEqualTo(ttlBefore + 75);
+    }
+
+    @Test
+    void tokenBucketConsumesWeightedAttemptsAndDoesNotChargeRejectedAttempt() {
+        RedisLuaTokenBucket bucket = new RedisLuaTokenBucket(redissonClient, new NoopCacheMetrics());
+        CacheKey key = namespace.key("bucket", UUID.randomUUID().toString());
+        TokenBucketPolicy policy = new TokenBucketPolicy(5, 1, Duration.ofHours(1), Duration.ofMinutes(1));
+
+        TokenBucketDecision first = bucket.tryConsume(key, policy, 3);
+        TokenBucketDecision rejected = bucket.tryConsume(key, policy, 3);
+
+        assertThat(first.allowed()).isTrue();
+        assertThat(first.remaining()).isEqualTo(2);
+        assertThat(rejected.allowed()).isFalse();
+        assertThat(rejected.remaining()).isEqualTo(2);
+        assertThat(rejected.retryAfter()).isPositive();
+    }
+
+    @Test
+    void tokenBucketAtomicallyLimitsConcurrentConsumers() throws Exception {
+        RedisLuaTokenBucket bucket = new RedisLuaTokenBucket(redissonClient, new NoopCacheMetrics());
+        CacheKey key = namespace.key("bucket", UUID.randomUUID().toString());
+        TokenBucketPolicy policy = new TokenBucketPolicy(10, 1, Duration.ofDays(1), Duration.ofMinutes(1));
+        var pool = Executors.newFixedThreadPool(16);
+        try {
+            var requests = IntStream.range(0, 100)
+                    .<Callable<Boolean>>mapToObj(ignored -> () -> bucket.tryConsume(key, policy, 1).allowed())
+                    .toList();
+            long allowed = pool.invokeAll(requests).stream()
+                    .filter(future -> {
+                        try {
+                            return future.get();
+                        } catch (Exception ex) {
+                            throw new IllegalStateException(ex);
+                        }
+                    })
+                    .count();
+
+            assertThat(allowed).isEqualTo(10);
+        } finally {
+            pool.shutdownNow();
+        }
     }
 
     @Test

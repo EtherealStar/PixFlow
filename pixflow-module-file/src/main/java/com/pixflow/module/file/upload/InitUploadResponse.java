@@ -18,7 +18,7 @@ public record InitUploadResponse(
         return new InitUploadResponse("DEDUP", null, packageId, status, 0, 0, List.of());
     }
 
-    public static InitUploadResponse dedupUploading(String uploadId, List<Integer> uploadedChunks) {
-        return new InitUploadResponse("DEDUP", uploadId, null, "UPLOADING", 0, 0, uploadedChunks);
+    public static InitUploadResponse resume(String uploadId, long chunkSize, int expectedChunks, List<Integer> uploadedChunks) {
+        return new InitUploadResponse("RESUME", uploadId, null, "UPLOADING", chunkSize, expectedChunks, uploadedChunks);
     }
 }

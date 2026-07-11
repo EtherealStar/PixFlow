@@ -18,6 +18,12 @@ import com.pixflow.infra.cache.semaphore.DistributedSemaphore;
 import com.pixflow.infra.cache.semaphore.RedissonDistributedSemaphore;
 import com.pixflow.infra.cache.store.CacheStore;
 import com.pixflow.infra.cache.store.RedissonCacheStore;
+import com.pixflow.infra.cache.tokenbucket.DistributedTokenBucket;
+import com.pixflow.infra.cache.tokenbucket.RedisLuaTokenBucket;
+import com.pixflow.infra.cache.state.ExpiringHashStore;
+import com.pixflow.infra.cache.state.ExpiringStateStore;
+import com.pixflow.infra.cache.state.RedissonExpiringHashStore;
+import com.pixflow.infra.cache.state.RedissonExpiringStateStore;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.redisson.Redisson;
 import org.redisson.api.RedissonClient;
@@ -80,6 +86,18 @@ public class CacheAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
+    public ExpiringStateStore expiringStateStore(RedissonClient redissonClient, ObjectMapper objectMapper) {
+        return new RedissonExpiringStateStore(redissonClient, objectMapper);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public ExpiringHashStore expiringHashStore(RedissonClient redissonClient, ObjectMapper objectMapper) {
+        return new RedissonExpiringHashStore(redissonClient, objectMapper);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
     public AtomicCounter atomicCounter(RedissonClient redissonClient) {
         return new RedissonAtomicCounter(redissonClient);
     }
@@ -97,6 +115,14 @@ public class CacheAutoConfiguration {
             CacheProperties properties,
             CacheMetrics metrics) {
         return new RedissonDistributedSemaphore(redissonClient, properties.getSemaphore(), metrics);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public DistributedTokenBucket distributedTokenBucket(
+            RedissonClient redissonClient,
+            CacheMetrics metrics) {
+        return new RedisLuaTokenBucket(redissonClient, metrics);
     }
 
     @Bean

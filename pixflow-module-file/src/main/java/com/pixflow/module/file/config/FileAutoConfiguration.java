@@ -5,7 +5,8 @@ import com.pixflow.common.progress.ProgressNotifier;
 import com.pixflow.infra.mq.MessagePublisher;
 import com.pixflow.infra.cache.key.CacheNamespace;
 import com.pixflow.infra.cache.lock.LockTemplate;
-import com.pixflow.infra.cache.store.CacheStore;
+import com.pixflow.infra.cache.state.ExpiringHashStore;
+import com.pixflow.infra.cache.state.ExpiringStateStore;
 import com.pixflow.infra.cache.config.CacheAutoConfiguration;
 import com.pixflow.infra.mq.consumer.ManagedListenerContainerFactory;
 import com.pixflow.infra.mq.consumer.ManagedMessageContainer;
@@ -39,6 +40,7 @@ import com.pixflow.module.file.pkg.PackageReferenceChecker;
 import com.pixflow.module.file.pkg.PackageReferenceResolver;
 import com.pixflow.module.file.upload.UploadSessionService;
 import com.pixflow.module.file.upload.UploadSessionStore;
+import com.pixflow.module.file.upload.RedisUploadSessionStore;
 import com.pixflow.module.file.web.FileController;
 import com.pixflow.module.imagegen.port.SourceImageReader;
 import java.time.Clock;
@@ -166,12 +168,15 @@ public class FileAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    @ConditionalOnBean(CacheStore.class)
+    @ConditionalOnBean({ExpiringStateStore.class, ExpiringHashStore.class})
     public UploadSessionStore uploadSessionStore(
-            CacheStore cacheStore,
+            ExpiringStateStore stateStore,
+            ExpiringHashStore hashStore,
             CacheNamespace cacheNamespace,
-            FileProperties properties) {
-        return new UploadSessionStore(cacheStore, cacheNamespace, properties.getUpload().getSessionTtl());
+            FileProperties properties,
+            Clock clock) {
+        return new RedisUploadSessionStore(stateStore, hashStore, cacheNamespace,
+                properties.getUpload().getSessionTtl(), clock);
     }
 
     @Bean

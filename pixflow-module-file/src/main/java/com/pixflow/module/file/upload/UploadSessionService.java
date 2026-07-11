@@ -24,12 +24,12 @@ import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.Enumeration;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
+import java.util.stream.IntStream;
 
 public class UploadSessionService {
     private static final String STATUS_UPLOADING = "UPLOADING";
@@ -81,30 +81,29 @@ public class UploadSessionService {
             if (lockedExisting != null) {
                 return InitUploadResponse.dedupReady(lockedExisting.getId(), lockedExisting.getStatus().name());
             }
-            var activeUploadId = store.findActiveUploadId(fileHash);
-            if (activeUploadId.isPresent()) {
-                var activeSession = store.find(activeUploadId.get());
-                if (activeSession.isPresent() && STATUS_UPLOADING.equals(activeSession.get().status())) {
-                    // 同一 fileHash 只能有一个上传事实源；并发 init 复用已有会话，避免重复写临时分片。
-                    return InitUploadResponse.dedupUploading(activeUploadId.get(), store.uploadedChunks(activeSession.get()));
-                }
+            var active = store.findByFileHash(fileHash);
+            if (active.isPresent() && STATUS_UPLOADING.equals(active.get().session().status())) {
+                store.touch(active.get());
+                UploadSession session = active.get().session();
+                return InitUploadResponse.resume(session.uploadId(), session.chunkSize(), session.expectedChunks(),
+                        uploadedIndexes(active.get()));
             }
             int expectedChunks = expectedChunks(request.size(), request.chunkSize());
             String uploadId = UUID.randomUUID().toString();
             UploadSession session = new UploadSession(uploadId, safeFilename(request.filename()), request.size(),
-                    fileHash, request.chunkSize(), expectedChunks, STATUS_UPLOADING, null, clock.instant(), clock.instant());
-            store.save(session);
+                    fileHash, request.chunkSize(), expectedChunks, STATUS_UPLOADING, null,
+                    clock.instant(), clock.instant(), clock.instant().plus(properties.getUpload().getSessionTtl()));
+            store.create(session);
             return InitUploadResponse.upload(uploadId, request.chunkSize(), expectedChunks, List.of());
         });
     }
 
     public UploadSessionState getSession(String uploadId) {
-        UploadSession session = require(uploadId);
-        return toState(session);
+        return toState(requireSnapshot(uploadId));
     }
 
     public PutChunkResponse putChunk(String uploadId, int index, long declaredSize, String chunkHash, InputStream body) {
-        UploadSession session = requireUploading(uploadId);
+        UploadSession session = requireUploading(uploadId).session();
         validateChunkIndex(session, index);
         String normalizedHash = normalizeHash(chunkHash);
         long expectedSize = expectedChunkSize(session, index);
@@ -112,12 +111,20 @@ public class UploadSessionService {
             throw new PixFlowException(FileErrorCode.CHUNK_SIZE_MISMATCH, "chunk size mismatch");
         }
         return lockTemplate.runWithLock(namespace.key("upload", "lock", uploadId, "chunk", String.valueOf(index)), LOCK_WAIT, () -> {
-            var existing = store.findChunk(uploadId, index);
-            if (existing.isPresent()) {
-                if (!existing.get().chunkHash().equalsIgnoreCase(normalizedHash)) {
-                    throw new PixFlowException(FileErrorCode.CHUNK_HASH_MISMATCH, "chunk hash mismatch");
+            UploadSnapshot snapshot = requireUploading(uploadId);
+            ChunkMetadata existing = snapshot.chunks().get(index);
+            if (existing != null) {
+                ObjectLocation existingLocation = ObjectLocation.of(BucketType.TMP, existing.minioKey());
+                boolean validObject = objectStorage.exists(existingLocation)
+                        && objectStorage.stat(existingLocation).size() == existing.chunkSize();
+                if (validObject) {
+                    if (!existing.chunkHash().equalsIgnoreCase(normalizedHash)) {
+                        throw new PixFlowException(FileErrorCode.CHUNK_HASH_MISMATCH, "chunk hash mismatch");
+                    }
+                    return new PutChunkResponse(uploadId, index, "ALREADY_EXISTS", uploadedIndexes(snapshot));
                 }
-                return new PutChunkResponse(uploadId, index, "ALREADY_EXISTS", store.uploadedChunks(session));
+                // 元数据指向的临时对象已丢失或损坏，先使 field 失效，再允许确定性 key 被重传覆盖。
+                store.removeChunk(uploadId, index);
             }
             // 分片阶段只写临时对象；complete 成功前不创建素材包事实源，便于取消和过期清理。
             String key = tmpChunkKey(uploadId, index);
@@ -140,14 +147,20 @@ public class UploadSessionService {
                 objectStorage.delete(ObjectLocation.of(BucketType.TMP, key));
                 throw new PixFlowException(FileErrorCode.CHUNK_SIZE_MISMATCH, "chunk size mismatch");
             }
-            store.saveChunk(uploadId, new ChunkMetadata(index, normalizedHash, expectedSize, key));
-            return new PutChunkResponse(uploadId, index, "ACCEPTED", store.uploadedChunks(session));
+            ChunkWriteResult result = store.recordChunk(uploadId, new ChunkMetadata(index, normalizedHash, expectedSize, key));
+            if (result == ChunkWriteResult.HASH_CONFLICT) {
+                throw new PixFlowException(FileErrorCode.CHUNK_HASH_MISMATCH, "chunk hash mismatch");
+            }
+            UploadSnapshot updated = requireSnapshot(uploadId);
+            String status = result == ChunkWriteResult.ALREADY_EXISTS ? "ALREADY_EXISTS" : "ACCEPTED";
+            return new PutChunkResponse(uploadId, index, status, uploadedIndexes(updated));
         });
     }
 
     public CompleteUploadResponse complete(String uploadId, CompleteUploadRequest request) {
         return lockTemplate.runWithLock(terminalLock(uploadId), LOCK_WAIT, () -> {
-            UploadSession session = require(uploadId);
+            UploadSnapshot snapshot = requireSnapshot(uploadId);
+            UploadSession session = snapshot.session();
             if (STATUS_READY.equals(session.status()) && session.packageId() != null) {
                 AssetPackage existing = packageMapper.selectById(session.packageId());
                 PackageStatus status = existing == null ? PackageStatus.UPLOADED : existing.getStatus();
@@ -157,72 +170,74 @@ public class UploadSessionService {
                 throw new PixFlowException(FileErrorCode.UPLOAD_SESSION_NOT_UPLOADING, "upload session is not uploading");
             }
             store.save(session.withStatus(STATUS_COMPLETING, session.packageId(), clock.instant()));
-            List<ChunkMetadata> chunks = loadAllChunks(session);
-            validateChunkSizes(session, chunks);
-            String expectedHash = request == null || request.fileHash() == null || request.fileHash().isBlank()
-                    ? session.fileHash()
-                    : normalizeHash(request.fileHash());
-            AssetPackage assetPackage = packageService.createUploadingPackage(session.filename(), session.fileHash());
-            long packageId = assetPackage.getId();
-            ObjectLocation target = StorageKeys.packageSource(packageId);
+            AssetPackage assetPackage = null;
+            ObjectLocation target = null;
             try {
+                List<ChunkMetadata> chunks = loadAllChunks(snapshot);
+                validateChunkSizes(session, chunks);
+                String expectedHash = request == null || request.fileHash() == null || request.fileHash().isBlank()
+                        ? session.fileHash()
+                        : normalizeHash(request.fileHash());
+                assetPackage = packageService.createUploadingPackage(session.filename(), session.fileHash());
+                long packageId = assetPackage.getId();
+                target = StorageKeys.packageSource(packageId);
                 String actualHash = writeComposedObject(chunks, target, session.size());
                 if (!actualHash.equalsIgnoreCase(expectedHash)) {
                     throw new PixFlowException(FileErrorCode.FILE_HASH_MISMATCH, "file hash mismatch");
                 }
                 // complete 是分片上传进入素材包事实源的边界：写 source.zip、落包记录、发解压消息。
                 packageService.markSourceStored(packageId, target.key(), null);
-            } catch (PixFlowException ex) {
-                objectStorage.delete(target);
-                packageMapper.deleteById(packageId);
-                store.save(session.withStatus(STATUS_UPLOADING, null, clock.instant()));
-                throw ex;
+                UploadSession ready = session.withStatus(STATUS_READY, packageId, clock.instant());
+                store.save(ready);
+                // READY 必须先于消息发布持久化，避免消费者看到尚未终结的上传会话。
+                extractionPublisher.publish(packageId);
+                objectStorage.deleteByPrefix(BucketType.TMP, uploadPrefix(uploadId));
+                store.clearChunksAndActive(ready);
+                return new CompleteUploadResponse(packageId, PackageStatus.UPLOADED);
             } catch (RuntimeException ex) {
-                objectStorage.delete(target);
-                packageMapper.deleteById(packageId);
+                if (target != null) objectStorage.delete(target);
+                if (assetPackage != null) packageMapper.deleteById(assetPackage.getId());
+                // 终结任一步骤失败都恢复为可重试状态，已上传分片仍由原快照保留。
                 store.save(session.withStatus(STATUS_UPLOADING, null, clock.instant()));
                 throw ex;
             }
-            var publishResult = extractionPublisher.publish(packageId);
-            UploadSession ready = session.withStatus(STATUS_READY, packageId, clock.instant());
-            store.save(ready);
-            cleanupChunks(session, chunks, false);
-            return new CompleteUploadResponse(packageId, PackageStatus.UPLOADED);
         });
     }
 
     public CancelUploadResponse cancel(String uploadId) {
-        UploadSession session = store.find(uploadId).orElse(null);
-        if (session == null) {
+        UploadSnapshot snapshot = store.findByUploadId(uploadId).orElse(null);
+        if (snapshot == null) {
             return new CancelUploadResponse(uploadId, STATUS_CANCELLED);
         }
         return lockTemplate.runWithLock(terminalLock(uploadId), LOCK_WAIT, () -> {
-            UploadSession latest = store.find(uploadId).orElse(session);
-            if (STATUS_READY.equals(latest.status())) {
+            UploadSnapshot latest = store.findByUploadId(uploadId).orElse(snapshot);
+            if (STATUS_READY.equals(latest.session().status())) {
                 return new CancelUploadResponse(uploadId, STATUS_READY);
             }
-            List<ChunkMetadata> chunks = existingChunks(latest);
-            cleanupChunks(latest, chunks, true);
+            // 先清理对象前缀，失败时保留 Redis 状态，使取消操作可以安全重试。
+            objectStorage.deleteByPrefix(BucketType.TMP, uploadPrefix(uploadId));
+            store.delete(latest);
             return new CancelUploadResponse(uploadId, STATUS_CANCELLED);
         });
     }
 
-    private UploadSessionState toState(UploadSession session) {
+    private UploadSessionState toState(UploadSnapshot snapshot) {
+        UploadSession session = snapshot.session();
         return new UploadSessionState(session.uploadId(), session.fileHash(), session.size(), session.chunkSize(),
-                session.expectedChunks(), store.uploadedChunks(session), List.of(), session.status(), session.packageId());
+                session.expectedChunks(), uploadedIndexes(snapshot), List.of(), session.status(), session.packageId());
     }
 
-    private UploadSession require(String uploadId) {
-        return store.find(uploadId)
+    private UploadSnapshot requireSnapshot(String uploadId) {
+        return store.findByUploadId(uploadId)
                 .orElseThrow(() -> new PixFlowException(FileErrorCode.UPLOAD_SESSION_NOT_FOUND, "upload session not found: " + uploadId));
     }
 
-    private UploadSession requireUploading(String uploadId) {
-        UploadSession session = require(uploadId);
-        if (!STATUS_UPLOADING.equals(session.status())) {
+    private UploadSnapshot requireUploading(String uploadId) {
+        UploadSnapshot snapshot = requireSnapshot(uploadId);
+        if (!STATUS_UPLOADING.equals(snapshot.session().status())) {
             throw new PixFlowException(FileErrorCode.UPLOAD_SESSION_NOT_UPLOADING, "upload session is not uploading");
         }
-        return session;
+        return snapshot;
     }
 
     private void validateInit(InitUploadRequest request) {
@@ -247,18 +262,22 @@ public class UploadSessionService {
                 .last("limit 1"));
     }
 
-    private List<ChunkMetadata> loadAllChunks(UploadSession session) {
-        List<ChunkMetadata> chunks = new ArrayList<>();
-        List<Integer> missing = new ArrayList<>();
-        for (int i = 0; i < session.expectedChunks(); i++) {
-            var chunk = store.findChunk(session.uploadId(), i);
-            if (chunk.isPresent()) chunks.add(chunk.get());
-            else missing.add(i);
-        }
+    private List<ChunkMetadata> loadAllChunks(UploadSnapshot snapshot) {
+        UploadSession session = snapshot.session();
+        List<Integer> missing = IntStream.range(0, session.expectedChunks())
+                .filter(index -> !snapshot.chunks().containsKey(index))
+                .boxed()
+                .toList();
         if (!missing.isEmpty()) {
             throw new PixFlowException(FileErrorCode.INCOMPLETE_CHUNKS, "incomplete chunks: " + missing);
         }
-        chunks.sort(Comparator.comparingInt(ChunkMetadata::index));
+        List<ChunkMetadata> chunks = new ArrayList<>(snapshot.chunks().values());
+        for (ChunkMetadata chunk : chunks) {
+            ObjectLocation location = ObjectLocation.of(BucketType.TMP, chunk.minioKey());
+            if (!objectStorage.exists(location) || objectStorage.stat(location).size() != chunk.chunkSize()) {
+                throw new PixFlowException(FileErrorCode.INCOMPLETE_CHUNKS, "chunk object missing or invalid: " + chunk.index());
+            }
+        }
         return chunks;
     }
 
@@ -274,14 +293,6 @@ public class UploadSessionService {
         if (total != session.size()) {
             throw new PixFlowException(FileErrorCode.CHUNK_SIZE_MISMATCH, "chunk size sum mismatch");
         }
-    }
-
-    private List<ChunkMetadata> existingChunks(UploadSession session) {
-        List<ChunkMetadata> chunks = new ArrayList<>();
-        for (int i = 0; i < session.expectedChunks(); i++) {
-            store.findChunk(session.uploadId(), i).ifPresent(chunks::add);
-        }
-        return chunks;
     }
 
     private String writeComposedObject(List<ChunkMetadata> chunks, ObjectLocation target, long size) {
@@ -309,16 +320,8 @@ public class UploadSessionService {
         }
     }
 
-    private void cleanupChunks(UploadSession session, List<ChunkMetadata> chunks, boolean deleteSession) {
-        for (ChunkMetadata chunk : chunks) {
-            objectStorage.delete(ObjectLocation.of(BucketType.TMP, chunk.minioKey()));
-        }
-        if (deleteSession) {
-            store.deleteSession(session);
-        } else {
-            store.deleteChunks(session.uploadId(), session.expectedChunks());
-            store.deleteActiveUpload(session);
-        }
+    private static List<Integer> uploadedIndexes(UploadSnapshot snapshot) {
+        return List.copyOf(snapshot.chunks().keySet());
     }
 
     private static int expectedChunks(long size, long chunkSize) {
@@ -356,6 +359,10 @@ public class UploadSessionService {
 
     private static String tmpChunkKey(String uploadId, int index) {
         return "uploads/" + uploadId + "/chunks/" + index;
+    }
+
+    private static String uploadPrefix(String uploadId) {
+        return "uploads/" + uploadId + "/";
     }
 
     private com.pixflow.infra.cache.key.CacheKey terminalLock(String uploadId) {

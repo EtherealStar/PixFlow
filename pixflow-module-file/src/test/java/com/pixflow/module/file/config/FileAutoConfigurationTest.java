@@ -11,7 +11,8 @@ import com.pixflow.infra.cache.key.CacheKey;
 import com.pixflow.infra.cache.key.CacheNamespace;
 import com.pixflow.infra.cache.key.DefaultCacheNamespace;
 import com.pixflow.infra.cache.lock.LockTemplate;
-import com.pixflow.infra.cache.store.CacheStore;
+import com.pixflow.infra.cache.state.ExpiringHashStore;
+import com.pixflow.infra.cache.state.ExpiringStateStore;
 import com.pixflow.infra.storage.BucketType;
 import com.pixflow.infra.storage.ObjectLocation;
 import com.pixflow.infra.storage.ObjectRef;
@@ -28,6 +29,8 @@ import java.net.URL;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
 import javax.sql.DataSource;
@@ -125,8 +128,8 @@ class FileAutoConfigurationTest {
         }
 
         @Bean
-        CacheStore cacheStore() {
-            return new CacheStore() {
+        ExpiringStateStore expiringStateStore() {
+            return new ExpiringStateStore() {
                 private final ConcurrentHashMap<String, Object> values = new ConcurrentHashMap<>();
 
                 @Override
@@ -149,8 +152,51 @@ class FileAutoConfigurationTest {
                 }
 
                 @Override
-                public boolean exists(CacheKey key) {
-                    return values.containsKey(key.value());
+                public void expire(CacheKey key, Duration ttl) {
+                }
+
+                @Override
+                public void delete(CacheKey key) {
+                    values.remove(key.value());
+                }
+            };
+        }
+
+        @Bean
+        ExpiringHashStore expiringHashStore() {
+            return new ExpiringHashStore() {
+                private final ConcurrentHashMap<String, ConcurrentHashMap<String, Object>> values = new ConcurrentHashMap<>();
+
+                @Override
+                public <T> Optional<T> get(CacheKey key, String field, Class<T> type) {
+                    return Optional.ofNullable(values.getOrDefault(key.value(), new ConcurrentHashMap<>()).get(field)).map(type::cast);
+                }
+
+                @Override
+                public <T> void put(CacheKey key, String field, T value, Duration ttl) {
+                    values.computeIfAbsent(key.value(), ignored -> new ConcurrentHashMap<>()).put(field, value);
+                }
+
+                @Override
+                public <T> Map<String, T> entries(CacheKey key, Class<T> type) {
+                    Map<String, T> result = new java.util.HashMap<>();
+                    values.getOrDefault(key.value(), new ConcurrentHashMap<>())
+                            .forEach((field, value) -> result.put(field, type.cast(value)));
+                    return result;
+                }
+
+                @Override
+                public Set<String> fields(CacheKey key) {
+                    return Set.copyOf(values.getOrDefault(key.value(), new ConcurrentHashMap<>()).keySet());
+                }
+
+                @Override
+                public void deleteField(CacheKey key, String field) {
+                    values.getOrDefault(key.value(), new ConcurrentHashMap<>()).remove(field);
+                }
+
+                @Override
+                public void expire(CacheKey key, Duration ttl) {
                 }
 
                 @Override

@@ -1,7 +1,7 @@
 # infra/cache —— Redis/Redisson 分布式缓存与协调（Wave 1 基础设施）
 
 > 本文是 PixFlow 完整重写阶段 `infra/cache` 模块的设计文档，对应 `design.md` 第四章「技术栈选型」、第九章「DAG 确定性执行引擎」并发与断点部分、`13.3 Redis 键约定`，以及 `module-dependency-dag-plan.md` 的 **Wave 1 基础设施**。
-> 范围：基于 Redis + Redisson 的分布式协调原语（锁 / 计数 / 信号量）与带 TTL 的 KV 缓存抽象。本文不涉及 MVP 既有实现，从新架构需求重新推导。
+> 范围：基于 Redis + Redisson 的分布式协调原语（锁 / 计数 / 信号量 / 加权令牌桶）与带 TTL 的 KV 缓存抽象。本文不涉及 MVP 既有实现，从新架构需求重新推导。
 > 依赖契约沿用 `common` 模块（`docs/design-docs/module/common.md`）的错误模型与脱敏约定；确认令牌相关的 SPI / DTO 统一来自独立 `contracts` 模块。
 
 ---
@@ -32,7 +32,7 @@
 
 模块专属设计原则：
 
-1. **只提供通用原语，不承载业务知识**。模块内**不得出现** `task`、`branch`、`group`、`sku` 等业务词。`lock:task:{taskId}`、`branch:cache:*`、`group:cache:*` 这类键名与"成功即删 / 整组延迟删"这类生命周期，全部由 `module/task`、`module/dag` 自己拥有；`infra/cache` 只提供安全拼 key 的工具与执行机制。
+1. **只提供通用原语，不承载业务知识**。模块内**不得出现** `task`、`branch`、`group`、`sku`、具体 provider 等业务词。`lock:task:{taskId}`、`branch:cache:*`、`bucket:thirdparty:*` 这类键名、令牌成本与生命周期，全部由调用模块拥有；`infra/cache` 只提供安全拼 key 的工具与执行机制。
 2. **机制与语义分离**。锁、计数、信号量、KV 是机制；什么时候加锁、缓存什么、何时失效是语义。语义留给调用方。
 3. **安全释放优先**。锁与信号量一律走"在临界区内执行回调"的模板方法，强制 try-finally 释放，禁止把裸 `RLock` 暴露给上层手动 lock/unlock。
 4. **正确性靠事实源，锁只防重复**。分布式锁用于防止同一工作单元被并发/重复消费，**不作为业务正确性的唯一保证**；真正的幂等与断点以 MySQL `process_result` 为事实源（见 `design.md` 9.4）。
@@ -72,6 +72,11 @@ infra/cache/
 ├── store/
 │   ├── CacheStore.java             # 泛型 KV（get/put/putIfAbsent/delete/exists）
 │   └── RedissonCacheStore.java
+├── state/
+│   ├── ExpiringStateStore.java      # fail-closed 的权威临时 KV 状态
+│   ├── ExpiringHashStore.java       # fail-closed 的 field-level Hash 状态
+│   ├── RedissonExpiringStateStore.java
+│   └── RedissonExpiringHashStore.java
 ├── counter/
 │   ├── AtomicCounter.java          # incr/decr/get/reset + TTL
 │   └── RedissonAtomicCounter.java
@@ -81,6 +86,11 @@ infra/cache/
 ├── semaphore/
 │   ├── DistributedSemaphore.java   # acquire 返回 AutoCloseable Permit
 │   └── RedissonDistributedSemaphore.java
+├── tokenbucket/
+│   ├── DistributedTokenBucket.java # 原子尝试消费，返回 remaining/retryAfter
+│   ├── TokenBucketPolicy.java       # capacity/refillTokens/refillPeriod
+│   ├── TokenBucketDecision.java     # allowed/remaining/retryAfter
+│   └── RedisLuaTokenBucket.java     # Redisson RScript + Redis TIME
 ├── confirmation/
 │   └── RedisConfirmationTokenStore.java # contracts.ConfirmationTokenStore 的 Redis 实现
 └── error/
@@ -93,7 +103,7 @@ infra/cache/
 
 ## 四、核心抽象
 
-四组原语 + 一个 key 工厂，全部接口化，Redisson 实现可替换（便于测试以 fake/in-memory 替身注入）。
+五组原语 + 一个 key 工厂，全部接口化，Redis 实现可替换（便于测试以 fake/in-memory adapter 注入）。
 
 ### 4.1 `CacheKey` / `CacheNamespace` —— 键工厂
 
@@ -131,6 +141,39 @@ public interface CacheStore {
 - **强约束**：`put` 必须带 TTL（无 TTL 重载不提供），防止孤儿 key 永驻导致内存泄漏。需要长期存在的状态属于 MySQL，不属于 cache。
 - "删除某支路全部缓存引用"这类批量需求，**由上层把同一支路的多个引用聚到一个 Hash 值**（一次 `delete` 即清空），而非在本模块用 `KEYS`/通配扫描（生产环境禁用 `KEYS`）。本模块只提供单 key 删除，批量聚合策略写在 `dag`/`task` 模块文档。
 
+### 4.2.1 `ExpiringStateStore` / `ExpiringHashStore` —— 权威临时状态
+
+上传会话、确认令牌等状态带 TTL，但在生命周期内是正确性事实，不能套用普通 `CacheStore` 的“读失败视为 miss、写失败吞掉”降级语义。infra/cache 为此提供 fail-closed 的权威临时状态 interface；业务模块不直接依赖 Redisson：
+
+```java
+public interface ExpiringStateStore {
+    <T> Optional<T> get(CacheKey key, Class<T> type);
+    <T> void put(CacheKey key, T value, Duration ttl);
+    <T> boolean putIfAbsent(CacheKey key, T value, Duration ttl);
+    void expire(CacheKey key, Duration ttl);
+    void delete(CacheKey key);
+}
+
+public interface ExpiringHashStore {
+    <T> Optional<T> get(CacheKey key, String field, Class<T> type);
+    <T> void put(CacheKey key, String field, T value, Duration ttl);
+    <T> Map<String, T> entries(CacheKey key, Class<T> type);
+    Set<String> fields(CacheKey key);
+    void deleteField(CacheKey key, String field);
+    void expire(CacheKey key, Duration ttl);
+    void delete(CacheKey key);
+}
+```
+
+Interface 语义：
+
+- value 仍使用项目 `ObjectMapper` 序列化为普通 JSON，不暴露 Redisson codec。
+- 所有 Redis 读写失败都上抛，调用方 fail-closed；不得把连接失败伪装成 miss，也不得吞掉状态写入失败。
+- `put` 成功后必须保证整个 Hash key 至少拥有调用方给出的 TTL；`expire` 用于多个相关 key 的统一续期。
+- `fields/entries` 使用单次 Redis Hash 操作，不允许退化为按预期 field 范围循环 `EXISTS`。
+- 本 interface 不理解业务冲突。`chunkHash` 是否一致、重复写应返回什么状态，属于 module/file 的 `UploadSessionStore` implementation。
+- 生产 adapter 为 `RedissonExpiringStateStore` / `RedissonExpiringHashStore`；契约测试使用 in-memory adapter，并以 Testcontainers Redis 验证 KV、field、JSON、TTL、并发和故障上抛行为。
+
 ### 4.3 `AtomicCounter` —— 原子计数
 
 ```java
@@ -159,7 +202,7 @@ public interface LockTemplate {
 
 ### 4.5 `DistributedSemaphore` —— 分布式信号量
 
-集群级全局并发上限，给第三方 API（抠图 / 生图 / VLLM）限并发用（`sem:thirdparty:{api}`）。
+集群级全局并发上限，给第三方 API（抠图 / 生图 / VLLM）限并发用；业务键由调用方构造，例如 `sem:thirdparty:{provider}:{api}`。
 
 ```java
 public interface DistributedSemaphore {
@@ -174,6 +217,38 @@ public interface DistributedSemaphore {
 
 - 实现优先选 Redisson `RPermitExpirableSemaphore`：**许可带租约，持有者进程崩溃后许可自动过期回收**，避免永久泄漏导致并发额度被耗尽。
 - 总许可数与第三方 API 的全局并发上限对齐，由配置注入。
+
+### 4.6 `DistributedTokenBucket` —— Redis 加权令牌桶
+
+令牌桶用于跨实例控制**出站供应商调用速率与相对成本**。它与信号量不同：信号量限制当前在途数并在完成后释放；令牌桶消费后不返还，只按时间补充。
+
+对外接口保持单方法，调用方只需给出业务 key、通用策略和本次成本；Redis key 语义、provider 选择和成本权重仍归调用方：
+
+```java
+public interface DistributedTokenBucket {
+    TokenBucketDecision tryConsume(CacheKey key, TokenBucketPolicy policy, long cost);
+}
+
+public record TokenBucketPolicy(
+        long capacity,
+        long refillTokens,
+        Duration refillPeriod,
+        Duration idleTtl) {}
+
+public record TokenBucketDecision(
+        boolean allowed,
+        long remaining,
+        Duration retryAfter) {}
+```
+
+接口语义：
+
+- `tryConsume` **不等待、不睡眠**。允许时立即扣减并返回剩余额度；拒绝时不扣减，返回下一次足够消费 `cost` 的保守 `retryAfter`。等待与 retry 归调用模块，cache 不持有业务线程。
+- `cost` 是正整数权重，可表达文本调用、视觉分析、生图等不同相对成本；它不是供应商实际 token 账单。`cost > capacity` 属配置错误，直接拒绝。
+- `TokenBucketPolicy` 是调用方配置投影，不由 cache 按 provider 查配置。相同 key 在一个部署周期内必须使用相同 policy；发现不一致时记录配置错误并 fail-closed，不能静默重置现有额度。
+- Redis adapter 使用**单段 Lua** 原子执行读取、按时间补充、判断、扣减、写回和 TTL 设置。时间取 Redis `TIME`，不使用应用节点时钟，避免多节点时钟漂移。
+- 内部以定点整数保存余额和补充余数，避免浮点累计误差。TTL 至少覆盖两次“从空桶补满”的时间，并受 `idleTtl` 下限约束；长期无调用的桶可自动回收。
+- V1 不使用 `RRateLimiter.trySetRate(...)` 作为最终实现。它无法独立表达 `capacity` 与 refill 速率，且把策略初始化暴露到每次 acquire；现有 `DistributedRateLimiter`/`RedissonDistributedRateLimiter` 属过渡实现，实施本设计时直接替换，不保留双接口。
 
 ---
 
@@ -219,6 +294,8 @@ public interface DistributedSemaphore {
 |---|---|---|
 | `LockTemplate` 获取锁 | **上抛** `CacheException`（边界归一化为 `DEPENDENCY`/RETRY） | 拿不到锁就放行会破坏并发安全与去重 |
 | `DistributedSemaphore` 获取许可 | **上抛** | 失去全局并发上限会冲垮第三方 API |
+| `DistributedTokenBucket.tryConsume` Redis 失败 | **上抛**（fail-closed） | 成本敏感调用失去全局额度后放行会放大费用；不得自动退化为本机桶 |
+| `DistributedTokenBucket` 正常额度不足 | **返回拒绝决策** | 不是 Redis 故障；调用方用 `retryAfter` 决定等待、重试或终止 |
 | `AtomicCounter` 进度自增 | **上抛**（计数错误会误导前端进度与终态判定） | 进度需准确 |
 | `CacheStore.get`（纯缓存读） | **静默降级为 miss**（warn + 指标），调用方退化为重算 | 不影响正确性，仅损失一次优化 |
 | `CacheStore.put`（写缓存引用） | **吞掉 + warn**，不阻断主流程 | 写失败只是下次不命中，可重算 |
@@ -242,14 +319,15 @@ public interface DistributedSemaphore {
 
 ## 十、与 Resilience4j 的分工
 
-`design.md` 写的"Redisson 信号量 + Resilience4j 限流"是两层互补能力，避免重复造：
+Redis 信号量、Redis 令牌桶与 Resilience4j 各管一个维度：
 
 | 关注点 | 归属 | 能力 |
 |---|---|---|
 | **集群级全局并发上限** | `infra/cache`（本模块） | `DistributedSemaphore`，跨实例统计在途请求数，封顶第三方 API 总并发 |
-| **单实例治理** | `infra/thirdparty` | Resilience4j 的重试 / 熔断 / 舱壁(bulkhead) / 限速(rate limiter)，作用于本进程内的调用 |
+| **集群级出站速率/相对成本** | `infra/cache`（本模块） | `DistributedTokenBucket`，跨实例原子补充和加权消费 |
+| **单实例故障治理** | `infra/thirdparty` / `infra/ai` | Resilience4j 或自有 runner 的重试 / 熔断 / 舱壁 / 超时；不再拥有第二套 RateLimiter |
 
-调用顺序上，`infra/thirdparty` 在发起第三方调用时：先经 `DistributedSemaphore.acquire` 拿全局许可（try-with-resources 自动释放），再套 Resilience4j 装饰器执行实际 HTTP 调用。本模块不依赖、不感知 Resilience4j。
+调用顺序由消费模块拥有，但必须满足一个不变量：**每次真实 provider attempt 都重新经过信号量和令牌桶，重试退避期间不占信号量，也不会绕过额度**。本模块不依赖、不感知 Resilience4j 或 `ModelRetryRunner`。
 
 ---
 
@@ -257,7 +335,7 @@ public interface DistributedSemaphore {
 
 ### 11.1 异常
 
-- 模块内部抛自有 `CacheException`（携带操作类型：LOCK_ACQUIRE_TIMEOUT / SEMAPHORE_TIMEOUT / REDIS_UNAVAILABLE 等语义）。
+- 模块内部抛自有 `CacheException`（携带操作类型：LOCK_ACQUIRE_TIMEOUT / SEMAPHORE_TIMEOUT / TOKEN_BUCKET_FAILED / REDIS_UNAVAILABLE 等语义）。正常桶额度不足不抛 cache 异常，只返回拒绝 decision。
 - 按 `common.md §10`，infra 异常**跨出 infra 边界**时由 `ErrorNormalizer` 翻译为 `ErrorCategory.DEPENDENCY`（默认 `RETRY` / HTTP 503）；锁/信号量超时这类不可立即恢复的，可在归一化映射中视情况标 `recovery`。
 - 落盘/对外文案经 `common` 的 `Sanitizer` 处理（key 中可能含 id，非敏感；但统一走脱敏管线保持一致）。
 
@@ -268,6 +346,8 @@ public interface DistributedSemaphore {
 - `pixflow.cache.op{op=get|put|delete, result=hit|miss|error}`：缓存命中率与错误率。
 - `pixflow.cache.lock{key_ns, result=acquired|timeout|error}` + 获取耗时计时器：锁竞争可见性。
 - `pixflow.cache.semaphore{api, result=acquired|timeout}` + 在途许可数 gauge：第三方并发水位。
+- `pixflow.cache.token_bucket{namespace, result=allowed|rejected|error}`：令牌桶决策计数；`namespace` 只允许低基数命名空间，不记录完整 key、userId 或 provider 凭证。
+- `pixflow.cache.token_bucket.remaining{namespace}`：可选抽样 gauge；不得为每个用户 key 建 Micrometer tag。
 - Redisson 连接健康并入 Spring Boot Actuator `health`（Redis 不可用时 `DOWN`）。
 
 ---
@@ -291,6 +371,8 @@ public interface DistributedSemaphore {
 
 `RedissonConfig` 依据 `mode` 装配单机/哨兵/集群的 `RedissonClient`，统一配置连接超时、重试与锁看门狗。业务 KV value 的 JSON 协议由 `CacheStore` 显式使用 `StringCodec` 和 `ObjectMapper` 管理；锁、计数、信号量等 Redisson 原语按各调用点显式选择安全 codec 或 Redisson 默认 codec。
 
+令牌桶的 `capacity/refill/cost` **不放在 `pixflow.cache.*`**。这些是 provider/capability 策略，分别由 `pixflow.thirdparty.*` 与 `pixflow.ai.*` 配置并在调用时投影为 `TokenBucketPolicy`。cache 只持有 Redis 连接、Lua 实现和通用安全上限。
+
 ---
 
 ## 十三、对其他模块的契约
@@ -301,8 +383,10 @@ public interface DistributedSemaphore {
 | `permission` | 通过 `contracts.ConfirmationTokenStore` 注入 Redis 实现；permission 不直接依赖本模块 |
 | `harness/state` | 用 `CacheStore` 读写任务运行态引用、`AtomicCounter` 暴露进度；故障读降级、计数上抛 |
 | `module/task` | 持有 task 命名空间，自定义 `lock:task` / `progress:task` / `cancel:task` 的 key 构造；用 `LockTemplate` 防重复消费、`AtomicCounter` 计进度、`CacheStore` 置取消标志 |
+| `module/file` | `UploadSessionStore` implementation 使用 `ExpiringStateStore` 保存 fileHash 索引/session，使用 `ExpiringHashStore` 保存 `index -> ChunkMetadata`；module/file 的调用方只消费上传快照与幂等结果，不理解 Redis |
 | `module/dag` | 持有 branch/group 命名空间，自定义 `branch:cache` / `group:cache` 的 key 与"成功即删 / 整组延迟删"生命周期；缓存值只存引用 |
-| `infra/thirdparty` | 用 `DistributedSemaphore` 封第三方全局并发，再叠 Resilience4j |
+| `infra/thirdparty` | 直接消费 `DistributedSemaphore` + `DistributedTokenBucket`；provider/api key 与 cost policy 归 thirdparty，重试/熔断/舱壁归 Resilience4j |
+| `infra/ai` | 通过 ai 自有 quota SPI 间接消费令牌桶；组合根提供 cache adapter，避免 ai 反向依赖 cache |
 | `common` | 本模块异常跨边界由 `ErrorNormalizer` 归一化为 `DEPENDENCY`；文案经 `Sanitizer` |
 
 **反向约束**：本模块对以上任何模块零依赖、零业务词。
@@ -311,7 +395,8 @@ public interface DistributedSemaphore {
 
 ## 十四、测试策略
 
-- **原语契约测试**：以 Testcontainers 起真实 Redis，验证 `CacheStore`（TTL 生效、putIfAbsent 语义、缺失 TTL 编译期不可达）、`AtomicCounter`（并发自增正确）、`LockTemplate`（互斥、超时抛错、finally 释放）、`DistributedSemaphore`（许可上限、持有者崩溃后许可可回收）。
+- **原语契约测试**：以 Testcontainers 起真实 Redis，验证 `CacheStore` 的可降级缓存语义；验证 `ExpiringStateStore/ExpiringHashStore` 的 KV/field CRUD、一次性 fields/entries、JSON、统一续期和 Redis 故障 fail-closed；再验证 `AtomicCounter`、`LockTemplate`、`DistributedSemaphore`。
+- **令牌桶契约测试**：覆盖首次满桶、加权消费、拒绝不扣减、Redis 时间补充、容量封顶、`retryAfter`、并发原子性、TTL 回收、相同 key 策略冲突和 Redis 故障 fail-closed。单元测试使用 deterministic in-memory adapter，集成测试用 Testcontainers Redis 验证 Lua 语义。
 - **看门狗续期**：长于初始锁超时的临界区，验证锁未被提前释放（间接观测：另一线程在持有期内拿不到锁）。
 - **降级分级**：用故障注入（关停容器/断连）验证"读降级为 miss、锁/计数上抛"两类行为。
 - **归一化**：断言 cache 异常跨边界后变成 `DEPENDENCY` 的 `PixFlowException`。
@@ -326,5 +411,12 @@ public interface DistributedSemaphore {
 - 多级缓存（本地 Caffeine + Redis 两级）：本期只做分布式单级，后续如需读热点再叠本地层。
 - fencing token 强一致锁：本期以 MySQL 事实源保证幂等，不引入。
 - Redis 多级降级到本地内存继续服务：本期 Redis 不可用按 `DEPENDENCY` 上抛 + 任务恢复机制兜底，不做无 Redis 降级运行。
+- 用户级 HTTP 入站防滥用、每日预算、真实 LLM TPM/账单核算：不属于本通用原语；本期令牌桶只为出站 provider attempt 提供请求权重额度。
 - 缓存预热、批量管道(pipeline)优化：待出现明确性能瓶颈再做。
 - Sentinel / Cluster 的真实联调（仅预留配置位，本期单实例验证）。
+
+## 修订记录
+
+2026-07-11 / Codex: 新增 fail-closed 的 `ExpiringStateStore/ExpiringHashStore` interface 与 Redis/in-memory adapter 契约，为 module/file 的 `UploadSessionStore` 提供权威临时 KV/Hash 状态；业务模块不再以 N 个 KV key 扫描分片进度，也不直接依赖 Redisson。
+
+2026-07-11 / Codex: 将集群级出站限速从 resilience4j 单 JVM RateLimiter 收敛为 Redis Lua 加权令牌桶。新增 `DistributedTokenBucket` 深模块接口、原子补充/消费/`retryAfter` 语义、fail-closed 策略、低基数指标和 Testcontainers 契约；明确 provider policy 归调用模块、每个 retry attempt 必须重新过桶，并决定实施时删除过渡的 `DistributedRateLimiter`/`RedissonDistributedRateLimiter` 双路径。
