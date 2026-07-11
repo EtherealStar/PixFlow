@@ -38,10 +38,9 @@ import reactor.core.publisher.Flux;
 /**
  * 默认文本模型客户端。
  *
- * <p>当前实现走 DashScope OpenAI-compatible chat completions 接口，并通过公共抽象对上隐藏供应商协议。
+ * <p>当前实现走 OpenAI-compatible chat completions 接口，并通过公共抽象对上隐藏供应商协议。
  */
 public final class DefaultChatModelClient implements ChatModelClient {
-    private static final String PROVIDER_DASHSCOPE = "dashscope";
     private static final ParameterizedTypeReference<ServerSentEvent<String>> STRING_SSE =
             new ParameterizedTypeReference<>() {
             };
@@ -98,21 +97,33 @@ public final class DefaultChatModelClient implements ChatModelClient {
     private Flux<ChatStreamEvent> streamOnce(ChatRequest request) {
         return Flux.defer(() -> {
             ResolvedModel model = modelRouter.resolve(request.role());
-            if (!PROVIDER_DASHSCOPE.equals(model.provider())) {
+            AiProperties.ProviderConfig provider = properties.provider(model.provider());
+            if (provider == null) {
                 return Flux.error(new PixFlowException(
-                        AiErrorCode.MODEL_UNSUPPORTED_CAPABILITY,
-                        "Unsupported chat provider",
+                        AiErrorCode.MODEL_CONFIGURATION_ERROR,
+                        "Chat provider configuration is missing",
                         null,
                         Map.of("provider", model.provider(), "role", model.role().name()),
                         RecoveryHint.TERMINATE,
                         null,
                         null));
             }
-            String apiKey = properties.dashscope().apiKey();
+            String apiKey = provider.apiKey();
             if (apiKey == null || apiKey.isBlank()) {
                 return Flux.error(new PixFlowException(
                         AiErrorCode.MODEL_CONFIGURATION_ERROR,
-                        "DashScope API key is not configured",
+                        "Chat provider API key is not configured",
+                        null,
+                        Map.of("provider", model.provider(), "role", model.role().name()),
+                        RecoveryHint.TERMINATE,
+                        null,
+                        null));
+            }
+            String baseUrl = provider.baseUrl();
+            if (baseUrl == null || baseUrl.isBlank()) {
+                return Flux.error(new PixFlowException(
+                        AiErrorCode.MODEL_CONFIGURATION_ERROR,
+                        "Chat provider base URL is not configured",
                         null,
                         Map.of("provider", model.provider(), "role", model.role().name()),
                         RecoveryHint.TERMINATE,
@@ -126,7 +137,7 @@ public final class DefaultChatModelClient implements ChatModelClient {
             AtomicBoolean recorded = new AtomicBoolean(false);
             try {
                 return webClient.post()
-                        .uri(chatCompletionsUri(properties.dashscope().baseUrl()))
+                        .uri(chatCompletionsUri(baseUrl))
                         .contentType(MediaType.APPLICATION_JSON)
                         .accept(MediaType.TEXT_EVENT_STREAM)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
@@ -397,17 +408,17 @@ public final class DefaultChatModelClient implements ChatModelClient {
     }
 
     private static URI chatCompletionsUri(String baseUrl) {
-        String base = baseUrl == null || baseUrl.isBlank()
-                ? "https://dashscope.aliyuncs.com"
-                : baseUrl.strip();
-        String normalized = base.endsWith("/") ? base.substring(0, base.length() - 1) : base;
+        String normalized = baseUrl.strip();
+        while (normalized.endsWith("/")) {
+            normalized = normalized.substring(0, normalized.length() - 1);
+        }
         if (normalized.endsWith("/chat/completions")) {
             return URI.create(normalized);
         }
-        if (normalized.endsWith("/compatible-mode/v1")) {
+        if (normalized.endsWith("/v1")) {
             return URI.create(normalized + "/chat/completions");
         }
-        return URI.create(normalized + "/compatible-mode/v1/chat/completions");
+        return URI.create(normalized + "/v1/chat/completions");
     }
 
     private static Duration effectiveTimeout(ResolvedModel model, ChatOptions options) {

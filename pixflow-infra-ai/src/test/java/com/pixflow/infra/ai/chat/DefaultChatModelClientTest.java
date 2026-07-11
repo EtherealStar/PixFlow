@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pixflow.infra.ai.config.AiProperties;
 import com.pixflow.infra.ai.model.DefaultModelRouter;
+import com.pixflow.infra.ai.model.ModelCapability;
 import com.pixflow.infra.ai.model.TokenUsage;
 import com.pixflow.infra.ai.observability.AiMetrics;
 import com.pixflow.infra.ai.resilience.ConcurrencyGuard;
@@ -18,15 +19,20 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.test.StepVerifier;
 
 class DefaultChatModelClientTest {
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final CopyOnWriteArrayList<String> requestBodies = new CopyOnWriteArrayList<>();
+    private final CopyOnWriteArrayList<String> requestPaths = new CopyOnWriteArrayList<>();
+    private final CopyOnWriteArrayList<String> authorizationHeaders = new CopyOnWriteArrayList<>();
     private HttpServer server;
 
     @AfterEach
@@ -136,9 +142,40 @@ class DefaultChatModelClientTest {
         assertThat(messages.get(2).path("content").asText()).isEqualTo("result");
     }
 
+    @ParameterizedTest
+    @CsvSource({
+            "NONE, /v1/chat/completions",
+            "/v1, /v1/chat/completions",
+            "/proxy/v1/, /proxy/v1/chat/completions",
+            "/v1/chat/completions, /v1/chat/completions"
+    })
+    void completesOnlyMissingOpenAiCompatiblePathSegments(String configuredPath, String expectedPath) throws Exception {
+        String stream = """
+                data: {"choices":[{"delta":{},"finish_reason":"stop"}]}
+
+                data: [DONE]
+
+                """;
+        String basePath = "NONE".equals(configuredPath) ? "" : configuredPath;
+        DefaultChatModelClient client = clientRespondingWith(stream, basePath);
+
+        StepVerifier.create(client.stream(userRequest()))
+                .expectNextMatches(ChatStreamEvent.Completed.class::isInstance)
+                .verifyComplete();
+
+        assertThat(requestPaths).containsExactly(expectedPath);
+        assertThat(authorizationHeaders).containsExactly("Bearer test-key");
+    }
+
     private DefaultChatModelClient clientRespondingWith(String responseBody) throws IOException {
+        return clientRespondingWith(responseBody, "");
+    }
+
+    private DefaultChatModelClient clientRespondingWith(String responseBody, String basePath) throws IOException {
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        server.createContext("/compatible-mode/v1/chat/completions", exchange -> {
+        server.createContext("/", exchange -> {
+            requestPaths.add(exchange.getRequestURI().getPath());
+            authorizationHeaders.add(exchange.getRequestHeaders().getFirst("Authorization"));
             requestBodies.add(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
             byte[] bytes = responseBody.getBytes(StandardCharsets.UTF_8);
             exchange.getResponseHeaders().add("Content-Type", "text/event-stream; charset=utf-8");
@@ -148,11 +185,19 @@ class DefaultChatModelClientTest {
         });
         server.start();
 
-        String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+        String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort() + basePath;
+        AiProperties.Roles defaults = AiProperties.Roles.defaults();
+        AiProperties.Roles roles = new AiProperties.Roles(
+                new AiProperties.RoleConfig("custom", "test-model", ModelCapability.CHAT, 0.3d, 4096, null),
+                defaults.vision(),
+                defaults.imagegen(),
+                defaults.embedding(),
+                defaults.rerank());
         AiProperties properties = new AiProperties(
+                "custom",
                 null,
-                new AiProperties.DashScope("test-key", baseUrl),
-                null,
+                Map.of("custom", new AiProperties.ProviderConfig("test-key", baseUrl)),
+                roles,
                 new AiProperties.Retry(1, Duration.ZERO, Duration.ZERO, 0),
                 Duration.ofSeconds(5),
                 null);

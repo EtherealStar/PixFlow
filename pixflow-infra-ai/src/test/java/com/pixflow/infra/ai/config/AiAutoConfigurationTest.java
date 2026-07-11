@@ -39,6 +39,23 @@ class AiAutoConfigurationTest {
     }
 
     @Test
+    void bindsArbitraryOpenAiCompatibleProviderLabel() {
+        contextRunner.withPropertyValues(
+                        "pixflow.ai.default-provider=custom-anything",
+                        "pixflow.ai.providers.custom-anything.api-key=test-key",
+                        "pixflow.ai.providers.custom-anything.base-url=http://127.0.0.1:1/v1",
+                        "pixflow.ai.roles.primary-chat.provider=custom-anything",
+                        "pixflow.ai.roles.primary-chat.model=test-model",
+                        "pixflow.ai.roles.primary-chat.capability=CHAT")
+                .run(context -> {
+                    AiProperties properties = context.getBean(AiProperties.class);
+
+                    assertThat(properties.provider("CUSTOM-ANYTHING").apiKey()).isEqualTo("test-key");
+                    assertThat(properties.provider("custom-anything").baseUrl()).endsWith("/v1");
+                });
+    }
+
+    @Test
     void missingApiKeyFailsAtCallTime() {
         contextRunner.run(context -> {
             ChatModelClient client = context.getBean(ChatModelClient.class);

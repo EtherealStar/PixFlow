@@ -1,6 +1,8 @@
 package com.pixflow.agent;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.pixflow.common.concurrent.CancellationToken;
+import com.pixflow.common.concurrent.OperationCancelledException;
 import com.pixflow.agent.config.AgentProperties;
 import com.pixflow.agent.error.AgentErrorCode;
 import com.pixflow.agent.memory.MemoryRecallPlanner;
@@ -30,6 +32,7 @@ import com.pixflow.harness.eval.api.TraceRecorder;
 import com.pixflow.harness.hooks.HookRegistry;
 import com.pixflow.harness.hooks.payload.RuntimeScope;
 import com.pixflow.harness.loop.AgentLoop;
+import com.pixflow.harness.loop.AgentTurnRequest;
 import com.pixflow.harness.loop.Attachment;
 import com.pixflow.harness.loop.RuntimeState;
 import com.pixflow.harness.loop.config.LoopProperties;
@@ -78,9 +81,9 @@ import java.util.concurrent.ExecutorService;
  * <ul>
  *   <li>本类作为 Spring 单例持有"无状态协作 bean"；{@code AgentLoop} 在每次 {@code streamNewTurn}
  *       现场构造（与 {@code loop.md §十二} 一致——{@code AgentLoop} 不暴露为 Spring bean）</li>
- *   <li>{@link #streamNewTurn(String, String, List, AgentEventSink)} 是
+ *   <li>{@link #streamNewTurn(AgentTurnRequest, AgentEventSink)} 是
  *       {@code conversation.AgentTurnRunner} SPI 的生产实现</li>
- *   <li>{@link #continueTurn(String, AgentEventSink)} 跳过 user prompt 派发与追加，
+ *   <li>{@link #continueTurn(String, AgentEventSink, CancellationToken)} 跳过 user prompt 派发与追加，
  *       复用同一构造路径（fork / 续轮场景）</li>
  *   <li>错误向上抛给 web 层（归一化为 HTTP/SSE error 帧），不 emit error 事件</li>
  * </ul>
@@ -298,16 +301,15 @@ public class AgentOrchestrator {
      * @param sink           SSE 事件接出
      * @return AgentLoop 返回的最终 assistant 文本
      */
-    public String streamNewTurn(String conversationId,
-                                String prompt,
-                                List<Attachment> attachments,
-                                AgentEventSink sink) {
-        Objects.requireNonNull(conversationId, "conversationId");
+    public String streamNewTurn(AgentTurnRequest request, AgentEventSink sink) {
+        Objects.requireNonNull(request, "request");
         Objects.requireNonNull(sink, "sink");
+        request.cancellation().throwIfCancellationRequested();
 
-        TurnRuntime runtime = createTurnRuntime(conversationId, TurnMode.NEW_TURN);
-        return driveTurn(runtime.state(), runtime.messageStore(), conversationId,
-                runtime.targetTurnNo(), prompt, attachments, sink, TurnMode.NEW_TURN);
+        TurnRuntime runtime = createTurnRuntime(request.conversationId(), TurnMode.NEW_TURN);
+        return driveTurn(runtime.state(), runtime.messageStore(), request.conversationId(),
+                runtime.targetTurnNo(), request.prompt(), request.attachments(), sink,
+                TurnMode.NEW_TURN, request.cancellation());
     }
 
     /**
@@ -320,13 +322,15 @@ public class AgentOrchestrator {
      * @param sink           SSE 事件接出
      * @return AgentLoop 返回的最终 assistant 文本
      */
-    public String continueTurn(String conversationId, AgentEventSink sink) {
+    public String continueTurn(String conversationId, AgentEventSink sink, CancellationToken cancellation) {
         Objects.requireNonNull(conversationId, "conversationId");
         Objects.requireNonNull(sink, "sink");
+        Objects.requireNonNull(cancellation, "cancellation");
+        cancellation.throwIfCancellationRequested();
 
         TurnRuntime runtime = createTurnRuntime(conversationId, TurnMode.CONTINUE);
         return driveTurn(runtime.state(), runtime.messageStore(), conversationId,
-                runtime.targetTurnNo(), "", List.of(), sink, TurnMode.CONTINUE);
+                runtime.targetTurnNo(), "", List.of(), sink, TurnMode.CONTINUE, cancellation);
     }
 
     /**
@@ -339,14 +343,17 @@ public class AgentOrchestrator {
                              String prompt,
                              List<Attachment> attachments,
                              AgentEventSink sink,
-                             TurnMode mode) {
+                             TurnMode mode,
+                             CancellationToken cancellation) {
         Objects.requireNonNull(sink, "sink");
         try {
+            cancellation.throwIfCancellationRequested();
             state.setTurnNo(targetTurnNo);
 
             // 1. 同步召回。USER_PROMPT_SUBMIT 与 user message append 由 AgentLoop.stream 统一负责。
             List<String> recentAssistant = recentAssistantTexts(messageStore);
             MemoryContext memoryContext = recall(state, prompt, null, List.of(), attachments, recentAssistant);
+            cancellation.throwIfCancellationRequested();
 
             // 2. 加载 session memory
             SessionMemoryContent sessionMemory = sessionMemoryService
@@ -359,6 +366,7 @@ public class AgentOrchestrator {
                     List.of(), prompt == null ? "" : prompt,
                     memoryContext, sessionMemory, visibleTools);
             String systemPrompt = renderSystemPrompt(ctx);
+            cancellation.throwIfCancellationRequested();
 
             // 4. 投影 toolSchemas
             List<ToolSchemaView> toolSchemas = toToolSchemaViews(visibleTools);
@@ -371,16 +379,18 @@ public class AgentOrchestrator {
 
             // 6. 阻塞跑完。continueTurn 不追加新的 USER message。
             String finalText = mode == TurnMode.CONTINUE
-                    ? loop.continueStream(sink, systemPrompt, toolSchemas)
+                    ? loop.continueStream(sink, systemPrompt, toolSchemas, cancellation)
                     : loop.stream(prompt == null ? "" : prompt,
                             attachments == null ? List.of() : attachments,
-                            sink, systemPrompt, toolSchemas);
+                            sink, systemPrompt, toolSchemas, cancellation);
 
             // 8. 收尾：flush 由 AgentLoop 内部触发；返回 finalText 给调用方（作为 turn result）
             log.info("AgentOrchestrator: conversationId={} turnNo={} finalTextLen={}",
                     conversationId, state.turnNo(),
                     finalText == null ? 0 : finalText.length());
             return finalText == null ? "" : finalText;
+        } catch (OperationCancelledException cancelled) {
+            throw cancelled;
         } catch (PixFlowException pfe) {
             // AgentLoop 已记录 abort；这里再通过 ErrorRecorder 落盘后向上抛
             try {

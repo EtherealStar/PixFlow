@@ -1,5 +1,7 @@
 package com.pixflow.harness.tools;
 
+import com.pixflow.common.concurrent.CancellationToken;
+import com.pixflow.common.concurrent.OperationCancelledException;
 import com.pixflow.common.error.PixFlowException;
 import com.pixflow.common.error.render.ToolErrorRenderer;
 import com.pixflow.harness.hooks.HookEvent;
@@ -21,8 +23,10 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
 
 public class RegistryToolExecutor implements ToolExecutor {
     private final ToolRegistry toolRegistry;
@@ -54,7 +58,9 @@ public class RegistryToolExecutor implements ToolExecutor {
     public List<ToolExecutionResult> execute(List<ToolCall> calls, ToolExecutionContext context) {
         List<ToolExecutionResult> results = new ArrayList<>(calls.size());
         ExecutorService executor = context.executor();
+        CancellationToken cancellation = context.cancellation();
         for (int index = 0; index < calls.size(); ) {
+            cancellation.throwIfCancellationRequested();
             ToolCall call = calls.get(index);
             ToolDescriptor descriptor = toolRegistry.get(call.toolName()).orElse(null);
             if (descriptor == null) {
@@ -87,14 +93,18 @@ public class RegistryToolExecutor implements ToolExecutor {
                 index++;
                 continue;
             }
-            List<CompletableFuture<ToolExecutionResult>> futures = new ArrayList<>();
+            List<Future<ToolExecutionResult>> futures = new ArrayList<>();
             for (int i = batchStart; i < batchEnd; i++) {
+                cancellation.throwIfCancellationRequested();
                 ToolCall batchCall = calls.get(i);
                 ToolDescriptor batchDescriptor = toolRegistry.get(batchCall.toolName()).orElseThrow();
-                futures.add(CompletableFuture.supplyAsync(() -> executeSingle(batchCall, batchDescriptor, context), executor));
+                futures.add(executor.submit(() -> executeSingle(batchCall, batchDescriptor, context)));
             }
-            for (CompletableFuture<ToolExecutionResult> future : futures) {
-                results.add(future.join());
+            // 使用 Future.cancel(true) 才能尽力中断底层任务；CompletableFuture.cancel 不保证中断执行线程。
+            cancellation.cancellationSignal().thenRun(() ->
+                    futures.forEach(future -> future.cancel(true)));
+            for (Future<ToolExecutionResult> future : futures) {
+                results.add(join(future, cancellation));
             }
             index = batchEnd;
         }
@@ -106,6 +116,7 @@ public class RegistryToolExecutor implements ToolExecutor {
         Map<String, Object> args = new LinkedHashMap<>(call.arguments());
         boolean rewritten = false;
         try {
+            context.cancellation().throwIfCancellationRequested();
             validateArgs(descriptor, args);
             ToolCallClassification classification = descriptor.classifier().classify(descriptor, args);
             PermissionDecision decision = evaluatePermission(call, descriptor, classification, context.permissionContext());
@@ -144,8 +155,11 @@ public class RegistryToolExecutor implements ToolExecutor {
                 }
             }
             ToolExecutionResult result = invokeHandler(call, descriptor, args, classification, context);
+            context.cancellation().throwIfCancellationRequested();
             trace(call, startedAt, result, rewritten, false, null);
             return result;
+        } catch (OperationCancelledException cancelled) {
+            throw cancelled;
         } catch (PixFlowException ex) {
             ToolExecutionResult result = error(call, ex.getMessage(), ex);
             trace(call, startedAt, result, rewritten, true, ex.category().name());
@@ -164,6 +178,7 @@ public class RegistryToolExecutor implements ToolExecutor {
             Map<String, Object> args,
             ToolCallClassification classification,
             ToolExecutionContext context) {
+        context.cancellation().throwIfCancellationRequested();
         ToolInvocation invocation = new ToolInvocation(
                 call.toolCallId(),
                 call.toolName(),
@@ -175,12 +190,39 @@ public class RegistryToolExecutor implements ToolExecutor {
                 context.runtimeContext(),
                 call.metadata());
         ToolHandlerOutput output = descriptor.handler().handle(invocation);
+        context.cancellation().throwIfCancellationRequested();
         String content = output.content();
         Map<String, Object> metadata = new LinkedHashMap<>(output.metadata());
         metadata.putAll(classification.subjectMetadata());
         metadata.put("readOnly", classification.readOnly());
         metadata.put("concurrencySafe", classification.concurrencySafe());
         return applyBudget(call, descriptor, content, metadata, classification.resultPolicy());
+    }
+
+    private static ToolExecutionResult join(
+            Future<ToolExecutionResult> future,
+            CancellationToken cancellation) {
+        cancellation.throwIfCancellationRequested();
+        try {
+            ToolExecutionResult result = future.get();
+            cancellation.throwIfCancellationRequested();
+            return result;
+        } catch (CancellationException cancelled) {
+            cancellation.throwIfCancellationRequested();
+            throw cancelled;
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            cancellation.throwIfCancellationRequested();
+            throw new RuntimeException(interrupted);
+        } catch (ExecutionException execution) {
+            if (execution.getCause() instanceof OperationCancelledException cancelled) {
+                throw cancelled;
+            }
+            if (execution.getCause() instanceof RuntimeException runtime) {
+                throw runtime;
+            }
+            throw new RuntimeException(execution.getCause());
+        }
     }
 
     private ToolExecutionResult applyBudget(

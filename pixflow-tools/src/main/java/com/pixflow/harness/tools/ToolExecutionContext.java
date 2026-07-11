@@ -1,5 +1,6 @@
 package com.pixflow.harness.tools;
 
+import com.pixflow.common.concurrent.CancellationToken;
 import com.pixflow.harness.hooks.HookRegistry;
 import com.pixflow.harness.tools.plan.PlanModeView;
 import com.pixflow.harness.tools.result.ToolTraceSink;
@@ -18,24 +19,13 @@ public record ToolExecutionContext(
         PlanModeView planModeView,
         ToolRuntimeContext runtimeContext,
         ExecutorService executor,
-        Set<String> hiddenTools) {
+        Set<String> hiddenTools,
+        CancellationToken cancellation) {
 
     public ToolExecutionContext {
         runtimeContext = runtimeContext == null ? ToolRuntimeContext.unavailable() : runtimeContext;
         hiddenTools = immutableSet(hiddenTools);
-    }
-
-    public ToolExecutionContext(
-            com.pixflow.harness.permission.PermissionPolicy permissionPolicy,
-            com.pixflow.harness.permission.PermissionContext permissionContext,
-            HookRegistry hookRegistry,
-            ToolResultStorage resultStorage,
-            ToolTraceSink traceSink,
-            PlanModeView planModeView,
-            ExecutorService executor,
-            Set<String> hiddenTools) {
-        this(permissionPolicy, permissionContext, hookRegistry, resultStorage, traceSink, planModeView,
-                ToolRuntimeContext.unavailable(), executor, hiddenTools);
+        cancellation = java.util.Objects.requireNonNull(cancellation, "cancellation");
     }
 
     public ToolVisibilityContext visibilityContext() {

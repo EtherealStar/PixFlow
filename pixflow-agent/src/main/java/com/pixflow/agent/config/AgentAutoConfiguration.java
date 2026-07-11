@@ -45,7 +45,6 @@ public class AgentAutoConfiguration {
     @Bean(name = "agentTurnRunner")
     @ConditionalOnMissingBean(name = "agentTurnRunner")
     public AgentTurnRunner agentTurnRunner(AgentOrchestrator orchestrator) {
-        return (conversationId, prompt, attachments, sink) ->
-                orchestrator.streamNewTurn(conversationId, prompt, attachments, sink);
+        return orchestrator::streamNewTurn;
     }
 }
