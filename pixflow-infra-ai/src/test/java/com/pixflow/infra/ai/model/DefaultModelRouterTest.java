@@ -9,7 +9,7 @@ class DefaultModelRouterTest {
 
     @Test
     void resolvesPrimaryChatRoleFromDefaults() {
-        DefaultModelRouter router = new DefaultModelRouter(new AiProperties(null, null, null, null, null, null, null));
+        DefaultModelRouter router = new DefaultModelRouter(new AiProperties(null, null, null, null, null, null, null, null));
 
         ResolvedModel resolved = router.resolve(ModelRole.PRIMARY_CHAT);
 

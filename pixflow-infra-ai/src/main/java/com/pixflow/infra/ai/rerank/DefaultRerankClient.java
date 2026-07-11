@@ -12,6 +12,7 @@ import com.pixflow.infra.ai.provider.DashScopeHttpClient;
 import com.pixflow.infra.ai.provider.ProviderPayloads;
 import com.pixflow.infra.ai.resilience.ConcurrencyGuard;
 import com.pixflow.infra.ai.resilience.ModelRetryRunner;
+import com.pixflow.infra.ai.resilience.ModelQuotaGuard;
 import com.pixflow.infra.ai.spi.GlobalConcurrencyLimiter;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -27,6 +28,7 @@ public final class DefaultRerankClient implements RerankClient {
     private final ModelRouter modelRouter;
     private final ModelRetryRunner retryRunner;
     private final ConcurrencyGuard concurrencyGuard;
+    private final ModelQuotaGuard quotaGuard;
     private final AiMetrics metrics;
     private final DashScopeHttpClient httpClient;
 
@@ -34,11 +36,13 @@ public final class DefaultRerankClient implements RerankClient {
             ModelRouter modelRouter,
             ModelRetryRunner retryRunner,
             ConcurrencyGuard concurrencyGuard,
+            ModelQuotaGuard quotaGuard,
             AiMetrics metrics,
             DashScopeHttpClient httpClient) {
         this.modelRouter = Objects.requireNonNull(modelRouter, "modelRouter");
         this.retryRunner = Objects.requireNonNull(retryRunner, "retryRunner");
         this.concurrencyGuard = Objects.requireNonNull(concurrencyGuard, "concurrencyGuard");
+        this.quotaGuard = Objects.requireNonNull(quotaGuard, "quotaGuard");
         this.metrics = Objects.requireNonNull(metrics, "metrics");
         this.httpClient = Objects.requireNonNull(httpClient, "httpClient");
     }
@@ -57,10 +61,12 @@ public final class DefaultRerankClient implements RerankClient {
             String query,
             List<String> candidates) {
         return reactor.core.publisher.Mono.defer(() -> {
-            GlobalConcurrencyLimiter.Permit permit = concurrencyGuard.acquire(ModelRole.RERANK, Duration.ZERO);
+            GlobalConcurrencyLimiter.Permit permit = concurrencyGuard.acquire(
+                    ModelRole.RERANK, model.provider(), Duration.ZERO);
             AiMetricsCall call = new AiMetricsCall(metrics, model);
             metrics.incrementConcurrency();
             try {
+                quotaGuard.tryConsume(model);
                 Map<String, Object> payload = new LinkedHashMap<>();
                 payload.put("model", model.model());
                 payload.put("query", query);

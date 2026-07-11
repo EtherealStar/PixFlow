@@ -7,10 +7,12 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pixflow.infra.ai.config.AiProperties;
 import com.pixflow.infra.ai.model.DefaultModelRouter;
 import com.pixflow.infra.ai.model.ModelCapability;
+import com.pixflow.infra.ai.model.ModelRole;
 import com.pixflow.infra.ai.model.TokenUsage;
 import com.pixflow.infra.ai.observability.AiMetrics;
 import com.pixflow.infra.ai.resilience.ConcurrencyGuard;
 import com.pixflow.infra.ai.resilience.ModelRetryRunner;
+import com.pixflow.infra.ai.resilience.ModelQuotaGuard;
 import com.pixflow.infra.ai.resilience.RetryPolicy;
 import com.sun.net.httpserver.HttpServer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -200,12 +202,20 @@ class DefaultChatModelClientTest {
                 roles,
                 new AiProperties.Retry(1, Duration.ZERO, Duration.ZERO, 0),
                 Duration.ofSeconds(5),
-                null);
+                null,
+                Map.of(ModelRole.PRIMARY_CHAT, new AiProperties.Quota(
+                        "primary-chat", 100, 100, Duration.ofSeconds(1), Duration.ofMinutes(1), 1)));
+        var concurrency = new ConcurrencyGuard((role, provider, waitTime) -> () -> { });
+        var quota = new ModelQuotaGuard(
+                (role, provider, group, cost) -> new com.pixflow.infra.ai.spi.ModelQuotaLimiter.QuotaDecision(
+                        true, 99, Duration.ZERO),
+                properties);
         return new DefaultChatModelClient(
                 properties,
                 new DefaultModelRouter(properties),
                 new ModelRetryRunner(new RetryPolicy(1, Duration.ZERO, Duration.ZERO, 0)),
-                new ConcurrencyGuard(null),
+                concurrency,
+                quota,
                 new AiMetrics(new SimpleMeterRegistry()),
                 objectMapper,
                 WebClient.builder());

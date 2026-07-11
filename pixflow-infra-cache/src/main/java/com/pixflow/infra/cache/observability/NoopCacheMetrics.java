@@ -16,6 +16,10 @@ public class NoopCacheMetrics implements CacheMetrics {
     }
 
     @Override
+    public void recordTokenBucket(String namespace, String result) {
+    }
+
+    @Override
     public void recordConfirmationToken(String operation, String result) {
     }
 }

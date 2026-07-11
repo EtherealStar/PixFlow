@@ -15,6 +15,7 @@ import com.pixflow.infra.ai.observability.AiMetrics;
 import com.pixflow.infra.ai.provider.ProviderPayloads;
 import com.pixflow.infra.ai.resilience.ConcurrencyGuard;
 import com.pixflow.infra.ai.resilience.ModelRetryRunner;
+import com.pixflow.infra.ai.resilience.ModelQuotaGuard;
 import com.pixflow.infra.ai.resilience.ToolCallAccumulator;
 import com.pixflow.infra.ai.spi.GlobalConcurrencyLimiter;
 import java.net.URI;
@@ -49,6 +50,7 @@ public final class DefaultChatModelClient implements ChatModelClient {
     private final ModelRouter modelRouter;
     private final ModelRetryRunner retryRunner;
     private final ConcurrencyGuard concurrencyGuard;
+    private final ModelQuotaGuard quotaGuard;
     private final AiMetrics metrics;
     private final ObjectMapper objectMapper;
     private final WebClient webClient;
@@ -58,6 +60,7 @@ public final class DefaultChatModelClient implements ChatModelClient {
             ModelRouter modelRouter,
             ModelRetryRunner retryRunner,
             ConcurrencyGuard concurrencyGuard,
+            ModelQuotaGuard quotaGuard,
             AiMetrics metrics,
             ObjectMapper objectMapper,
             WebClient.Builder webClientBuilder) {
@@ -65,6 +68,7 @@ public final class DefaultChatModelClient implements ChatModelClient {
         this.modelRouter = Objects.requireNonNull(modelRouter, "modelRouter");
         this.retryRunner = Objects.requireNonNull(retryRunner, "retryRunner");
         this.concurrencyGuard = Objects.requireNonNull(concurrencyGuard, "concurrencyGuard");
+        this.quotaGuard = Objects.requireNonNull(quotaGuard, "quotaGuard");
         this.metrics = Objects.requireNonNull(metrics, "metrics");
         this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper");
         this.webClient = Objects.requireNonNull(webClientBuilder, "webClientBuilder").build();
@@ -132,10 +136,12 @@ public final class DefaultChatModelClient implements ChatModelClient {
             }
 
             AiMetricsCall call = new AiMetricsCall(metrics, model);
-            GlobalConcurrencyLimiter.Permit permit = concurrencyGuard.acquire(request.role(), Duration.ZERO);
+            GlobalConcurrencyLimiter.Permit permit = concurrencyGuard.acquire(
+                    request.role(), model.provider(), Duration.ZERO);
             metrics.incrementConcurrency();
             AtomicBoolean recorded = new AtomicBoolean(false);
             try {
+                quotaGuard.tryConsume(model);
                 return webClient.post()
                         .uri(chatCompletionsUri(baseUrl))
                         .contentType(MediaType.APPLICATION_JSON)

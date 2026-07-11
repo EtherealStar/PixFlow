@@ -8,6 +8,8 @@ import com.pixflow.common.error.ErrorCode;
  */
 public enum AiErrorCode implements ErrorCode {
     MODEL_RATE_LIMITED(ErrorCategory.RATE_LIMIT),
+    MODEL_LOCAL_RATE_LIMITED(ErrorCategory.RATE_LIMIT),
+    MODEL_QUOTA_UNAVAILABLE(ErrorCategory.DEPENDENCY),
     MODEL_CONTEXT_LIMIT(ErrorCategory.CONTEXT_LIMIT),
     MODEL_NETWORK_ERROR(ErrorCategory.NETWORK),
     MODEL_PROVIDER_ERROR(ErrorCategory.PROVIDER),

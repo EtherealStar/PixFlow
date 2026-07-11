@@ -13,6 +13,15 @@ pixflow:
   cache:
     address: redis://localhost:6379
     env-prefix: dev
+    semaphore:
+      default-permits: 8
+      apis:
+        primary_chat: { permits: 16, lease-time: 2m }
+        vision: { permits: 8, lease-time: 2m }
+        imagegen: { permits: 4, lease-time: 5m }
+        embedding: { permits: 8, lease-time: 2m }
+        rerank: { permits: 8, lease-time: 2m }
+        bg-removal: { permits: 8, lease-time: 2m }
   storage:
     endpoint: http://localhost:9000
     access-key: minioadmin
@@ -67,6 +76,13 @@ pixflow:
         provider: dashscope
         model: Qwen/Qwen3-Reranker-8B
         capability: RERANK
+    # 以下数值仅为开发环境的 provider attempt 权重示例，不代表真实 token 或账单额度。
+    quotas:
+      primary-chat: { quota-group: chat, capacity: 60, refill-tokens: 60, refill-period: 1m, idle-ttl: 10m, cost-per-attempt: 1 }
+      vision: { quota-group: vision, capacity: 30, refill-tokens: 30, refill-period: 1m, idle-ttl: 10m, cost-per-attempt: 2 }
+      imagegen: { quota-group: imagegen, capacity: 20, refill-tokens: 10, refill-period: 1m, idle-ttl: 10m, cost-per-attempt: 5 }
+      embedding: { quota-group: embedding, capacity: 100, refill-tokens: 100, refill-period: 1m, idle-ttl: 10m, cost-per-attempt: 1 }
+      rerank: { quota-group: rerank, capacity: 100, refill-tokens: 100, refill-period: 1m, idle-ttl: 10m, cost-per-attempt: 1 }
   thirdparty:
     bg-removal:
       default-provider: removebg
@@ -95,3 +111,9 @@ pixflow:
           status-path: /api/v1/bg-remove/query
           timeout: 30s
           interval: 1s
+    # 按 provider/API 统计每一次真实出站尝试。
+    outbound-quota:
+      removebg:
+        bg-removal: { capacity: 20, refill-tokens: 20, refill-period: 1m, idle-ttl: 10m, cost-per-attempt: 1 }
+      aliyun-market:
+        bg-removal: { capacity: 20, refill-tokens: 20, refill-period: 1m, idle-ttl: 10m, cost-per-attempt: 1 }

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pixflow.infra.cache.key.CacheNamespace;
 import com.pixflow.infra.cache.key.DefaultCacheNamespace;
 import com.pixflow.infra.cache.semaphore.DistributedSemaphore;
+import com.pixflow.infra.cache.tokenbucket.DistributedTokenBucket;
 import com.pixflow.infra.thirdparty.bgremoval.BackgroundRemovalClient;
 import com.pixflow.infra.thirdparty.bgremoval.RoutingBackgroundRemovalClient;
 import com.pixflow.infra.thirdparty.bgremoval.provider.BackgroundRemovalProvider;
@@ -91,10 +92,18 @@ public class ThirdPartyAutoConfiguration {
     @ConditionalOnMissingBean
     public ThirdPartyCallTemplate thirdPartyCallTemplate(
             DistributedSemaphore distributedSemaphore,
+            DistributedTokenBucket distributedTokenBucket,
             CacheNamespace cacheNamespace,
             ThirdPartyResilienceRegistry resilienceRegistry,
-            ThirdPartyErrorMapper errorMapper) {
-        return new ThirdPartyCallTemplate(distributedSemaphore, cacheNamespace, resilienceRegistry, errorMapper);
+            ThirdPartyErrorMapper errorMapper,
+            ThirdPartyProperties properties) {
+        return new ThirdPartyCallTemplate(
+                distributedSemaphore,
+                distributedTokenBucket,
+                cacheNamespace,
+                resilienceRegistry,
+                errorMapper,
+                properties);
     }
 
     @Bean

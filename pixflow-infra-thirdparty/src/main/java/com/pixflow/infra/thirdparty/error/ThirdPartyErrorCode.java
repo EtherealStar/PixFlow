@@ -6,6 +6,8 @@ import com.pixflow.common.error.ErrorCode;
 public enum ThirdPartyErrorCode implements ErrorCode {
     THIRDPARTY_PROVIDER_NOT_CONFIGURED(ErrorCategory.DEPENDENCY),
     THIRDPARTY_RATE_LIMITED(ErrorCategory.RATE_LIMIT),
+    THIRDPARTY_LOCAL_RATE_LIMITED(ErrorCategory.RATE_LIMIT),
+    THIRDPARTY_QUOTA_UNAVAILABLE(ErrorCategory.DEPENDENCY),
     THIRDPARTY_NETWORK_ERROR(ErrorCategory.NETWORK),
     THIRDPARTY_PROVIDER_ERROR(ErrorCategory.PROVIDER),
     THIRDPARTY_PROVIDER_TIMEOUT(ErrorCategory.NETWORK),

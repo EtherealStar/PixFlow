@@ -9,6 +9,9 @@ import com.pixflow.infra.cache.key.CacheKey;
 import com.pixflow.infra.cache.key.CacheNamespace;
 import com.pixflow.infra.cache.key.DefaultCacheNamespace;
 import com.pixflow.infra.cache.semaphore.DistributedSemaphore;
+import com.pixflow.infra.cache.tokenbucket.DistributedTokenBucket;
+import com.pixflow.infra.cache.tokenbucket.TokenBucketDecision;
+import com.pixflow.infra.cache.tokenbucket.TokenBucketPolicy;
 import com.pixflow.infra.thirdparty.bgremoval.provider.aliyunmarket.AliyunMarketBackgroundRemovalProvider;
 import com.pixflow.infra.thirdparty.bgremoval.provider.async.AsyncPollingBackgroundRemovalProvider;
 import com.pixflow.infra.thirdparty.bgremoval.provider.configurable.ConfigurableHttpBackgroundRemovalProvider;
@@ -252,9 +255,20 @@ class BackgroundRemovalProviderHttpTest {
 
     private static ThirdPartyCallTemplate callTemplate(String providerId, ThirdPartyProperties.Provider provider) {
         CacheNamespace namespace = new DefaultCacheNamespace("test", Duration.ofMinutes(1));
-        ThirdPartyProperties properties = new ThirdPartyProperties(null, Map.of(providerId, provider), null,
-                new ThirdPartyProperties.Resilience(2, Duration.ofMillis(5), Duration.ofMillis(50), Duration.ofSeconds(2), 8, 8));
-        return new ThirdPartyCallTemplate(new NoopSemaphore(), namespace, new ThirdPartyResilienceRegistry(properties), new ThirdPartyErrorMapper());
+        ThirdPartyProperties properties = new ThirdPartyProperties(
+                null,
+                Map.of(providerId, provider),
+                null,
+                new ThirdPartyProperties.Resilience(2, Duration.ofMillis(5), Duration.ofMillis(50), Duration.ofSeconds(2), 8),
+                Map.of(providerId, Map.of("bg-removal", new ThirdPartyProperties.OutboundQuota(
+                        100, 100, Duration.ofSeconds(1), Duration.ofMinutes(1), 1))));
+        return new ThirdPartyCallTemplate(
+                new NoopSemaphore(),
+                new NoopTokenBucket(),
+                namespace,
+                new ThirdPartyResilienceRegistry(properties),
+                new ThirdPartyErrorMapper(),
+                properties);
     }
 
     private static RestClientThirdPartyHttpInvoker httpInvoker() {
@@ -270,6 +284,13 @@ class BackgroundRemovalProviderHttpTest {
         public Permit acquire(CacheKey key, int permits, Duration waitTime) {
             return () -> {
             };
+        }
+    }
+
+    private static final class NoopTokenBucket implements DistributedTokenBucket {
+        @Override
+        public TokenBucketDecision tryConsume(CacheKey key, TokenBucketPolicy policy, long cost) {
+            return new TokenBucketDecision(true, policy.capacity() - cost, Duration.ZERO);
         }
     }
 }

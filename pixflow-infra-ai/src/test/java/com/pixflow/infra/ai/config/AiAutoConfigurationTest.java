@@ -15,6 +15,8 @@ import com.pixflow.infra.ai.imagegen.ImageGenRequest;
 import com.pixflow.infra.ai.rerank.RerankClient;
 import com.pixflow.infra.ai.vision.VisionModelClient;
 import com.pixflow.infra.ai.vision.VisionRequest;
+import com.pixflow.infra.ai.spi.GlobalConcurrencyLimiter;
+import com.pixflow.infra.ai.spi.ModelQuotaLimiter;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -25,7 +27,10 @@ class AiAutoConfigurationTest {
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
             .withConfiguration(AutoConfigurations.of(AiAutoConfiguration.class))
             .withBean(ObjectMapper.class, ObjectMapper::new)
-            .withBean(SimpleMeterRegistry.class, SimpleMeterRegistry::new);
+            .withBean(SimpleMeterRegistry.class, SimpleMeterRegistry::new)
+            .withBean(GlobalConcurrencyLimiter.class, () -> (role, provider, waitTime) -> () -> { })
+            .withBean(ModelQuotaLimiter.class, () -> (role, provider, group, cost) ->
+                    new ModelQuotaLimiter.QuotaDecision(true, 100, java.time.Duration.ZERO));
 
     @Test
     void createsAllModelClientsWithoutApiKey() {

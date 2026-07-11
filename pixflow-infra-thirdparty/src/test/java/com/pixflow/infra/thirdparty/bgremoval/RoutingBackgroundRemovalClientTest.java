@@ -12,7 +12,8 @@ class RoutingBackgroundRemovalClientTest {
 
     @Test
     void failsWhenNoProviderConfigured() {
-        ThirdPartyProperties properties = new ThirdPartyProperties(new ThirdPartyProperties.BgRemoval("missing"), Map.of(), null, null);
+        ThirdPartyProperties properties = new ThirdPartyProperties(
+                new ThirdPartyProperties.BgRemoval("missing"), Map.of(), null, null, Map.of());
         RoutingBackgroundRemovalClient client = new RoutingBackgroundRemovalClient(properties, List.of());
 
         assertThatThrownBy(() -> client.remove(new BackgroundRemovalRequest(new byte[] {1}, "image/png", null, null)))

@@ -109,8 +109,6 @@ public final class ModelRetryRunner {
     }
 
     private boolean isRetryable(PixFlowException error) {
-        return error.category() == com.pixflow.common.error.ErrorCategory.RATE_LIMIT
-                || error.category() == com.pixflow.common.error.ErrorCategory.NETWORK
-                || error.category() == com.pixflow.common.error.ErrorCategory.PROVIDER;
+        return error.recovery() == RecoveryHint.RETRY;
     }
 }

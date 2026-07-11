@@ -12,5 +12,7 @@ public interface CacheMetrics {
 
     void recordSemaphore(String api, String result);
 
+    void recordTokenBucket(String namespace, String result);
+
     void recordConfirmationToken(String operation, String result);
 }

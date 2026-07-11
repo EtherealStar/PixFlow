@@ -15,9 +15,11 @@ import com.pixflow.infra.ai.rerank.DefaultRerankClient;
 import com.pixflow.infra.ai.rerank.RerankClient;
 import com.pixflow.infra.ai.resilience.ConcurrencyGuard;
 import com.pixflow.infra.ai.resilience.ModelRetryRunner;
+import com.pixflow.infra.ai.resilience.ModelQuotaGuard;
 import com.pixflow.infra.ai.resilience.RetryPolicy;
 import com.pixflow.infra.ai.resilience.ToolCallAccumulator;
 import com.pixflow.infra.ai.spi.GlobalConcurrencyLimiter;
+import com.pixflow.infra.ai.spi.ModelQuotaLimiter;
 import com.pixflow.infra.ai.vision.DefaultVisionModelClient;
 import com.pixflow.infra.ai.vision.VisionModelClient;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -59,8 +61,14 @@ public class AiAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public ConcurrencyGuard concurrencyGuard(ObjectProvider<GlobalConcurrencyLimiter> limiterProvider) {
-        return new ConcurrencyGuard(limiterProvider.getIfAvailable());
+    public ConcurrencyGuard concurrencyGuard(GlobalConcurrencyLimiter limiter) {
+        return new ConcurrencyGuard(limiter);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public ModelQuotaGuard modelQuotaGuard(ModelQuotaLimiter limiter, AiProperties properties) {
+        return new ModelQuotaGuard(limiter, properties);
     }
 
     @Bean
@@ -92,6 +100,7 @@ public class AiAutoConfiguration {
             ModelRouter modelRouter,
             ModelRetryRunner retryRunner,
             ConcurrencyGuard concurrencyGuard,
+            ModelQuotaGuard quotaGuard,
             AiMetrics aiMetrics,
             ObjectProvider<ObjectMapper> objectMapperProvider,
             ObjectProvider<WebClient.Builder> webClientBuilderProvider) {
@@ -102,6 +111,7 @@ public class AiAutoConfiguration {
                 modelRouter,
                 retryRunner,
                 concurrencyGuard,
+                quotaGuard,
                 aiMetrics,
                 objectMapper,
                 webClientBuilder);
@@ -119,9 +129,10 @@ public class AiAutoConfiguration {
             ModelRouter modelRouter,
             ModelRetryRunner retryRunner,
             ConcurrencyGuard concurrencyGuard,
+            ModelQuotaGuard quotaGuard,
             AiMetrics aiMetrics,
             DashScopeHttpClient dashScopeHttpClient) {
-        return new DefaultEmbeddingClient(modelRouter, retryRunner, concurrencyGuard, aiMetrics, dashScopeHttpClient);
+        return new DefaultEmbeddingClient(modelRouter, retryRunner, concurrencyGuard, quotaGuard, aiMetrics, dashScopeHttpClient);
     }
 
     @Bean
@@ -130,9 +141,10 @@ public class AiAutoConfiguration {
             ModelRouter modelRouter,
             ModelRetryRunner retryRunner,
             ConcurrencyGuard concurrencyGuard,
+            ModelQuotaGuard quotaGuard,
             AiMetrics aiMetrics,
             DashScopeHttpClient dashScopeHttpClient) {
-        return new DefaultImageGenClient(modelRouter, retryRunner, concurrencyGuard, aiMetrics, dashScopeHttpClient);
+        return new DefaultImageGenClient(modelRouter, retryRunner, concurrencyGuard, quotaGuard, aiMetrics, dashScopeHttpClient);
     }
 
     @Bean
@@ -141,8 +153,9 @@ public class AiAutoConfiguration {
             ModelRouter modelRouter,
             ModelRetryRunner retryRunner,
             ConcurrencyGuard concurrencyGuard,
+            ModelQuotaGuard quotaGuard,
             AiMetrics aiMetrics,
             DashScopeHttpClient dashScopeHttpClient) {
-        return new DefaultRerankClient(modelRouter, retryRunner, concurrencyGuard, aiMetrics, dashScopeHttpClient);
+        return new DefaultRerankClient(modelRouter, retryRunner, concurrencyGuard, quotaGuard, aiMetrics, dashScopeHttpClient);
     }
 }

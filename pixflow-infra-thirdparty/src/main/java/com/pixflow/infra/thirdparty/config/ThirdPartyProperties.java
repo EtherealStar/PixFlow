@@ -7,13 +7,19 @@ import java.util.Map;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 @ConfigurationProperties(prefix = "pixflow.thirdparty")
-public record ThirdPartyProperties(BgRemoval bgRemoval, Map<String, Provider> providers, Http http, Resilience resilience) {
+public record ThirdPartyProperties(
+        BgRemoval bgRemoval,
+        Map<String, Provider> providers,
+        Http http,
+        Resilience resilience,
+        Map<String, Map<String, OutboundQuota>> outboundQuota) {
 
     public ThirdPartyProperties {
         bgRemoval = bgRemoval == null ? new BgRemoval("removebg") : bgRemoval;
         providers = immutableCopy(providers);
         http = http == null ? new Http(Duration.ofSeconds(30), Duration.ofSeconds(10)) : http;
-        resilience = resilience == null ? new Resilience(3, Duration.ofMillis(500), Duration.ofSeconds(8), Duration.ofSeconds(30), 16, 16) : resilience;
+        resilience = resilience == null ? new Resilience(3, Duration.ofMillis(500), Duration.ofSeconds(8), Duration.ofSeconds(30), 16) : resilience;
+        outboundQuota = immutableNestedCopy(outboundQuota);
     }
 
     public Provider provider(String providerId) {
@@ -26,7 +32,31 @@ public record ThirdPartyProperties(BgRemoval bgRemoval, Map<String, Provider> pr
     public record Http(Duration connectTimeout, Duration readTimeout) {
     }
 
-    public record Resilience(int maxAttempts, Duration baseDelay, Duration maxDelay, Duration timeout, int bulkheadMaxConcurrent, int rateLimitLimitForPeriod) {
+    public record Resilience(int maxAttempts, Duration baseDelay, Duration maxDelay, Duration timeout, int bulkheadMaxConcurrent) {
+    }
+
+    public record OutboundQuota(
+            long capacity,
+            long refillTokens,
+            Duration refillPeriod,
+            Duration idleTtl,
+            long costPerAttempt) {
+        public OutboundQuota {
+            if (capacity <= 0 || refillTokens <= 0 || costPerAttempt <= 0 || costPerAttempt > capacity) {
+                throw new IllegalArgumentException("第三方出站额度与单次权重必须为正，且权重不能超过容量");
+            }
+            requirePositive(refillPeriod, "refillPeriod");
+            requirePositive(idleTtl, "idleTtl");
+        }
+    }
+
+    public OutboundQuota outboundQuota(String providerId, String api) {
+        Map<String, OutboundQuota> providerQuota = outboundQuota.get(providerId);
+        OutboundQuota quota = providerQuota == null ? null : providerQuota.get(api);
+        if (quota == null) {
+            throw new IllegalStateException("未配置第三方出站额度: " + providerId + "/" + api);
+        }
+        return quota;
     }
 
     public record Provider(
@@ -93,5 +123,21 @@ public record ThirdPartyProperties(BgRemoval bgRemoval, Map<String, Provider> pr
             return Map.of();
         }
         return Collections.unmodifiableMap(new LinkedHashMap<>(source));
+    }
+
+    private static Map<String, Map<String, OutboundQuota>> immutableNestedCopy(
+            Map<String, Map<String, OutboundQuota>> source) {
+        if (source == null || source.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, Map<String, OutboundQuota>> copy = new LinkedHashMap<>();
+        source.forEach((provider, quotas) -> copy.put(provider, immutableCopy(quotas)));
+        return Collections.unmodifiableMap(copy);
+    }
+
+    private static void requirePositive(Duration duration, String name) {
+        if (duration == null || duration.isZero() || duration.isNegative()) {
+            throw new IllegalArgumentException(name + " 必须大于 0");
+        }
     }
 }

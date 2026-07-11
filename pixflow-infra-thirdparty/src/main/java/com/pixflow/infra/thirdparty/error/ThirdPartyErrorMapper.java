@@ -16,7 +16,6 @@ import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.client.RestClientException;
 import io.github.resilience4j.bulkhead.BulkheadFullException;
 import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
-import io.github.resilience4j.ratelimiter.RequestNotPermitted;
 
 public final class ThirdPartyErrorMapper {
     public PixFlowException map(Throwable error) {
@@ -28,9 +27,6 @@ public final class ThirdPartyErrorMapper {
         }
         if (error instanceof CallNotPermittedException) {
             return exception(ThirdPartyErrorCode.THIRDPARTY_CIRCUIT_OPEN, "circuit open", error, RecoveryHint.SKIP, null);
-        }
-        if (error instanceof RequestNotPermitted) {
-            return exception(ThirdPartyErrorCode.THIRDPARTY_RATE_LIMITED, "rate limiter rejected", error, RecoveryHint.RETRY, null);
         }
         if (error instanceof BulkheadFullException) {
             return exception(ThirdPartyErrorCode.THIRDPARTY_PROVIDER_ERROR, "bulkhead full", error, RecoveryHint.RETRY, null);

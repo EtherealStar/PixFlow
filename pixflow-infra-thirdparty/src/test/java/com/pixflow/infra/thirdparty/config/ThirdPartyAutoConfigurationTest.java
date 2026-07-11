@@ -5,6 +5,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.pixflow.infra.cache.key.CacheKey;
 import com.pixflow.infra.cache.key.CacheNamespace;
 import com.pixflow.infra.cache.semaphore.DistributedSemaphore;
+import com.pixflow.infra.cache.tokenbucket.DistributedTokenBucket;
+import com.pixflow.infra.cache.tokenbucket.TokenBucketDecision;
 import com.pixflow.infra.thirdparty.bgremoval.BackgroundRemovalClient;
 import java.time.Duration;
 import org.junit.jupiter.api.Test;
@@ -44,6 +46,12 @@ class ThirdPartyAutoConfigurationTest {
         @Bean
         CacheNamespace cacheNamespace() {
             return new com.pixflow.infra.cache.key.DefaultCacheNamespace("test", Duration.ofMinutes(1));
+        }
+
+        @Bean
+        DistributedTokenBucket distributedTokenBucket() {
+            return (key, policy, cost) -> new TokenBucketDecision(
+                    true, policy.capacity() - cost, Duration.ZERO);
         }
     }
 }

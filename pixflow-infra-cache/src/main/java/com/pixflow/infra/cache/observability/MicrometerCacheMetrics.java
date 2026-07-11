@@ -27,6 +27,11 @@ public class MicrometerCacheMetrics implements CacheMetrics {
     }
 
     @Override
+    public void recordTokenBucket(String namespace, String result) {
+        registry.counter("pixflow.cache.token_bucket", "namespace", namespace, "result", result).increment();
+    }
+
+    @Override
     public void recordConfirmationToken(String operation, String result) {
         registry.counter("pixflow.cache.confirmation", "op", operation, "result", result).increment();
     }
