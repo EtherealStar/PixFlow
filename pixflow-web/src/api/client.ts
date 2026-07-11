@@ -2,6 +2,7 @@ import type { ApiError } from '@/types/api'
 import { refreshAuthSessionOnce } from '@/transport/authRefresh'
 import { getAccessToken } from '@/transport/authToken'
 import { newTraceId } from '@/utils/id'
+import { normalizeHttpError, readHttpError } from '@/transport/httpError'
 
 /**
  * 统一 HTTP 客户端（fetch 封装）。
@@ -71,20 +72,6 @@ const inFlight = new InFlightSemaphore(6)
 
 export function configureInFlightCapacity(capacity: number): void {
   ;(inFlight as unknown as { capacity: number }).capacity = capacity
-}
-
-// ---- 错误归一化 ----
-function normalizeError(status: number, body: unknown, fallbackTraceId: string): ApiError {
-  const obj = (body && typeof body === 'object' ? body : {}) as Record<string, unknown>
-  const errorCode = String(obj.errorCode ?? obj.code ?? 'INTERNAL_ERROR')
-  const message = String(obj.message ?? `HTTP ${status}`)
-  const traceId = String(obj.traceId ?? fallbackTraceId)
-  const details = (obj.details && typeof obj.details === 'object' ? obj.details : undefined) as
-    | Record<string, unknown>
-    | undefined
-  const out: ApiError = { status, errorCode, message, traceId }
-  if (details) out.details = details
-  return out
 }
 
 function makeNetworkError(err: unknown, traceId: string): ApiError {
@@ -162,19 +149,7 @@ export async function request<T = unknown>(path: string, opts: RequestOptions = 
             if (!Number.isNaN(n)) retryAfterMs = n * 1000
           }
         }
-        let bodyText = ''
-        try {
-          bodyText = await res.text()
-        } catch {
-          // ignore
-        }
-        let bodyJson: unknown = bodyText
-        try {
-          if (bodyText) bodyJson = JSON.parse(bodyText)
-        } catch {
-          // 非 JSON
-        }
-        const err = normalizeError(res.status, bodyJson, responseTraceId)
+        const err = await readHttpError(res, responseTraceId)
         if (retryAfterMs !== undefined) err.retryAfterMs = retryAfterMs
         if (await shouldRefreshAndRetry(err, opts, allowAuthRefresh)) {
           return await doFetch(false)
@@ -188,7 +163,7 @@ export async function request<T = unknown>(path: string, opts: RequestOptions = 
         if (json && typeof json === 'object' && 'success' in json && 'data' in json) {
           const envelope = json as { success?: boolean; data?: unknown; code?: string; message?: string; traceId?: string }
           if (envelope.success === false) {
-            throw normalizeError(res.status, envelope, responseTraceId)
+            throw normalizeHttpError(res.status, envelope, responseTraceId)
           }
           return normalizePayload(envelope.data) as T
         }

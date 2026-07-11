@@ -2,6 +2,7 @@ import { z } from 'zod'
 import type { ApiError } from '@/types/api'
 import { getAccessToken } from '@/transport/authToken'
 import { newTraceId } from '@/utils/id'
+import { readHttpError } from '@/transport/httpError'
 
 /**
  * SSE 通用客户端（fetch + ReadableStream）。
@@ -111,12 +112,7 @@ export function createSseClient(opts: SseClientOptions): { close: () => void } {
         signal
       })
       if (!res.ok || !res.body) {
-        const err: ApiError = {
-          status: res.status,
-          errorCode: `HTTP_${res.status}`,
-          message: `SSE open failed: ${res.status}`,
-          traceId: res.headers.get('X-Trace-Id') ?? traceId
-        }
+        const err = await readHttpError(res, traceId)
         closed = true
         window.clearInterval(heartbeatTimer)
         opts.onError(err)
