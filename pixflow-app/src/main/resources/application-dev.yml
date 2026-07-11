@@ -36,20 +36,24 @@ pixflow:
     dlq-alert-threshold: 1
     topic-auto-create: true
   ai:
-    default-provider: dashscope
+    default-provider: custom
     dashscope:
       api-key: ${DASHSCOPE_API_KEY:}
       base-url: ${DASHSCOPE_BASE_URL:https://dashscope.aliyuncs.com}
+    providers:
+      custom:
+        api-key: ${LLM_API_KEY:${DASHSCOPE_API_KEY:}}
+        base-url: ${LLM_BASE_URL:${DASHSCOPE_BASE_URL:}}
     roles:
       primary-chat:
-        provider: dashscope
-        model: deepseek-ai/DeepSeek-V4-Pro
+        provider: custom
+        model: ${LLM_CHAT_MODEL:deepseek-ai/DeepSeek-V4-Pro}
         capability: CHAT
         temperature: 0.3
         max-tokens: 4096
       vision:
-        provider: dashscope
-        model: Qwen/Qwen3-VL-32B-Instruct
+        provider: custom
+        model: ${LLM_VISION_MODEL:Qwen/Qwen3-VL-32B-Instruct}
         capability: VISION
       imagegen:
         provider: dashscope
