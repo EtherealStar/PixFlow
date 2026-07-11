@@ -39,6 +39,12 @@ class JwtAuthenticationFilterTest {
     }
 
     @Test
+    void skipsContainerAsyncAndErrorDispatches() {
+        assertThat(filter.skipAsyncDispatch()).isTrue();
+        assertThat(filter.skipErrorDispatch()).isTrue();
+    }
+
+    @Test
     void authorizationHeaderTakesPrecedenceOverFallback() {
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/auth/me");
         request.addHeader(JwtAuthenticationFilter.AUTHORIZATION, "Basic abc");
@@ -60,6 +66,14 @@ class JwtAuthenticationFilterTest {
 
         private boolean shouldSkip(HttpServletRequest request) {
             return shouldNotFilter(request);
+        }
+
+        private boolean skipAsyncDispatch() {
+            return shouldNotFilterAsyncDispatch();
+        }
+
+        private boolean skipErrorDispatch() {
+            return shouldNotFilterErrorDispatch();
         }
     }
 }

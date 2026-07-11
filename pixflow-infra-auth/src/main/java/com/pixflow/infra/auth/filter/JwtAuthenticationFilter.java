@@ -29,6 +29,16 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     }
 
     @Override
+    protected boolean shouldNotFilterAsyncDispatch() {
+        return true;
+    }
+
+    @Override
+    protected boolean shouldNotFilterErrorDispatch() {
+        return true;
+    }
+
+    @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
         String path = servletPath(request);
         return isAnonymousAuthEndpoint(request, path)

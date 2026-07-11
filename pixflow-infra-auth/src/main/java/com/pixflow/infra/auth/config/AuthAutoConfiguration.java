@@ -20,6 +20,7 @@ import com.pixflow.infra.cache.config.CacheAutoConfiguration;
 import com.pixflow.infra.cache.counter.AtomicCounter;
 import com.pixflow.infra.cache.key.CacheNamespace;
 import com.pixflow.infra.cache.store.CacheStore;
+import jakarta.servlet.DispatcherType;
 import java.time.Clock;
 import org.apache.ibatis.annotations.Mapper;
 import org.mybatis.spring.annotation.MapperScan;
@@ -146,11 +147,14 @@ public class AuthAutoConfiguration {
 
         http.csrf(AbstractHttpConfigurer::disable)
                 .cors(Customizer.withDefaults())
+                .requestCache(AbstractHttpConfigurer::disable)
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .exceptionHandling(errors -> errors
                         .authenticationEntryPoint(entryPoint)
                         .accessDeniedHandler(deniedHandler))
                 .authorizeHttpRequests(auth -> auth
+                        // 初始 REQUEST 已完成身份校验，容器内部二次分派不能再依赖已清理的 SecurityContext。
+                        .dispatcherTypeMatchers(DispatcherType.ASYNC, DispatcherType.ERROR).permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/auth/register").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/auth/login").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/auth/refresh").permitAll()
