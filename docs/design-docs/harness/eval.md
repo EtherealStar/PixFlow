@@ -89,7 +89,7 @@ harness/eval/
 │   ├── TraceRecall.java            # 自动记忆召回内容（section/命中/分值/RRF/衰减）
 │   ├── TracePruneEntry.java        # cheap pipeline / compaction 裁剪日志条目
 │   ├── TurnTraceRecord.java        # 读面回放载体（一行 agent_trace 的解码视图）
-│   └── TurnStatus.java             # OPEN / COMMITTED / ABORTED
+│   └── TurnStatus.java             # OPEN / COMMITTED / ABORTED / CANCELLED
 ├── recorder/
 │   ├── DefaultTraceRecorder.java   # 写面实现：创建回合内 TurnTrace
 │   ├── BufferedTurnTrace.java      # 回合内线程封闭累积，commit 投递缓冲
@@ -161,6 +161,7 @@ public interface TurnTrace {
     void recordPrune(TracePruneEntry entry);     // cheap pipeline / destructive compaction 裁剪日志
     void commit();                               // 回合正常收尾：聚合一行 + 置 COMMITTED + 投递缓冲
     void abort(PixFlowException error);          // 回合异常终止：置 ABORTED + 投递（保留已收集分段）
+    void cancel();                               // 协作取消：置 CANCELLED，不写 TraceError
 }
 ```
 
@@ -168,7 +169,7 @@ public interface TurnTrace {
 
 - **回合内线程封闭**。一个 `TurnTrace` 实例封闭在该回合执行线程内，与 `context.MessageStore`、`hooks` 的回合内模型一致，内部不加锁。tools 执行管线在同一回合线程内把 span 投递给当前 `TurnTrace`（由 loop 通过回合上下文持有引用并传递，不让 eval 反向查找）。
 - **`commit()` 不落库**。`commit()` 只把聚合后的回合记录丢进 `TraceIngestBuffer`（有界队列）后**立即返回**，真正落库在后台 flush 线程（见 [§6](#六异步非阻塞落库管线)）。
-- **崩溃可见**。回合开始即以 `OPEN` 占位投递（或首个 record 时投递）；正常 `commit()` 升级 `COMMITTED`；`abort()` 标 `ABORTED`。这样进程崩在回合中途时，库里能看到 `OPEN` 的半截 trace 及最后停在哪一步。
+- **崩溃可见**。回合开始即以 `OPEN` 占位投递（或首个 record 时投递）；正常 `commit()` 升级 `COMMITTED`；不可恢复错误用 `abort()` 标 `ABORTED`；客户端断开、SSE 超时或服务停机等协作取消用 `cancel()` 标 `CANCELLED`。`CANCELLED` 不写 `TraceError`，避免污染错误率。
 - **只读视图填充**。`TraceToolCall` 内的 `classification`、`permissionDecision` 是调用方填好的字符串/枚举名只读视图（eval 不依赖 tools/permission 的具体类型，honor `permission → ...` 与接口约束）。
 
 ### 5.2 回合内分段累积流程
@@ -287,7 +288,7 @@ public final class EvalErrorRecorder implements ErrorRecorder {
 | `turn_no` | INT | 回合序号；`(conversation_id, turn_no)` 唯一键，支撑幂等 upsert |
 | `trace_id` | VARCHAR | **新增**：技术调用链维度（`common.md §9.2`），供排障关联 |
 | `schema_version` | INT | **新增**：trace JSON 结构版本，回放按版本兼容演进 |
-| `turn_status` | TINYINT | **新增**：OPEN(0)/COMMITTED(1)/ABORTED(2)，崩溃可见 |
+| `turn_status` | TINYINT | OPEN(0)/COMMITTED(1)/ABORTED(2)/CANCELLED(3)，崩溃与取消均可见 |
 | `runtime_scope` | VARCHAR | **新增**：MAIN / 子 Agent 类型，区分主/子 Agent 回合 |
 | `input_json` | JSON | 一轮/多轮模型调用输入数组：systemPrompt 摘要 + 消息快照引用 + 可见工具 schema 视图 |
 | `tool_calls_json` | JSON | 工具调用 span 数组：name/input/result引用/classification/permission决策视图/耗时/error |
@@ -299,7 +300,7 @@ public final class EvalErrorRecorder implements ErrorRecorder {
 
 约定：
 
-- **唯一键 `(conversation_id, turn_no)`**：写面幂等 upsert 的依据；状态只允许 `OPEN → COMMITTED/ABORTED` 单向升级，不回退。
+- **唯一键 `(conversation_id, turn_no)`**：写面幂等 upsert 的依据；状态只允许 `OPEN → COMMITTED/ABORTED/CANCELLED` 单向升级，不被迟到的 `OPEN` 回退。
 - **JSON 列均经脱敏**：落库前 `TracePayloadCodec` 串 `Sanitizer`（`common.md §5.6`）。
 - **`schema_version`**：当前 `1`；JSON 内部形状演进时 +1，`TraceReplay` 按版本解码，旧行可回放。
 - **索引**：`(conversation_id, turn_no)` 唯一；`created_at`（保留清理 + 时间范围查询）；按需 `trace_id`（排障）。
@@ -379,7 +380,7 @@ pixflow:
 ## 十四、测试策略
 
 - **回合聚合**：多次 `recordInput`/`recordToolCall`/`recordRecall`/`recordPrune` 后 `commit()`，断言聚合为单行 `agent_trace`、四段 JSON 数组完整、`turn_status=COMMITTED`。
-- **崩溃可见**：`begin` 后不 `commit` 模拟崩溃，断言库内存在 `OPEN` 行且停在最后投递步；`abort(err)` 断言 `ABORTED` + `error_json` 填充。
+- **崩溃与取消可见**：`begin` 后不 `commit` 模拟崩溃，断言库内存在 `OPEN`；`abort(err)` 断言 `ABORTED` + `error_json`；`cancel()` 断言 `CANCELLED` 且 `error_json` 为空。
 - **异步非阻塞**：断言 `commit()` 在 flusher 阻塞/慢时仍立即返回；用慢落库桩验证主循环线程不被阻塞。
 - **best-effort 丢弃**：队列填满后 `commit()` 不抛异常、记 `pixflow.eval.trace.dropped`、发告警，主循环继续。
 - **幂等 upsert**：同 `(conversation_id, turn_no)` 多次投递（OPEN→COMMITTED、重试）断言单行、状态单向升级不回退。

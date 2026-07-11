@@ -158,7 +158,8 @@ public enum ModelRole {
 ```
 
 - 每个角色在配置里绑定 `{ provider, model, options }`（温度、max-tokens、超时等默认值）。
-- `ModelRouter` 返回的解析结果驱动选取对应的 Spring AI 模型 bean 与调用参数；`AiAutoConfiguration` 按配置装配各 provider bean。
+- `provider` 是静态配置索引和观测标签，不用于按厂商域名写死聊天 URL；`ChatModelClient` 根据该索引读取 OpenAI-compatible 的 `api-key` / `base-url`。
+- `ModelRouter` 返回的解析结果驱动选取对应模型配置与调用参数；`AiAutoConfiguration` 按能力装配 client。
 - 角色与能力接口解耦：同一物理模型可被多个角色复用，反之一个角色未来也可按 A/B 配置切换型号。
 
 ---
@@ -419,12 +420,17 @@ flowchart LR
 ```yaml
 pixflow:
   ai:
+    default-provider: custom
+    providers:                           # OpenAI-compatible chat provider；key 是自定义静态标签
+      custom:
+        api-key: ${LLM_API_KEY:}         # 敏感：环境变量注入，禁止入日志
+        base-url: ${LLM_BASE_URL:}       # 可填 host、.../v1 或完整 .../chat/completions
     dashscope:
-      api-key: ${DASHSCOPE_API_KEY:}     # 敏感：环境变量注入，禁止入日志
+      api-key: ${DASHSCOPE_API_KEY:}     # 非 chat 的 DashScope 专用能力配置
       base-url: https://dashscope.aliyuncs.com
     roles:                               # 逻辑角色 → 供应商/型号/默认参数（型号不锁死在代码）
-      primary-chat: { provider: dashscope, model: ${AI_CHAT_MODEL:qwen-max}, temperature: 0.3, max-tokens: 4096 }
-      vision:       { provider: dashscope, model: ${AI_VISION_MODEL:qwen-vl-max} }
+      primary-chat: { provider: custom, model: ${LLM_CHAT_MODEL:qwen-max}, temperature: 0.3, max-tokens: 4096 }
+      vision:       { provider: custom, model: ${LLM_VISION_MODEL:qwen-vl-max} }
       imagegen:     { provider: dashscope, model: ${AI_IMAGEGEN_MODEL:wanx-v1} }
       embedding:    { provider: dashscope, model: ${AI_EMBED_MODEL:text-embedding-v3} }
       rerank:       { provider: dashscope, model: ${AI_RERANK_MODEL:gte-rerank} }
@@ -442,6 +448,7 @@ pixflow:
 
 - 型号全部走配置/环境变量，**代码不锁死具体型号**（design 约定）。
 - `api-key` 经 `Sanitizer` 遮蔽，不入日志、不入 trace、不进 LLM 可见区。
+- chat endpoint 只补全缺失部分，不识别或纠正云厂商：完整 `.../chat/completions` 原样使用；以 `/v1` 结尾时追加 `/chat/completions`；其他 base URL 追加 `/v1/chat/completions`。测试使用本地临时 HTTP server，真实 URL 仅允许人工临时冒烟，不写入自动测试或固定流程。
 
 ---
 
@@ -508,5 +515,7 @@ pixflow:
 ---
 
 ## Revision Notes
+
+2026-07-10 / Codex: 将聊天模型接入收敛为 provider 标签驱动的 OpenAI-compatible 配置，移除 DashScope 厂商硬编码；chat URL 只按完整 endpoint、`/v1`、裸 base URL 三种输入补全缺失路径，不做厂商特例或路径纠正。真实 provider 调用只作为临时人工冒烟，不进入测试流程。
 
 2026-07-10 / Codex: 明确模型调用 retry 的单一所有权：`ChatModelClient.stream` 内部通过 `ModelRetryRunner` 负责 retry，`harness/loop` 与 `agent` 不再注入或外包 retry runner；已发射后的可恢复失败通过 `AttemptReset` 向上游暴露，由 loop/conversation/web 投影成非终态 `RATE_LIMIT_RETRY` 状态。

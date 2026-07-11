@@ -124,10 +124,13 @@ module/conversation/
 │   ├── CancellationController.java        # POST /conversations/{id}/tasks/{taskId}/cancel
 │   ├── AttachmentController.java          # V1 不暴露独立 /attachments；素材上传走 module/file
 │   ├── WebSocketController.java           # /ws/progress (STOMP endpoint)
-│   └── SseAgentEventSink.java             # loop.AgentEventSink 适配为 SseEmitter
+│   ├── SseAgentEventSink.java             # 只做 loop.AgentEvent -> SSE frame
+│   ├── SseTurnSession.java                # emitter/heartbeat/worker/cancellation 唯一所有者
+│   └── SseTurnSessionFactory.java         # 创建并跟踪活跃 session
 ├── app/
 │   ├── ConversationService.java           # 会话表 CRUD + 软删除
-│   ├── TurnDispatchService.java           # 用户消息入站编排：锁→rehydrate→append→loop.stream
+│   ├── TurnPreparationService.java        # 响应提交前 owner/附件/锁/runner 准备
+│   ├── PreparedTurn.java                  # 持有 turn lock 与不可变 runner 请求
 │   ├── HistoryQueryService.java           # 只读 message 表（走 session MessageReadMapper）
 │   ├── ConfirmationService.java           # challenge + token 双阶段编排
 │   ├── CancellationService.java           # 写 cancel 标志位 + WebSocket 通知
@@ -534,51 +537,42 @@ public final class TurnLockHandle implements AutoCloseable {
 
 ### 8.2 锁的获取流程
 
-`TurnDispatchService.dispatch(...)` 的入口编排（**不直接调 MessageStore**，见 §13 接缝契约）：
+消息入口采用 prepare/commit 两阶段。`TurnPreparationService.prepare(...)` 在 controller 返回 `SseEmitter` 前完成 owner 校验、请求归一化、附件读取、会话锁获取和 runner 解析：
 
 ```java
-public DispatchHandle dispatch(String conversationId,
-                               MessageSubmitRequest request,
-                               AgentEventSink sink) {
-    conversationService.requireActive(conversationId);
+public PreparedTurn prepare(long ownerUserId,
+                            String conversationId,
+                            MessageSubmitRequest request) {
+    conversationService.requireActive(ownerUserId, conversationId);
     var prompt = new UserPrompt(request == null ? "" : request.prompt(),
                                 request == null ? List.of() : request.attachments());
-    var collected = attachmentCollector.collect(prompt, new PackageBinding(request.packageId()));
     TurnLockHandle handle = conversationLock.tryLock(conversationId)
         .orElseThrow(() -> new PixFlowException(LOCK_ACQUISITION_FAILED, ...));
-
-    Supplier<String> runner = () -> agentTurnRunner.stream(
-        conversationId,
-        prompt.text(),
-        attachmentMapper.toLoopAttachments(collected),
-        sink);
-    return new DispatchHandle(handle, runner);
-}
-
-public static final class DispatchHandle implements AutoCloseable {
-    public String run()                       { return runner.get(); }
-    public TurnLockHandle lockHandle()        { return lockHandle; }
-    @Override public void close()             { lockHandle.close(); }
+    try {
+        var collected = attachmentCollector.collect(prompt, new PackageBinding(request.packageId()));
+        AgentTurnRunner runner = agentTurnRunnerRegistry.resolve();
+        return new PreparedTurn(ownerUserId, conversationId, prompt.text(),
+            attachmentMapper.toLoopAttachments(collected), runner, handle);
+    } catch (RuntimeException error) {
+        handle.close();
+        throw error;
+    }
 }
 ```
 
-调用方（`MessageController`）拿 `DispatchHandle` 后必须在 `try (handle)` 块内做：
-1. `handle.run()` —— 内部发起 `agentTurnRunner.stream(...)`，由 loop 内部完成 context rehydrate、appendUser、appendAttachments（见 §13）。
-2. `emitter.complete()` —— 关闭 SSE。
-3. try-with-resources 触发 `handle.close()` —— 释放 turn 锁。
+`PreparedTurn` 拥有 `TurnLockHandle`，并用 `AgentTurnRequest` 把 prompt、附件和真实 `CancellationToken` 交给 runner。获取锁后的任何准备失败都立即 close；准备成功后锁所有权只属于 `PreparedTurn`。
 
-顺序保证：**SSE 关闭先于锁释放**，避免旧连接残留 + 新回合并发启动的窗口。
-```
+`TurnLockHandle` 记录获取时的 Redisson owner thread id。因为 prepare 在请求线程取锁、worker 退出后释放，close 使用 `unlockAsync(ownerThreadId)` 并等待完成；重复 close 幂等。终止顺序固定为：停止 heartbeat → 可选 error frame → `emitter.complete()`/确认 transport 已关闭 → worker 实际退出 → `PreparedTurn.close()`。这样旧 SSE 与新回合不会重叠。
 
 ### 8.3 锁的边界与失效场景
 
 | 场景 | 行为 | 备注 |
 |---|---|---|
-| 同会话两次 POST 顺序 | 第二次请求阻塞等锁，直到第一次回合结束 | Redisson 锁的天然 FIFO |
+| 同会话两次 POST 顺序 | 第二次请求等待 `lock.wait-time`；旧 worker 退出并释放锁后才可进入 | 不提前释放 |
 | 同会话两次 POST 并发（不同节点） | 第二次请求阻塞 | Redisson 跨节点生效 |
-| 回合执行崩溃 / Web 端断开 | 看门狗停止，TTL 到期后锁自动释放 | 锁不会死 |
+| 回合执行崩溃 / Web 端断开 | session 发协作取消；worker 真正退出后显式释放；进程崩溃才依赖看门狗超时 | 锁不会因 callback 提前释放 |
 | 回合超时（LLM 拖到 >ttl） | 看门狗续期不中断；turn 自带超时由 loop 配置兜底 | TTL 60s 通常远大于正常 turn |
-| 取消（用户点取消） | 锁仍持有，但 loop 在工作单元间检查 cancel 标志并优雅停 | cancel 检查在工作单元间，不抢占锁 |
+| 取消（用户点停止/断连/超时） | 同一 token 传播到 loop/model/tools；future best-effort interrupt；worker 退出前锁仍持有 | 不使用 `Thread.stop` |
 | 软删除会话的回合请求 | 在 `requireActive` 步返回 410 Gone，不进入锁 | 避免给 ARCHIVED 会话加锁 |
 
 ### 8.4 锁与 `harness/loop` 的关系
@@ -593,81 +587,21 @@ public static final class DispatchHandle implements AutoCloseable {
 
 ### 9.1 `SseAgentEventSink` 适配
 
-```java
-public final class SseAgentEventSink implements AgentEventSink {
-    private final SseEmitter emitter;
-    private final ObjectMapper mapper;
-
-    @Override
-    public void emit(AgentEvent event) {
-        try {
-            // heartbeat 之类纯 SSE 帧由 onTimeout / onError 处理
-            emitter.send(SseEmitter.event()
-                .name(event.type().name().toLowerCase())          // ASSISTANT_DELTA → "assistant_delta"
-                .data(mapper.writeValueAsString(event.payload()))
-                .build());
-        } catch (IOException | IllegalStateException e) {
-            // SSE 已断开（前端 reload / 网络断开），停止 loop 内的 emit（loop 内 try-catch 即可）
-            throw new SseClientDisconnected(e);   // loop 收到后中止回合（throw 是契约约定）
-        }
-    }
-
-    public void heartbeat() {
-        try { emitter.send(SseEmitter.event().comment("hb").build()); }
-        catch (IOException ignored) { /* 静默，loop 继续 */ }
-    }
-}
-```
-
-`SseAgentEventSink` 实现 `harness/loop.AgentEventSink` 接口（SSE 适配 SPI）；loop 持有 sink 实例并同步调用 `emit(...)`；web 层把 `SseEmitter` 与 sink 绑定。
+`SseAgentEventSink` 只负责 `AgentEvent -> SSE frame` 投影和发送，不拥有 emitter complete。所有 send 共用同一 send lock；`IOException` 与 emitter 已结束产生的 `IllegalStateException` 通知 session transport failure，并抛 `OperationCancelledException(CLIENT_DISCONNECTED)`。终态业务错误使用 `sendError(PixFlowException)`，只写一帧，不关闭 emitter。late write 由 session metrics 计数。
 
 ### 9.2 SSE 控制器伪代码
 
-```java
-@RestController
-@RequestMapping("/api")
-public class MessageController {
+`MessageController` 只做四步：`preparationService.prepare(ownerUserId, conversationId, request)`、`sessionFactory.create(prepared)`、`session.start()`、返回 `session.emitter()`。conversation 不把 `SecurityContext` 传播到 worker；ownerUserId 在初始 REQUEST 同步捕获。
 
-    @PostMapping(path = "/conversations/{conversationId}/messages",
-                 produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public SseEmitter submit(
-            @PathVariable String conversationId,
-            @RequestBody MessageSubmitRequest request) {
+`SseTurnSession` 是 emitter、sink、heartbeat、worker `FutureTask`、cancellation source 和终态 CAS gate 的唯一所有者，状态为 `NEW/RUNNING/CANCELLING/TERMINATED`。executor 使用 `core=0/max=max-concurrency/SynchronousQueue/AbortPolicy`，无等待队列；拒绝发生在 controller 返回 emitter 前，关闭 prepared lock 并抛 HTTP 503 `TURN_CAPACITY_EXCEEDED`。
 
-        // 1. 构造 SseEmitter + sink + heartbeat
-        SseEmitter emitter = new SseEmitter(properties.getSse().getTimeout().toMillis());
-        Object sendLock = new Object();
-        SseAgentEventSink sink = new SseAgentEventSink(emitter, objectMapper, sendLock);
-        SseHeartbeat heartbeat = new SseHeartbeat(
-            emitter, heartbeatScheduler, properties.getSse().getHeartbeatInterval(), sendLock);
-        heartbeat.start();
-
-        // 2. 异步 dispatch —— 不阻塞 web 线程
-        conversationExecutor.execute(() -> {
-            // dispatch 返回的 handle 内含 turn 锁。锁的释放由 try-with-resources 控制，
-            // 必须放在 emitter.complete() 之后，避免旧 SSE 残留 + 新回合并发启动。
-            TurnDispatchService.DispatchHandle handle =
-                turnDispatchService.dispatch(conversationId, request, sink);
-            try (handle) {
-                handle.run();
-                heartbeat.stop();
-                emitter.complete();
-            } catch (Throwable ex) {
-                heartbeat.stop();
-                sink.error(ex);
-            }
-        });
-
-        return emitter;
-    }
-}
-```
+运行中取消时 `FutureTask.cancel(true)` 可能在 callable 真正退出前触发 `done()`。实现用 started/exited gate 延迟 ownership close：启动前取消由 `done()` 直接释放，已启动任务必须等 callable finally 标记 exited 后才关闭 transport/lock。
 
 ### 9.3 异常帧与断开
 
-- 不可恢复错误（如权限拒绝、超阈值二次确认失败）经 `common.ErrorNormalizer` 归一化后，由 `emitter.send` 一个 `event: error` 帧，再 `emitter.completeWithError`。
-- 前端 reload / 网络断开 → `emitter.send` 抛 `IOException`，`SseAgentEventSink.emit` 抛 `SseClientDisconnected`；loop 收到后中止本回合并跳到 `COMPLETED`（不再执行后续工具调用，但已落库的消息保留）。
-- **关键**：loop 在 emit 抛异常时不应该让主循环崩溃；`harness/loop.md §十` 的"工具 handler 异常"处理逻辑延伸覆盖 SSE 异常：归一化为 `ToolExecutionResult(error=true)` 风格的中止 + abort trace。
+- 已提交 SSE 的业务失败：ErrorNormalizer → 最多一个 `event:error` → 普通 `emitter.complete()`；预期路径禁止触发 Servlet 异常完成分派。
+- reload/网络断开/timeout：不再尝试写 error 帧；session 关闭写通道、取消模型订阅和工具 future。loop 将 trace 标为 `CANCELLED`，不写 ErrorRecorder、不 emit completed。
+- `onCompletion` 可能由本方 `complete()` 重入，因此只有 `RUNNING` 状态的外部 completion 才能触发客户端取消；正常成功/错误赢家已进入 `TERMINATED`，不会被反向取消。
 
 ### 9.4 与 WebSocket 进度的隔离
 
@@ -930,8 +864,8 @@ public final class HistoryQueryService {
 
 | 对接方 | 契约 |
 |---|---|
-| `harness/loop` | conversation 调 `AgentTurnRunner.stream(conversationId, prompt, attachments, sink)`（SPI，由 agent 模块实现）；实现 `AgentEventSink`（`SseAgentEventSink`）。loop 不反向依赖 conversation；conversation **不直接调 AgentLoop/AgentOrchestrator 内部方法**。 |
-| `harness/context` | `MessageStore.appendUser / appendAssistant / appendToolResults / appendAttachments` **由 loop 内部调用**，conversation **不直接调**（ArchUnit 守护 `MessageWriteMapper` 不可达）。conversation 只在调 `AgentTurnRunner.stream(...)` 时把 prompt 与 attachments 作为参数传过去，由 loop 在 stream 内部按 context 的 preparer 链完成 ATTACHMENT 投影与追加。 |
+| `harness/loop` | conversation 构造包含 prompt、attachments 与 `CancellationToken` 的 `AgentTurnRequest`，再调用 `AgentTurnRunner.stream(request, sink)`（SPI，由 agent 模块实现）；实现 `AgentEventSink`（`SseAgentEventSink`）。loop 不反向依赖 conversation；conversation **不直接调 AgentLoop/AgentOrchestrator 内部方法**。 |
+| `harness/context` | `MessageStore.appendUser / appendAssistant / appendToolResults / appendAttachments` **由 loop 内部调用**，conversation **不直接调**（ArchUnit 守护 `MessageWriteMapper` 不可达）。conversation 通过 `AgentTurnRequest` 传递 prompt 与 attachments，由 loop 在 stream 内部按 context 的 preparer 链完成 ATTACHMENT 投影与追加。 |
 | `harness/session` | conversation 只**读** `message` 表：调 `session.MessageReadMapper.findMessagesByConversation` / `countMessagesByConversation` 等只读方法。**写方法（`insert` / `replaceForCompaction`）仍 session 私有**，conversation 不引用（ArchUnit 守护）。`session.MessageService.flush()` 由 loop 在回合边界调，conversation 不感知。 |
 | `harness/permission` | conversation 调 `ConfirmationTokenService.issue / verifyAndConsume`；token 形状由 `contracts.ConfirmationToken` / `TokenClaims` 承载。challenge 状态由本模块**直接写 Redis**（`infra/cache.CacheStore`），不再经 `permission` 的 `ChallengeChallengeRepository`。 |
 | `infra/cache` | conversation 注入 `CacheStore` 写 challenge（多副本）；注入 `RedissonClient`（仅用于 turn 锁）。`conversation` 模块允许依赖 `infra/cache`（见 §十四依赖图）。 |
@@ -965,6 +899,9 @@ pixflow:
     sse:
       timeout: 5m                  # 单回合 SSE 流超时
       heartbeat-interval: 30s      # heartbeat 帧间隔（防代理超时断开）
+    turn-executor:
+      max-concurrency: 16          # 单实例同时运行的 Agent 回合上限
+      keep-alive: 60s              # 空闲 worker 回收时间；SynchronousQueue 不排队
     lock:
       # 故意不再暴露 ttl / watchdog-interval：会话级锁走 Redisson 全局
       # `Config.lockWatchdogTimeout` 自动续期，业务侧不需配。
@@ -994,7 +931,8 @@ pixflow:
 
 默认值（生产级）：
 
-- `lock.wait-time = 2s`：极端并发下快速失败而非无限等待（让前端按 409 重试）。
+- `lock.wait-time = 2s`：极端并发下快速失败而非无限等待（HTTP 503 `LOCK_ACQUISITION_FAILED`）。
+- `turn-executor.max-concurrency = 16`：超过上限立即 HTTP 503 `TURN_CAPACITY_EXCEEDED`，不提交半截 SSE。
 - `batch-threshold = 50`：与 `design.md §九.5` "大批量二次确认" 范围一致。
 - `token-ttl = 10m`：足够用户在前端完成二次确认。
 - `challenge-ttl = 5m`：足够用户在 ChallengeDialog 输入答案；过期后必须重新发起 `/challenge`。
@@ -1019,9 +957,9 @@ pixflow:
 | `CONFIRMATION_TOKEN_INVALID` | PERMISSION | NONE | 401 | token 校验失败（二次使用 / 过期 / 伪造） |
 | `CONFIRMATION_TOKEN_EXPIRED` | PERMISSION | NONE | 401 | token 超过 TTL |
 | `LOCK_ACQUISITION_FAILED` | DEPENDENCY | RETRY | 503 | 锁获取失败（极端并发） |
+| `TURN_CAPACITY_EXCEEDED` | DEPENDENCY | RETRY | 503 | 有界回合执行器满载，SSE 尚未提交 |
 | `ATTACHMENT_INVALID` | VALIDATION | SKIP | 400 | 附件 MIME / 大小 / 解析失败 |
 | `PACKAGE_REFERENCE_INVALID` | BUSINESS | NONE | 404 | 素材包引用解析失败（packageId 不存在 / 解压未完成） |
-| `SSE_CLIENT_DISCONNECTED` | INTERNAL | NONE | — | SSE 流断开（loop 收到后中止回合） |
 
 > 通用错误（dependency / validation / internal）走 `common.ErrorCode` 的既有码（`DEPENDENCY` / `VALIDATION` / `INTERNAL`）。
 
@@ -1034,15 +972,17 @@ pixflow:
 | WebSocket 推送失败 | 静默重试 3 次（指数退避），仍失败记日志（不阻断 SSE 流） | 进度推送延迟；任务继续执行 |
 | 历史查询超时（MySQL 慢） | 返回部分结果 + `nextCursor`，前端继续翻页 | 不阻断对话 |
 | 附件上传到 MinIO 失败 | 返回 502，前端重试 | 当次附件丢失，需重传 |
-| SSE 心跳失败 | 不阻断回合；SseEmitter 超时由 `sse.timeout` 配置兜底 | 长回合可能因代理超时被截断 |
+| SSE 心跳发送失败 | 视为 transport failure，触发 CLIENT_DISCONNECTED 协作取消 | 模型/工具停止后释放锁 |
+| 回合执行器满载 | 返回 503 `TURN_CAPACITY_EXCEEDED`，不创建已提交 SSE、不运行 worker | 客户端可稍后重试 |
 | DagValidator 在 confirm 端点失败 | 返回 400，前端提示"请重新生成方案" | 用户需重新发消息让 Agent 生成新提案 |
 
 ### 15.3 SSE 错误帧与 controller 异常处理
 
-`@RestControllerAdvice` 全局拦截 controller 异常，转 SSE 错误帧或 HTTP 错误响应：
+错误出口由“响应是否已提交”分界：
 
-- 普通 REST：`@ExceptionHandler(PixFlowException.class)` → HTTP 状态码 + `{"errorCode", "message", "traceId"}`。
-- SSE：在 `SseAgentEventSink.emit(error_event)` 推 `event: error` 帧 + `emitter.completeWithError`。
+- 准备阶段和 executor rejection：仍是普通 HTTP，由全局 handler 输出 `ApiResponse { success=false, code, message, details, traceId }`。
+- SSE 已打开后的业务失败：session 推一次 `event:error`，随后普通 `emitter.complete()`；不进入 Servlet ERROR dispatcher。
+- 客户端断开/timeout：通道不可写，只做协作取消和资源收口，不发送二次错误帧。
 - 不可恢复异常（DB 断连 / Redis 雪崩 / NPE 逃逸）：经 `ErrorRecorder.record` 落盘 + 归一化为 `INTERNAL` 类 HTTP 500。
 
 ---
@@ -1057,6 +997,7 @@ pixflow:
 - `pixflow.conversation.turn{result=completed|error|aborted}` + 回合时长计时器：用户回合健康度。
 - `pixflow.conversation.lock.wait` 计时器 + `lock.acquired` 计数器：锁获取延迟与频率（高说明会话长）。
 - `pixflow.conversation.sse.active`：当前活跃 SSE 流数（gauge）。
+- `pixflow.conversation.sse.terminated{reason}`、`pixflow.conversation.sse.late_write`、`pixflow.conversation.sse.executor_rejected`：终止原因、终态后写入和容量拒绝。
 - `pixflow.conversation.confirmation{result=challenge|direct_token|token_invalid|challenge_expired}`：确认 REST 调用分布。
 - `pixflow.conversation.task.cancel{result=ok|not_found|already_terminal}`：取消分布。
 - `pixflow.conversation.attachment.upload{result=ok|too_large|invalid_mime|minio_error}` + size 分布：附件健康度。
@@ -1069,7 +1010,7 @@ pixflow:
 
 ### 16.3 结构化日志
 
-- Controller 日志：`SLF4J MDC` 注入 `traceId` / `conversationId` / `turnNo` / `userId`；INFO 级打印"用户消息开始/完成/失败"。
+- Session 日志包含 `turnId` / `conversationId` / `ownerUserId` / termination reason / response committed；拿到 traceId 后可附加。禁止记录 prompt、token、附件内容或 provider 原始 body。
 - Application 日志：DEBUG 级打印锁获取/释放、confirm 端点决策、WebSocket 推送结果。
 - 错误日志：`ErrorRecorder.record` 自动落盘，含归一化 category / safeMessage / stacktrace（脱敏后）。
 
@@ -1088,14 +1029,14 @@ pixflow:
   - **看门狗续期**：在 `lockWatchdogTimeout` 内持续打心跳，断言连接不释放；
   - 看门狗故障兜底：mock 模拟续期线程被 kill，`lockWatchdogTimeout` 到期后锁自动释放（验证确实不传 leaseTime）；
   - 同会话跨节点获取（Testcontainers 多实例 Redis）。
-- **SSE 适配**：`SseAgentEventSinkTest` mock `SseEmitter`，断言 `AgentEventType.ASSISTANT_DELTA` 转 `event: assistant_delta` + data JSON 正确；断开时抛 `SseClientDisconnected`。
+- **SSE 适配与生命周期**：`SseAgentEventSinkTest` 只测 frame 投影；`SseTurnSessionTest` 覆盖正常完成、业务错误、disconnect/timeout 竞态、executor rejection、启动前/运行中取消、重复终止和锁释放顺序。
 - **历史查询**：`HistoryQueryServiceTest` 用 `MessageReadMapper` 替身（fake）覆盖"全量 / 分页 clamp / page 边界"。
 - **二次确认 challenge**：`ConfirmationServiceTest` 用 `CacheStore` 替身覆盖：
   - 低阈值 `/challenge` 返回 `needChallenge=false + token=null`；
   - 高阈值 `/challenge` 写入 Redis；
   - 高阈值 `/submit` 答案错误 → 400；过期 → 410；
   - **CAS** 竞争：mock `PendingPlanService.confirm` 抛 `DAG_PLAN_ALREADY_CONFIRMED`，assert 重读最新 taskId 给前端幂等响应。
-- **DispatchHandle**：`TurnDispatchServiceTest` 用 `AgentTurnRunner` 替身,assert dispatch 返回的 `DispatchHandle.lockHandle()` 在 `run()` 之后仍持有(由 controller 释放)。
+- **prepare/commit**：`TurnPreparationServiceTest` 断言 owner 校验先于附件读取、锁后失败释放、成功不提前释放、重复 close 幂等；`TurnLockHandleTest` 验证跨线程按原 owner id 解锁。
 
 ### 17.2 端到端测试
 
@@ -1187,6 +1128,8 @@ mvn -pl pixflow-conversation -am verify -Dtest='ConversationEndToEndIT'
 ---
 
 ## Revision Notes
+
+2026-07-10 / Codex: 重构 Agent SSE 生命周期为 prepare/commit 两阶段与单一 `SseTurnSession` 所有权；新增有界即时拒绝 executor、公共 cancellation token 传播、`CANCELLED` trace 语义、跨线程 Redisson owner 解锁、HTTP 503 容量错误和终态指标。已提交流的业务错误改为 `event:error + complete()`，disconnect/timeout 只取消，不触发 Servlet 异常完成分派。
 
 - 2026-06-30 / Kiro: 新建 `docs/design-docs/module/conversation.md`。确立 conversation 模块为生产级 web 边界层，按 Wave 4 排位落地。固化全部 9 条决策（会话级锁 Redisson 短 TTL + 看门狗 / 确认 REST 双端点 challenge+submit / 附件 V1 瘦版仅 UPLOAD_IMAGE 与 PACKAGE_REFERENCE / ATTACHMENT 投影在 context 侧 / 素材包弱绑定多对话复用 / V1 不做 SSE 重连 / Spring MVC 同步不引入 WebFlux / 历史查询 V1 只给全量时间线 / 附件统一走素材包）。明确 conversation 与 `harness/loop` / `harness/session` 的边界——不写 `message` 表、不写 `pending_*` 表、不组装 prompt、不评估权限，由 ArchUnit 守护。配套落地计划见 `docs/design-docs/exec-plans/conversation-module-implementation-plan.md`。
 

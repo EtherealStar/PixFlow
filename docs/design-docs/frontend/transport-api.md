@@ -19,6 +19,8 @@
 
 **错误归一化兼容性**（来自 a14e1168 与 a5f1324a 报告）：后端 `ApiResponse` 字段是 `success/code/message/data/details/traceId`，**没有** `errorCode` 字段；前端 `client.ts` 当前是 `const errorCode = String(obj.errorCode ?? obj.code ?? 'INTERNAL_ERROR')` —— 这种双写兼容是有意为之，未来如果某天 Provider 改成 `errorCode` 也可以平滑过渡。读取方应同时支持 `code` 与 `errorCode`。
 
+HTTP 与 SSE 打开阶段共用 `src/transport/httpError.ts`。SSE `fetch` 返回非 2xx 时必须读取 JSON/text body：结构化 envelope 保留 `TURN_CAPACITY_EXCEEDED`、`LOCK_ACQUISITION_FAILED`、`CONVERSATION_NOT_FOUND` 等业务码、message 和 traceId；非 JSON 代理错误回退为 `HTTP_<status>`。POST Agent 回合不得由 transport 自动重试。
+
 `request()` 不应承担业务级状态机职责。比如上传分片重试、HITL 提交幂等键、任务取消乐观更新，都在对应 runtime 或页面编排中处理。access token 过期刷新是传输层横切能力，但刷新动作本身必须委托给 `src/runtime/authSession.ts`，并且必须 single-flight。
 
 ## API Adapter
@@ -58,6 +60,8 @@ Agent 回合使用 `fetch + ReadableStream` 实现 SSE，以支持自定义 head
 > **heartbeat 注释帧**：后端通过 `SseHeartbeat` 定时发送 `: heartbeat\n\n` 注释帧；`transport/sse.ts` 会在收到任何字节时刷新静默计时。heartbeat 只用于连接保活，不能当成业务事件。
 
 SSE 断流且未收到 `completed` 时，前端视为 `STREAM_INTERRUPTED`，不做 Last-Event-ID 续传。
+
+错误边界分两段：连接打开前的 4xx/5xx 是普通 HTTP `ApiError`；连接打开后的业务失败是 SSE `event:error`。用户 `AbortController.abort()` 只触发一次 close 语义，不应再合成第二个 `STREAM_INTERRUPTED`。abort 会让服务端收到 transport disconnect 并发起协作取消，但 V1 仍不续传、不自动重试 POST。
 
 ### Agent Timeline 渲染语义
 
@@ -143,7 +147,7 @@ WS 鉴权走 STOMP CONNECT header `Authorization: Bearer <token>`（参见 `Auth
 
 ## 约束
 
-1. 新增接口先更新 `api.md` 或确认已有契约，再新增 `src/api/*` 方法。
+1. 新增接口先更新 `frontend/api.md` 或确认已有契约，再新增 `src/api/*` 方法。
 2. 不在页面中直接调用 `fetch`；预签名 URL 下载除外，因为下载动作由浏览器直接打开 URL。
 3. 不在 `transport/` 中 import store 或组件。
 4. 不把 token、文件字节、预签名 URL 打印到日志。

@@ -65,7 +65,7 @@
 |---|---|---|---|
 | `prompt` | string | 否 | 用户文本 |
 | `attachments` | `UserAttachmentInput[]` | 否 | 具体图片对象引用；V1 只接受 `UPLOAD_IMAGE`，不接受 `PACKAGE_REFERENCE` |
-| `packageId` | string | 否 | 素材包绑定的唯一入口（**不是** `packageBinding`，也不是 `attachments[].PACKAGE_REFERENCE`）；后端 `TurnDispatchService.stream(...)` 直接读取并展开素材包图片 |
+| `packageId` | string | 否 | 素材包绑定的唯一入口（**不是** `packageBinding`，也不是 `attachments[].PACKAGE_REFERENCE`）；后端 `TurnPreparationService.prepare(...)` 在 SSE 提交前读取并展开素材包图片 |
 | `metadata` | object | 否 | 透传到 attachment collector 与 agent runner |
 
 `UserAttachmentInput` 字段：`{ attachmentId?, type: 'UPLOAD_IMAGE', sourceRef, metadata? }`。`sourceRef` 必须是已上传对象引用；素材包引用只走顶层 `packageId`。
@@ -93,8 +93,11 @@ SSE 事件名（`SseAgentEventSink` 唯一投影点）：
 
 SSE 说明：
 
+- controller 返回 emitter 前同步完成 owner 校验、附件准备、runner 解析、会话锁和 executor 容量检查。`CONVERSATION_NOT_FOUND`、`LOCK_ACQUISITION_FAILED`、`TURN_CAPACITY_EXCEEDED` 等失败使用普通 HTTP `ApiResponse`，前端 SSE transport 按 envelope 保留业务码。
+- 流打开后的业务错误才使用 `event:error`；后端随后普通 complete。浏览器 abort/网络断开不会再收到错误帧，只触发服务端协作取消。
+
 - V1 不支持 `Last-Event-ID` 重连（`SseAgentEventSink` 不写入 `id:` 行）。
-- 后端按 `pixflow.conversation.sse.heartbeat-interval`（默认 30s）发送 `: heartbeat` 注释帧；`MessageController` 使用独立调度器保活，并在完成、超时、错误路径取消 heartbeat。
+- 后端按 `pixflow.conversation.sse.heartbeat-interval`（默认 30s）发送 `: heartbeat` 注释帧；`SseTurnSession` 统一拥有 heartbeat，并在完成、超时、错误或断开路径幂等停止。
 - 任务进度不走该 SSE 流；前端应订阅下文 WebSocket 进度频道。
 - `LOCK_ACQUISITION_FAILED`：前端发起新一轮 `/messages` 时若上一回合尚未结束（`conversationLock.tryLock(...)` 失败）会抛 `409 LOCK_ACQUISITION_FAILED`。前端应当在 store 层显式 abort 旧回合后再发新回合。
 

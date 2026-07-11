@@ -305,6 +305,8 @@ refresh token 不做 JWT，而是随机字符串：
 
 其余接口都要求认证。
 
+Servlet dispatcher 是额外的安全边界：浏览器初始请求的 `DispatcherType.REQUEST` 必须完成 JWT 鉴权；同一异步响应的容器内部 `ASYNC` 与 `ERROR` 二次分派显式 `permitAll`，避免在 SSE 响应已提交后再次执行 `.anyRequest().authenticated()`。这不会公开业务 URL，因为客户端不能伪造 servlet dispatcher type。`JwtAuthenticationFilter` 明确跳过 async/error dispatch；异步 worker 不读取或恢复 `SecurityContextHolder`，只使用 controller 在 REQUEST 阶段捕获的 `ownerUserId` 等不可变参数。
+
 `GET /api/auth/me`、`POST /api/auth/logout` 等已登录 auth 接口必须经过 JWT filter。部署在 context path 下时，filter 使用 servlet path/pathInfo 做匹配，不能用完整 request URI。
 
 建议暴露两种读取方式：

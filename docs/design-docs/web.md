@@ -1,7 +1,7 @@
 # PixFlow 前端设计
 
 > 面向 Vue 3 前端的架构与机制设计。范围：单用户单机的对话 / 任务 / 素材包 / 评分前端。
-> 配套阅读：[`design.md`](design.md) 总架构、[`api.md`](api.md) 前端 API 契约、`module/file.md` 上传与解压落地、`module/conversation.md` 对话会话模型。
+> 配套阅读：[`design.md`](design.md) 总架构、[`frontend/api.md`](frontend/api.md) 前端 API 摘要、`module/file.md` 上传与解压落地、`module/conversation.md` 对话会话模型。
 > 本文不写关键实现代码，只写**机制、状态机、协议、不变量与边界**。伪代码用于说明意图。
 >
 > **2026-07-01 起，本文同时承担"视觉与布局"权威**（与原 `refact-web.md` 合并）。任何对浅色主题、布局、组件库的修改以本文为准，不再单设 `refact-web.md`。
@@ -43,7 +43,7 @@
 
 模块专属设计原则：
 
-1. **后端契约权威**。所有 HTTP / SSE / WS 端点、错误码、状态机均以 `api.md` 为准；前端不重新发明协议，不私自约定"前端字段"。
+1. **后端契约权威**。所有 HTTP / SSE / WS 端点、错误码、状态机均以 `frontend/api.md` 与对应模块设计为准；前端不重新发明协议，不私自约定"前端字段"。
 2. **客户端状态机显式**。Agent 回合、任务、分片上传都是有状态流程，**必须**抽出 composable / class 形式的有限状态机，不允许散落在组件的 `setTimeout` / `Promise.then` 里。
 3. **断点续传与可恢复性是默认要求**。长耗时操作（分片上传、Agent 回合、任务进度）刷新、断网、杀进程后必须能恢复，不要求用户重头再来。
 4. **失败自动重试，不打扰用户**。网络抖动、临时 5xx、令牌桶 429 全部由客户端 worker 自动退避重试；只在"重试耗尽"或"业务不可恢复错误"时打扰用户。
@@ -659,6 +659,7 @@ export default {
 - 每个事件按 `api.md` 的事件名（`assistant_delta` / `tool_call_ready` / ...）派发到 handlers；事件 schema 用 Zod 校验，**校验失败记 trace breadcrumb 并触发 onError**。
 - 断流语义：V1 **不**做 SSE 续传（`Last-Event-ID` 后端不支持），断流即视为回合失败，UI 提示用户重发。
 - `AbortController` 透传：用户点"停止生成"立即中断读取。
+- SSE 打开前的非 2xx 响应与普通 HTTP 共用 `transport/httpError.ts`，保留后端业务错误码；流打开后的 `event:error` 才是 SSE 终态。主动 abort 只触发一次 close，不再追加 `STREAM_INTERRUPTED`。
 - 浏览器 `visibilitychange`：切走 Tab 时不主动关闭 SSE（回合同步进行），切回时不 flush（流式渲染本就低帧率）。
 
 ### 14.3 STOMP 客户端
@@ -873,6 +874,7 @@ idle
 
 **与 SSE 客户端的衔接**：
 - `useAgentTurn` 持有一个 `AbortController`；abort 时关闭 SSE 连接。
+- abort/网络断开会触发后端协作取消，停止模型订阅和未完成工具 future；V1 不做 Last-Event-ID 续传，也不自动重试消息 POST。
 - 浏览器 `visibilitychange` 不中断 SSE（回合同步进行）。
 
 ---

@@ -348,8 +348,10 @@ flowchart TD
 
 - 扫描这批工具调用（provider 原始顺序），把**相邻**且并发候选的调用聚为一批。并发候选条件：descriptor 存在、schema/validate 通过、`classifier` 不抛异常且 `concurrencySafe == true`。
 - **整批仍先串行 preflight**；若 preflight 后任一项 `concurrencySafe` 变 false，整批降级串行。
-- handler 阶段用**有界线程池** + `CompletableFuture`（`pixflow.tools.max-concurrency`，默认 8）并发执行；结果按 **provider 原始顺序** finalize 与输出。
+- handler 阶段用**有界线程池** + `ExecutorService.submit` 返回的 `Future`（`pixflow.tools.max-concurrency`，默认 8）并发执行；结果按 **provider 原始顺序** finalize 与输出。
 - 非并发调用单独成批，串行执行。
+
+`ToolExecutionContext` 必须显式携带同一 Agent 回合的 `CancellationToken`。执行器在每个 call 前、handler 前后以及 join 前后检查 token；并行 batch 注册 cancellation callback，对尚未完成的 `Future` 调 `cancel(true)`。`OperationCancelledException` 必须原样向上抛，不能落入通用 `catch (RuntimeException)` 后变成模型可见 tool error。`Future.cancel(true)` 和线程 interrupt 只是 best-effort，所有 HTTP、数据库和第三方 handler 仍必须配置自身 timeout。
 
 典型：
 

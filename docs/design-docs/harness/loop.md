@@ -90,6 +90,7 @@ loop 是 `design.md §5.1` 明确要求的「**手写的显式循环，不依赖
 | while 循环驱动、transition、运行态、续轮判定 | **`harness/loop`（Wave 4）** | 本模块 |
 | CONTEXT_LIMIT / 输出截断恢复编排 | **`harness/loop`** | 跨模块协调，留在引擎 |
 | 事件流 emit（assistant_delta / tool / transition / completed） | **`harness/loop`** | 引擎产出，web 层接 SSE |
+| 回合协作取消 checkpoints、模型订阅取消、trace CANCELLED | **`harness/loop`** | 消费 `common.CancellationToken`，取消不进入 ErrorRecorder |
 | 动态 Prompt 组装 + section 缓存 | `agent`（Wave 5） | 作为 `buildForModel(state, systemPrompt, toolSchemas)` 的 `systemPrompt` 入参传入 |
 | 可见工具集 `visibleDescriptors` → tool schema | `agent`（Wave 5） | 作为 `toolSchemas` 入参传入 |
 | `SummarizationPort`（fork 子 Agent 摘要） | `agent`（Wave 5） | context 经 SPI 倒置调用，与 loop 无关 |
@@ -180,10 +181,14 @@ agent ──► loop（Wave 5 装配：注入 systemPrompt/toolSchemas、Summari
 public final class AgentLoop {
 
     /** 普通用户交互入口：派发 UserPromptSubmit、追加 user 消息、进入 while 循环。 */
-    void stream(String prompt, List<Attachment> attachments, AgentEventSink sink);
+    void stream(String prompt, List<Attachment> attachments, AgentEventSink sink,
+                String systemPrompt, List<ToolSchemaView> toolSchemas,
+                CancellationToken cancellation);
 
     /** 子 Agent / 恢复场景：从已 seed 的消息链继续，不重复追加用户 prompt。 */
-    void continueStream(AgentEventSink sink);
+    void continueStream(AgentEventSink sink, String systemPrompt,
+                        List<ToolSchemaView> toolSchemas,
+                        CancellationToken cancellation);
 }
 ```
 
@@ -288,7 +293,8 @@ flowchart LR
   AI -->|ModelStreamEvent| Loop
 ```
 
-- web 层创建 `SseEmitter`，构造一个把 `AgentEvent` 写成 SSE 帧的 `AgentEventSink`，调 `loop.stream(prompt, sink)`；`stream` 同步跑完后端点返回，SSE 流随之结束。
+- conversation 先构造 `AgentTurnRequest(conversationId, prompt, attachments, cancellation)`，agent 装配层把同一 token 传入 `loop.stream(...)`。loop 仍同步跑完整个 while，但 SSE session 位于独立 worker 中。
+- `ModelStreamConsumer` 用 token signal 作为 `takeUntilOther` publisher；适配时必须 suppress cancel，避免模型流先完成后反向取消公共 signal。`blockLast` 返回或抛错后再次检查 token，取消不能被误判为空模型成功。
 - 任务进度（"已处理 320/800"）是 WebSocket/STOMP 另一条链路（`design.md §三`、`state.md §十一`），与 loop 的 SSE token 流正交，不混用。
 
 ---
@@ -324,10 +330,10 @@ flowchart TD
 
 PixFlow 特定接缝点（文档级硬约定）：
 
-1. **`ToolExecutionContext` 由 loop 构造并喂 tools**，至少含：`PermissionContext`（`conversationId`、子 Agent 约束、`deniedTools`/`disabledTools`、Plan 模式注入的 denied 集合）、当前 `TurnTrace` 句柄（tools 不反向查找回合，`tools.md §十一`/`eval.md §5.1`）、`RuntimeScope`。loop **不评估权限**，只把上下文交给 tools 执行管线。
+1. **`ToolExecutionContext` 由 loop 构造并喂 tools**，至少含：`PermissionContext`、当前 `TurnTrace` 句柄、`RuntimeScope` 和本回合 `CancellationToken`。loop **不评估权限**，只把上下文与取消信号交给 tools 执行管线。
 2. **trace 责任上移落点 `TraceFanout`**：`buildForModel` 产出的 cheap/compaction 裁剪日志由 loop 转投 `TurnTrace.recordPrune`；tools 执行管线把单次工具 span 投递给 ctx 内的 `TurnTrace`（tools 直接调，loop 提供句柄）；hooks 执行的 span 由 loop 在 `dispatch` 返回后记录（`hooks.md §9.3`）。
 3. **append 顺序与协议配对**：assistant（可能含 tool_use）先落库再执行工具，工具结果回填后落库；保证 tool call/result 配对由 context 投影器维护（loop 不裁剪消息）。
-4. **异常终止**：循环内任意不可恢复异常 → `TurnTrace.abort(err)` + `ErrorRecorder.record(err)` 后向上抛（不 emit error 事件、不吞）。
+4. **异常终止**：循环内任意不可恢复异常 → `TurnTrace.abort(err)` + `ErrorRecorder.record(err)` 后向上抛（不 emit error 事件、不吞）。`OperationCancelledException` 单独处理：`TurnTrace.cancel()`，派发一次 `TURN_STOPPED(cancelled:<reason>)`，不写 ErrorRecorder、不 emit `completed`，继续向 web 边界抛出。
 
 > **context 接口微调建议**：当前 `ContextEngine.buildForModel` 返回 `ContextSnapshot`，未显式把本轮 cheap/compaction 的 prune 日志回带给调用方。为落实「prune 日志由 loop 转投 eval」，建议 `buildForModel` 在 `ContextSnapshot`（或一个伴随返回结构）中带出本轮裁剪条目列表（`TracePruneEntry` 形状），供 `TraceFanout` 转投。此为 loop 对 `harness/context` 的接口微调建议，落地时在 `context.md` 同步。
 
@@ -351,6 +357,7 @@ PixFlow 特定接缝点（文档级硬约定）：
 | `CONTEXT_LIMIT`（上下文超窗） | **loop + context** | retry runner 不处理；首次（`!hasAttemptedReactiveCompact`）→ `context.reactiveCompact` → `REACTIVE_COMPACT_RETRY` 重试本迭代（不 append assistant）；置 `hasAttemptedReactiveCompact`。context 内部超 `maxReactiveRetries` 回退确定性优先级裁剪保证可继续（`context.md §10.3`） |
 | 输出截断（`finish_reason ∈ {length,max_tokens}` → `outputInterrupted`） | **loop** | 首次（`!hasEscalatedMaxOutput`）→ 设 `metadata.modelRequestOverrides.maxOutputTokens` 抬高 → `MAX_OUTPUT_TOKENS_ESCALATE` 重试本迭代（不 append assistant）；再次且 `maxOutputRecoveryCount < limit` → 追加截断 assistant + 续写 prompt → `MAX_OUTPUT_TOKENS_RECOVERY` → `continue` |
 | 不可恢复（鉴权/配置/工具崩溃逃逸/落库失败等） | **向上抛** | `TurnTrace.abort` + `ErrorRecorder.record`（脱敏落盘 + 错误指标）后抛出，由 web 层归一化 HTTP；loop 不 emit error 事件、不吞 |
+| 协作取消（客户端断开/SSE 超时/服务停机/调用方中止） | **conversation + loop + tools** | 每个稳定边界检查同一 token；模型 Flux 停止、工具 future best-effort cancel；`TurnTrace.cancel`，不写 ErrorRecorder，不 emit completed |
 
 要点：
 

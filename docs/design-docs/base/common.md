@@ -480,3 +480,11 @@ public interface ProgressNotifier {
 ## Revision Notes
 
 2026-06-28 / Codex: 为 `module/file` 的生产级素材包解压进度推送新增 `ProgressNotifier` SPI 设计口径。接口放在 common，app 级实现具体 WebSocket/STOMP/SSE 传输，业务模块只发布逻辑进度事件；该调整保持 common 不依赖上层模块，也避免 Wave 2 的 file 反向依赖 Wave 4 的 task/conversation。
+### 5.7 协作取消原语
+
+`com.pixflow.common.concurrent` 提供不依赖 Reactor 或业务模块的协作取消契约：`CancellationSource` 负责发起取消，`CancellationToken` 负责查询、订阅和检查，`CancellationReason` 记录首个终止原因，`OperationCancelledException` 用于跨同步调用栈快速退出。
+
+- `CancellationSource.cancel(reason)` 使用 CAS，只接受第一次取消；后续原因不能覆盖首因。
+- `cancellationSignal()` 是只完成一次的 `CompletionStage<Void>`。消费者取消自己的订阅时不得反向 cancel 该公共 signal。
+- `throwIfCancellationRequested()` 抛出的取消异常是生命周期控制信号，不是内部错误；调用方不得把它归一化成 tool error 或写入 `ErrorRecorder`。
+- `CancellationToken.NONE` 只用于明确不可取消的离线入口和测试。conversation 的在线 Agent 回合必须传真实 token。
