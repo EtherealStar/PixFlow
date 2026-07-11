@@ -34,7 +34,7 @@ public interface AgentTurnRunnerRegistry {
     /**
      * unavailable 默认实现：用于测试 / 单模块场景 / agent 模块未装配。
      */
-    AgentTurnRunner UNAVAILABLE = (conversationId, prompt, attachments, sink) -> {
+    AgentTurnRunner UNAVAILABLE = (request, sink) -> {
         throw new PixFlowException(ConversationErrorCode.TURN_RUNNER_UNAVAILABLE,
                 "agent turn runner is not configured");
     };

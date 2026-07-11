@@ -11,12 +11,14 @@ import com.pixflow.module.conversation.app.CancellationService;
 import com.pixflow.module.conversation.app.ConfirmationService;
 import com.pixflow.module.conversation.app.ConversationService;
 import com.pixflow.module.conversation.app.HistoryQueryService;
-import com.pixflow.module.conversation.app.TurnDispatchService;
+import com.pixflow.module.conversation.app.TurnPreparationService;
 import com.pixflow.module.conversation.api.CancellationController;
 import com.pixflow.module.conversation.api.ConfirmationController;
 import com.pixflow.module.conversation.api.ConversationController;
 import com.pixflow.module.conversation.api.HistoryController;
 import com.pixflow.module.conversation.api.MessageController;
+import com.pixflow.module.conversation.api.SseTurnMetrics;
+import com.pixflow.module.conversation.api.SseTurnSessionFactory;
 import com.pixflow.module.conversation.attachment.AttachmentCollector;
 import com.pixflow.module.conversation.attachment.AttachmentMapper;
 import com.pixflow.module.conversation.error.ConversationErrorCode;
@@ -36,6 +38,9 @@ import com.pixflow.module.task.api.TaskCommandService;
 import java.time.Clock;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.SynchronousQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.ScheduledExecutorService;
 import org.apache.ibatis.annotations.Mapper;
 import org.mybatis.spring.annotation.MapperScan;
@@ -46,6 +51,8 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
+import org.springframework.beans.factory.annotation.Qualifier;
+import io.micrometer.core.instrument.MeterRegistry;
 
 @AutoConfiguration(after = {DagAutoConfiguration.class, ImagegenAutoConfiguration.class})
 @EnableConfigurationProperties(ConversationProperties.class)
@@ -54,12 +61,21 @@ public class ConversationAutoConfiguration {
 
     @Bean(destroyMethod = "shutdown")
     @ConditionalOnMissingBean(name = "conversationExecutor")
-    public ExecutorService conversationExecutor() {
-        return Executors.newCachedThreadPool(r -> {
+    public ExecutorService conversationExecutor(ConversationProperties properties) {
+        ThreadPoolExecutor executor = new ThreadPoolExecutor(
+                0,
+                properties.getTurnExecutor().getMaxConcurrency(),
+                properties.getTurnExecutor().getKeepAlive().toMillis(),
+                TimeUnit.MILLISECONDS,
+                new SynchronousQueue<>(),
+                r -> {
             Thread thread = new Thread(r, "conversation-sse");
             thread.setDaemon(true);
             return thread;
-        });
+                },
+                new ThreadPoolExecutor.AbortPolicy());
+        executor.allowCoreThreadTimeOut(true);
+        return executor;
     }
 
     @Bean(destroyMethod = "shutdown")
@@ -134,13 +150,13 @@ public class ConversationAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     @ConditionalOnBean({ConversationLock.class, AgentTurnRunnerRegistry.class})
-    public TurnDispatchService turnDispatchService(
+    public TurnPreparationService turnPreparationService(
             ConversationService conversationService,
             ConversationLock conversationLock,
             ObjectProvider<AttachmentCollector> attachmentCollectorProvider,
             AttachmentMapper attachmentMapper,
             AgentTurnRunnerRegistry agentTurnRunnerRegistry) {
-        return new TurnDispatchService(
+        return new TurnPreparationService(
                 conversationService,
                 conversationLock,
                 attachmentCollectorProvider.getIfAvailable(),
@@ -150,15 +166,31 @@ public class ConversationAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    @ConditionalOnBean(TurnDispatchService.class)
-    public MessageController messageController(
-            TurnDispatchService turnDispatchService,
+    @ConditionalOnBean(TurnPreparationService.class)
+    public SseTurnMetrics sseTurnMetrics(ObjectProvider<MeterRegistry> meterRegistryProvider) {
+        return new SseTurnMetrics(meterRegistryProvider.getIfAvailable());
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnBean(TurnPreparationService.class)
+    public SseTurnSessionFactory sseTurnSessionFactory(
             ConversationProperties properties,
             ObjectMapper objectMapper,
-            ExecutorService conversationExecutor,
-            ScheduledExecutorService conversationSseHeartbeatScheduler) {
-        return new MessageController(turnDispatchService, properties, objectMapper, conversationExecutor,
-                conversationSseHeartbeatScheduler);
+            @Qualifier("conversationExecutor") ExecutorService conversationExecutor,
+            @Qualifier("conversationSseHeartbeatScheduler") ScheduledExecutorService heartbeatScheduler,
+            SseTurnMetrics metrics) {
+        return new SseTurnSessionFactory(
+                properties, objectMapper, conversationExecutor, heartbeatScheduler, metrics);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnBean({TurnPreparationService.class, SseTurnSessionFactory.class})
+    public MessageController messageController(
+            TurnPreparationService preparationService,
+            SseTurnSessionFactory sessionFactory) {
+        return new MessageController(preparationService, sessionFactory);
     }
 
     @Bean

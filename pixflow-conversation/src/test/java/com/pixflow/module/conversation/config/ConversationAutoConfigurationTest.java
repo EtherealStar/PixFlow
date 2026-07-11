@@ -5,7 +5,8 @@ import static org.mockito.Mockito.mock;
 
 import com.pixflow.harness.session.persistence.MessageReadMapper;
 import com.pixflow.module.conversation.api.MessageController;
-import com.pixflow.module.conversation.app.TurnDispatchService;
+import com.pixflow.module.conversation.api.SseTurnSessionFactory;
+import com.pixflow.module.conversation.app.TurnPreparationService;
 import com.pixflow.module.conversation.persistence.ConversationMapper;
 import java.time.Clock;
 import org.junit.jupiter.api.Test;
@@ -18,12 +19,14 @@ class ConversationAutoConfigurationTest {
 
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
             .withConfiguration(AutoConfigurations.of(ConversationAutoConfiguration.class))
-            .withUserConfiguration(RequiredBeans.class);
+            .withUserConfiguration(RequiredBeans.class)
+            .withBean("conversationMapper", ConversationMapper.class, () -> mock(ConversationMapper.class));
 
     @Test
     void registersMessageControllerWithoutPackageReferenceResolver() {
         contextRunner.run(context -> {
-            assertThat(context).hasSingleBean(TurnDispatchService.class);
+            assertThat(context).hasSingleBean(TurnPreparationService.class);
+            assertThat(context).hasSingleBean(SseTurnSessionFactory.class);
             assertThat(context).hasSingleBean(MessageController.class);
             assertThat(context).doesNotHaveBean("attachmentCollector");
         });
@@ -31,11 +34,6 @@ class ConversationAutoConfigurationTest {
 
     @Configuration(proxyBeanMethods = false)
     static class RequiredBeans {
-        @Bean
-        ConversationMapper conversationMapper() {
-            return mock(ConversationMapper.class);
-        }
-
         @Bean
         MessageReadMapper messageReadMapper() {
             return mock(MessageReadMapper.class);

@@ -1,6 +1,8 @@
 package com.pixflow.module.conversation.api;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.pixflow.common.concurrent.CancellationReason;
+import com.pixflow.common.concurrent.OperationCancelledException;
 import com.pixflow.common.error.CommonErrorCode;
 import com.pixflow.common.error.PixFlowException;
 import com.pixflow.common.sanitize.Sanitizer;
@@ -14,6 +16,8 @@ import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.BooleanSupplier;
+import java.util.function.Consumer;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 public class SseAgentEventSink implements AgentEventSink {
@@ -22,41 +26,75 @@ public class SseAgentEventSink implements AgentEventSink {
     private final SseEmitter emitter;
     private final ObjectMapper objectMapper;
     private final Object sendLock;
+    private final BooleanSupplier writable;
+    private final Consumer<Throwable> transportFailure;
+    private final Runnable lateWrite;
 
     public SseAgentEventSink(SseEmitter emitter, ObjectMapper objectMapper) {
         this(emitter, objectMapper, new Object());
     }
 
     public SseAgentEventSink(SseEmitter emitter, ObjectMapper objectMapper, Object sendLock) {
+        this(emitter, objectMapper, sendLock, () -> true, ignored -> { }, () -> { });
+    }
+
+    SseAgentEventSink(
+            SseEmitter emitter,
+            ObjectMapper objectMapper,
+            Object sendLock,
+            BooleanSupplier writable,
+            Consumer<Throwable> transportFailure) {
+        this(emitter, objectMapper, sendLock, writable, transportFailure, () -> { });
+    }
+
+    SseAgentEventSink(
+            SseEmitter emitter,
+            ObjectMapper objectMapper,
+            Object sendLock,
+            BooleanSupplier writable,
+            Consumer<Throwable> transportFailure,
+            Runnable lateWrite) {
         this.emitter = emitter;
         this.objectMapper = objectMapper;
         this.sendLock = sendLock == null ? new Object() : sendLock;
+        this.writable = writable == null ? () -> true : writable;
+        this.transportFailure = transportFailure == null ? ignored -> { } : transportFailure;
+        this.lateWrite = lateWrite == null ? () -> { } : lateWrite;
     }
 
     @Override
     public void emit(AgentEvent event) {
+        if (!writable.getAsBoolean()) {
+            lateWrite.run();
+            throw new OperationCancelledException(CancellationReason.CLIENT_DISCONNECTED);
+        }
         try {
             synchronized (sendLock) {
                 emitter.send(SseEmitter.event()
                         .name(eventName(event))
                         .data(objectMapper.writeValueAsString(toPayload(event))));
             }
-        } catch (IOException ex) {
-            throw new IllegalStateException("SSE client disconnected", ex);
+        } catch (IOException | IllegalStateException ex) {
+            transportFailure.accept(ex);
+            throw new OperationCancelledException(CancellationReason.CLIENT_DISCONNECTED);
         }
     }
 
-    public void error(Throwable error) {
+    public boolean sendError(PixFlowException error) {
+        if (!writable.getAsBoolean()) {
+            lateWrite.run();
+            return false;
+        }
         try {
             synchronized (sendLock) {
                 emitter.send(SseEmitter.event()
                         .name("error")
                         .data(objectMapper.writeValueAsString(errorPayload(error))));
             }
-        } catch (IOException ignored) {
-            // 客户端已断开时无需二次处理。
-        } finally {
-            emitter.complete();
+            return true;
+        } catch (IOException | IllegalStateException ex) {
+            transportFailure.accept(ex);
+            return false;
         }
     }
 

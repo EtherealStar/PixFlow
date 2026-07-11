@@ -14,6 +14,7 @@ public class ConversationProperties {
     private final History history = new History();
     private final Attachment attachment = new Attachment();
     private final Progress progress = new Progress();
+    private final TurnExecutor turnExecutor = new TurnExecutor();
 
     public Sse getSse() {
         return sse;
@@ -39,6 +40,10 @@ public class ConversationProperties {
         return progress;
     }
 
+    public TurnExecutor getTurnExecutor() {
+        return turnExecutor;
+    }
+
     @PostConstruct
     void validate() {
         if (sse.timeout == null || sse.timeout.isZero() || sse.timeout.isNegative()) {
@@ -49,6 +54,12 @@ public class ConversationProperties {
         }
         if (lock.waitTime == null || lock.waitTime.isNegative()) {
             throw new IllegalStateException("pixflow.conversation.lock.wait-time must not be negative");
+        }
+        if (turnExecutor.maxConcurrency < 1) {
+            throw new IllegalStateException("pixflow.conversation.turn-executor.max-concurrency must be >= 1");
+        }
+        if (turnExecutor.keepAlive == null || turnExecutor.keepAlive.isZero() || turnExecutor.keepAlive.isNegative()) {
+            throw new IllegalStateException("pixflow.conversation.turn-executor.keep-alive must be positive");
         }
         if (confirmation.batchThreshold < 1) {
             throw new IllegalStateException("pixflow.conversation.confirmation.batch-threshold must be >= 1");
@@ -225,6 +236,27 @@ public class ConversationProperties {
 
         public void setTopicPrefix(String topicPrefix) {
             this.topicPrefix = topicPrefix;
+        }
+    }
+
+    public static class TurnExecutor {
+        private int maxConcurrency = 16;
+        private Duration keepAlive = Duration.ofSeconds(60);
+
+        public int getMaxConcurrency() {
+            return maxConcurrency;
+        }
+
+        public void setMaxConcurrency(int maxConcurrency) {
+            this.maxConcurrency = maxConcurrency;
+        }
+
+        public Duration getKeepAlive() {
+            return keepAlive;
+        }
+
+        public void setKeepAlive(Duration keepAlive) {
+            this.keepAlive = keepAlive;
         }
     }
 }
