@@ -192,6 +192,8 @@ class DefaultChatModelClientTest {
         AiProperties.Roles roles = new AiProperties.Roles(
                 new AiProperties.RoleConfig("custom", "test-model", ModelCapability.CHAT, 0.3d, 4096, null),
                 defaults.vision(),
+                defaults.rubricsJudgeText(),
+                defaults.rubricsJudgeVision(),
                 defaults.imagegen(),
                 defaults.embedding(),
                 defaults.rerank());

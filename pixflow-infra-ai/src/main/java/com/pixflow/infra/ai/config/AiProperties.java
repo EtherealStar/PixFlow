@@ -99,11 +99,20 @@ public record AiProperties(
         }
     }
 
-    public record Roles(RoleConfig primaryChat, RoleConfig vision, RoleConfig imagegen, RoleConfig embedding, RoleConfig rerank) {
+    public record Roles(
+            RoleConfig primaryChat,
+            RoleConfig vision,
+            RoleConfig rubricsJudgeText,
+            RoleConfig rubricsJudgeVision,
+            RoleConfig imagegen,
+            RoleConfig embedding,
+            RoleConfig rerank) {
         public static Roles defaults() {
             return new Roles(
                     new RoleConfig("dashscope", "qwen-max", ModelCapability.CHAT, 0.3d, 4096, null),
                     new RoleConfig("dashscope", "qwen-vl-max", ModelCapability.VISION, null, null, null),
+                    null,
+                    null,
                     new RoleConfig("dashscope", "wanx-v1", ModelCapability.IMAGEGEN, null, null, null),
                     new RoleConfig("dashscope", "text-embedding-v3", ModelCapability.EMBEDDING, null, null, null),
                     new RoleConfig("dashscope", "gte-rerank", ModelCapability.RERANK, null, null, null));

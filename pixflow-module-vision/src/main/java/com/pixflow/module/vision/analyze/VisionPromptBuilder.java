@@ -2,6 +2,7 @@ package com.pixflow.module.vision.analyze;
 
 import com.pixflow.infra.ai.chat.ChatMessage;
 import com.pixflow.infra.ai.model.ChatOptions;
+import com.pixflow.infra.ai.model.ModelRole;
 import com.pixflow.infra.ai.vision.VisionRequest;
 import com.pixflow.module.vision.image.PreparedVisionImage;
 import java.util.ArrayList;
@@ -36,7 +37,7 @@ public class VisionPromptBuilder {
         List<ChatMessage> messages = List.of(
                 new ChatMessage(ChatMessage.Role.SYSTEM, List.of(new ChatMessage.TextPart(systemPrompt()))),
                 new ChatMessage(ChatMessage.Role.USER, userParts));
-        return new VisionRequest(messages, new ChatOptions(0.2d, 1200, null));
+        return new VisionRequest(ModelRole.VISION, messages, new ChatOptions(0.2d, 1200, null));
     }
 
     private String systemPrompt() {

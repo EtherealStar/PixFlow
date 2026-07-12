@@ -64,6 +64,18 @@ pixflow:
         provider: custom
         model: ${LLM_VISION_MODEL:Qwen/Qwen3-VL-32B-Instruct}
         capability: VISION
+      rubrics-judge-text:
+        provider: custom
+        model: ${LLM_RUBRICS_JUDGE_TEXT_MODEL:${LLM_CHAT_MODEL:deepseek-ai/DeepSeek-V4-Pro}}
+        capability: CHAT
+        temperature: 0.0
+        max-tokens: 2048
+      rubrics-judge-vision:
+        provider: custom
+        model: ${LLM_RUBRICS_JUDGE_VISION_MODEL:${LLM_VISION_MODEL:Qwen/Qwen3-VL-32B-Instruct}}
+        capability: VISION
+        temperature: 0.0
+        max-tokens: 2048
       imagegen:
         provider: dashscope
         model: Kwai-Kolors/Kolors
@@ -80,6 +92,8 @@ pixflow:
     quotas:
       primary-chat: { quota-group: chat, capacity: 60, refill-tokens: 60, refill-period: 1m, idle-ttl: 10m, cost-per-attempt: 1 }
       vision: { quota-group: vision, capacity: 30, refill-tokens: 30, refill-period: 1m, idle-ttl: 10m, cost-per-attempt: 2 }
+      rubrics-judge-text: { quota-group: rubrics-judge-text, capacity: 30, refill-tokens: 30, refill-period: 1m, idle-ttl: 10m, cost-per-attempt: 1 }
+      rubrics-judge-vision: { quota-group: rubrics-judge-vision, capacity: 15, refill-tokens: 15, refill-period: 1m, idle-ttl: 10m, cost-per-attempt: 2 }
       imagegen: { quota-group: imagegen, capacity: 20, refill-tokens: 10, refill-period: 1m, idle-ttl: 10m, cost-per-attempt: 5 }
       embedding: { quota-group: embedding, capacity: 100, refill-tokens: 100, refill-period: 1m, idle-ttl: 10m, cost-per-attempt: 1 }
       rerank: { quota-group: rerank, capacity: 100, refill-tokens: 100, refill-period: 1m, idle-ttl: 10m, cost-per-attempt: 1 }

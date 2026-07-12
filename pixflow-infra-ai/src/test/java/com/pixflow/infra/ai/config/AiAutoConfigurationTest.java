@@ -12,6 +12,7 @@ import com.pixflow.infra.ai.embedding.EmbeddingClient;
 import com.pixflow.infra.ai.error.AiErrorCode;
 import com.pixflow.infra.ai.imagegen.ImageGenClient;
 import com.pixflow.infra.ai.imagegen.ImageGenRequest;
+import com.pixflow.infra.ai.model.ModelRole;
 import com.pixflow.infra.ai.rerank.RerankClient;
 import com.pixflow.infra.ai.vision.VisionModelClient;
 import com.pixflow.infra.ai.vision.VisionRequest;
@@ -86,7 +87,7 @@ class AiAutoConfigurationTest {
             ImageGenClient imageGen = context.getBean(ImageGenClient.class);
             RerankClient rerank = context.getBean(RerankClient.class);
 
-            assertThatThrownBy(() -> vision.call(new VisionRequest(List.of(userText("look")), null)))
+            assertThatThrownBy(() -> vision.call(new VisionRequest(ModelRole.VISION, List.of(userText("look")), null)))
                     .isInstanceOf(PixFlowException.class)
                     .extracting(error -> ((PixFlowException) error).code())
                     .isEqualTo(AiErrorCode.MODEL_CONFIGURATION_ERROR);

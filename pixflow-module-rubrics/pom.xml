@@ -20,14 +20,6 @@
         </dependency>
         <dependency>
             <groupId>com.pixflow</groupId>
-            <artifactId>pixflow-eval</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.pixflow</groupId>
-            <artifactId>pixflow-hooks</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.pixflow</groupId>
             <artifactId>pixflow-infra-ai</artifactId>
         </dependency>
         <dependency>
@@ -37,14 +29,6 @@
         <dependency>
             <groupId>com.pixflow</groupId>
             <artifactId>pixflow-infra-image</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.pixflow</groupId>
-            <artifactId>pixflow-module-task</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.pixflow</groupId>
-            <artifactId>pixflow-module-memory</artifactId>
         </dependency>
         <dependency>
             <groupId>com.baomidou</groupId>

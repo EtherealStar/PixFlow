@@ -1,0 +1,48 @@
+id: image-result-quality
+version: 2.0.0
+name: Image Result Quality
+subjectType: IMAGE_RESULT
+lifecycle: EXPERIMENTAL
+evaluator:
+  judgeRole: RUBRICS_JUDGE_VISION
+  rollouts: 3
+  parserSchemaVersion: "1"
+criteria:
+  - key: resolution-compliance
+    kind: HARD_RULE
+    statement: The output image meets the minimum resolution requirement.
+    passAnchor: Width and height are each at least 800 pixels.
+    failAnchor: Width or height is below 800 pixels.
+    evidenceTypes: [IMAGE_METADATA]
+    applicability: ALWAYS
+    verifier:
+      type: RULE
+      ruleClass: resolution
+      params: { minWidth: 800, minHeight: 800 }
+  - key: format-compliance
+    kind: HARD_RULE
+    statement: The output image uses an approved format.
+    passAnchor: The format is PNG, JPEG, or WEBP.
+    failAnchor: The format is not PNG, JPEG, or WEBP.
+    evidenceTypes: [IMAGE_METADATA]
+    applicability: ALWAYS
+    verifier:
+      type: RULE
+      ruleClass: format
+      params: { allowed: [PNG, JPEG, WEBP] }
+  - key: background-cleanliness
+    kind: PRINCIPLE
+    statement: The product background is clean and suitable for ecommerce.
+    passAnchor: The background is visually clean and contains no distracting residue.
+    failAnchor: The background contains visible residue or distracting artifacts.
+    evidenceTypes: [OUTPUT_IMAGE]
+    applicability: WHEN_EVIDENCE_PRESENT
+    verifier: { type: LLM }
+  - key: product-visibility
+    kind: PRINCIPLE
+    statement: The product is clearly visible and not unintentionally cropped.
+    passAnchor: The product is fully legible and its important parts are visible.
+    failAnchor: Important product parts are hidden, clipped, or illegible.
+    evidenceTypes: [OUTPUT_IMAGE]
+    applicability: WHEN_EVIDENCE_PRESENT
+    verifier: { type: LLM }

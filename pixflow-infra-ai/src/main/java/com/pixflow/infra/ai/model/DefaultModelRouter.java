@@ -24,6 +24,8 @@ public final class DefaultModelRouter implements ModelRouter {
         AiProperties.RoleConfig config = switch (role) {
             case PRIMARY_CHAT -> properties.roles().primaryChat();
             case VISION -> properties.roles().vision();
+            case RUBRICS_JUDGE_TEXT -> properties.roles().rubricsJudgeText();
+            case RUBRICS_JUDGE_VISION -> properties.roles().rubricsJudgeVision();
             case IMAGEGEN -> properties.roles().imagegen();
             case EMBEDDING -> properties.roles().embedding();
             case RERANK -> properties.roles().rerank();
@@ -57,6 +59,8 @@ public final class DefaultModelRouter implements ModelRouter {
         return switch (role) {
             case PRIMARY_CHAT -> ModelCapability.CHAT;
             case VISION -> ModelCapability.VISION;
+            case RUBRICS_JUDGE_TEXT -> ModelCapability.CHAT;
+            case RUBRICS_JUDGE_VISION -> ModelCapability.VISION;
             case IMAGEGEN -> ModelCapability.IMAGEGEN;
             case EMBEDDING -> ModelCapability.EMBEDDING;
             case RERANK -> ModelCapability.RERANK;

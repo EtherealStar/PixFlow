@@ -6,6 +6,8 @@ package com.pixflow.infra.ai.model;
 public enum ModelRole {
     PRIMARY_CHAT,
     VISION,
+    RUBRICS_JUDGE_TEXT,
+    RUBRICS_JUDGE_VISION,
     IMAGEGEN,
     EMBEDDING,
     RERANK

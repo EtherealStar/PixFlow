@@ -20,6 +20,6 @@ public final class DefaultVisionModelClient implements VisionModelClient {
     public ChatResult call(VisionRequest request) {
         Objects.requireNonNull(request, "request");
         // 视觉底层沿用 OpenAI-compatible chat completions，但上层只看 VisionModelClient。
-        return chatModelClient.call(new ChatRequest(ModelRole.VISION, request.messages(), null, null, request.options()));
+        return chatModelClient.call(new ChatRequest(request.role(), request.messages(), null, null, request.options()));
     }
 }
