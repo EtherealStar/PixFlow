@@ -2,7 +2,7 @@ package com.pixflow.harness.state.runtime;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.pixflow.harness.state.model.ArtifactRef;
+import com.pixflow.harness.state.model.RuntimeArtifactRef;
 import com.pixflow.harness.state.model.UnitKey;
 import com.pixflow.harness.state.testsupport.FakeCacheStore;
 import com.pixflow.infra.cache.key.CacheKey;
@@ -19,15 +19,18 @@ class RunStateRefStoreTest {
         FakeCacheStore cache = new FakeCacheStore();
         RunStateRefStore store = new DefaultRunStateRefStore(cache);
         CacheKey key = key();
-        ArtifactRef ref = new ArtifactRef(
+        RuntimeArtifactRef ref = new RuntimeArtifactRef(
                 UnitKey.branch("task-1", "image-1", "branch-a"),
-                true,
+                3,
                 ObjectLocation.of(BucketType.TMP, "task-1/image-1/branch-a/node.png"),
                 Map.of("format", "png"));
 
-        store.putRef(key, ref, Duration.ofMinutes(10));
+        store.putRef(key, ref, Duration.ofHours(24));
 
-        assertThat(store.getRef(key)).contains(ref);
+        assertThat(store.getRef(key, 3)).contains(ref);
+        assertThat(cache.lastTtl()).isEqualTo(Duration.ofHours(24));
+        assertThat(store.getRef(key, 4)).isEmpty();
+        assertThat(cache.exists(key)).isFalse();
     }
 
     @Test
@@ -35,7 +38,7 @@ class RunStateRefStoreTest {
         FakeCacheStore cache = new FakeCacheStore();
         cache.failReads(true);
 
-        assertThat(new DefaultRunStateRefStore(cache).getRef(key())).isEmpty();
+        assertThat(new DefaultRunStateRefStore(cache).getRef(key(), 1)).isEmpty();
     }
 
     @Test
@@ -44,13 +47,13 @@ class RunStateRefStoreTest {
         cache.failWrites(true);
         cache.failDeletes(true);
         RunStateRefStore store = new DefaultRunStateRefStore(cache);
-        ArtifactRef ref = new ArtifactRef(
+        RuntimeArtifactRef ref = new RuntimeArtifactRef(
                 UnitKey.branch("task-1", "image-1", "branch-a"),
-                false,
+                3,
                 ObjectLocation.of(BucketType.TMP, "task-1/image-1/branch-a/node.png"),
                 Map.of());
 
-        store.putRef(key(), ref, Duration.ofMinutes(10));
+        store.putRef(key(), ref, Duration.ofHours(24));
         store.deleteRef(key());
     }
 

@@ -6,13 +6,13 @@ import com.pixflow.common.error.PixFlowException;
 import com.pixflow.common.sanitize.Sanitizer;
 import com.pixflow.harness.state.model.UnitKind;
 import com.pixflow.infra.image.ImageFormat;
+import com.pixflow.infra.image.ReopenableImageSource;
+import com.pixflow.infra.image.op.ConvertFormatSpec;
 import com.pixflow.infra.image.op.ImageOp;
 import com.pixflow.module.dag.config.DagProperties;
 import com.pixflow.module.dag.error.DagErrorCode;
 import com.pixflow.module.dag.expand.ExecutableBranch;
 import com.pixflow.module.dag.expand.ImageDescriptor;
-import com.pixflow.module.dag.ir.DagNode;
-import com.pixflow.module.dag.ir.PixelTool;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.util.List;
@@ -53,12 +53,13 @@ public class PipelineUnitExecutor implements UnitExecutor {
 
     /** 第三方抠图抽象;返抠图后字节(带 alpha PNG)。 */
     public interface BackgroundRemovalPort {
-        byte[] remove(byte[] sourceBytes, Map<String, Object> options);
+        byte[] remove(byte[] sourceBytes, BackgroundRemovalBindingSpec options);
     }
 
     /** 像素流水线(里程碑 3 注入 ImagePipeline.run):接字节流 + ops + encode 产出结果字节。 */
     public interface PixelPipeline {
-        byte[] run(InputStream source, List<ImageOp> ops, com.pixflow.infra.image.EncodeSpec encode);
+        byte[] run(ReopenableImageSource source, List<ImageOp> ops,
+                   com.pixflow.infra.image.EncodeSpec encode);
     }
 
     /** 结果写出(里程碑 3 注入 ObjectStorage.put)。 */
@@ -72,7 +73,7 @@ public class PipelineUnitExecutor implements UnitExecutor {
     private final BackgroundRemovalPort bgRemoval;
     private final PixelPipeline pixelPipeline;
     private final ResultWriter resultWriter;
-    private final NodeDispatcher nodeDispatcher;
+    private final TypedImageOpFactory imageOpFactory;
     private final ExecutorService timeoutExecutor =
         Executors.newCachedThreadPool(r -> {
             Thread t = new Thread(r, "dag-pipeline-unit");
@@ -86,14 +87,14 @@ public class PipelineUnitExecutor implements UnitExecutor {
                                 BackgroundRemovalPort bgRemoval,
                                 PixelPipeline pixelPipeline,
                                 ResultWriter resultWriter,
-                                NodeDispatcher nodeDispatcher) {
+                                TypedImageOpFactory imageOpFactory) {
         this.properties = properties;
         this.normalizer = normalizer;
         this.sourceReader = sourceReader;
         this.bgRemoval = bgRemoval;
         this.pixelPipeline = pixelPipeline;
         this.resultWriter = resultWriter;
-        this.nodeDispatcher = nodeDispatcher;
+        this.imageOpFactory = imageOpFactory;
     }
 
     @Override
@@ -107,7 +108,12 @@ public class PipelineUnitExecutor implements UnitExecutor {
                     ErrorCategory.VALIDATION));
         }
         ImageDescriptor image = input.imageDescriptors().get(0);
-        Callable<UnitOutcome> task = () -> doExecute(branch, image);
+        if (input.outputObjectKey() == null || input.outputObjectKey().isBlank()) {
+            return UnitOutcome.failed(branch.kind(), branch.branchId(), branch.memberId(),
+                new UnitOutcome.DagErrorView(DagErrorCode.DAG_INVALID_STRUCTURE,
+                    "缺少输出对象目标", ErrorCategory.VALIDATION));
+        }
+        Callable<UnitOutcome> task = () -> doExecute(branch, image, input.outputObjectKey());
         Future<UnitOutcome> future = timeoutExecutor.submit(task);
         try {
             return future.get(properties.getExecution().getUnitTimeout().toMillis(),
@@ -130,7 +136,7 @@ public class PipelineUnitExecutor implements UnitExecutor {
         }
     }
 
-    private UnitOutcome doExecute(ExecutableBranch branch, ImageDescriptor image) {
+    private UnitOutcome doExecute(ExecutableBranch branch, ImageDescriptor image, String outputKey) {
         // 大图防护
         long size = sourceReader.statSize(image.objectKey());
         if (size > properties.getExecution().getSourceBytesLimit()) {
@@ -140,9 +146,9 @@ public class PipelineUnitExecutor implements UnitExecutor {
                     DagErrorCode.DAG_SOURCE_BYTES_TOO_LARGE.category()));
         }
         // 缝合 I/O
-        try (InputStream source = sourceReader.openStream(image.objectKey())) {
+        try {
+            ReopenableImageSource source = () -> sourceReader.openStream(image.objectKey());
             byte[] bytes = applyOps(branch.perMemberOps(), source);
-            String outputKey = "results/" + branch.branchId() + "/" + image.imageId() + ".jpg";
             resultWriter.write(outputKey, bytes);
             return UnitOutcome.succeeded(branch.kind(), branch.branchId(), branch.memberId(),
                 outputKey, List.of());
@@ -152,44 +158,38 @@ public class PipelineUnitExecutor implements UnitExecutor {
         }
     }
 
-    private byte[] applyOps(List<DagNode> ops, InputStream source) throws Exception {
+    private byte[] applyOps(List<ExecutionStep> ops, ReopenableImageSource source) throws Exception {
         // 阶段 1:把所有 remove_bg 节点应用(罕见多次);阶段 2:把剩余逐图工具交给 PixelPipeline。
-        InputStream currentStream = source;
-        for (DagNode node : ops) {
-            if (node.tool() == PixelTool.REMOVE_BG) {
-                byte[] src = readAllBytes(currentStream);
-                currentStream = null;
-                byte[] removed = bgRemoval.remove(src, node.params());
-                currentStream = new ByteArrayInputStream(removed);
-            } else if (node.tool() == PixelTool.GENERATE_COPY) {
+        ReopenableImageSource currentSource = source;
+        for (ExecutionStep node : ops) {
+            if (node instanceof ExternalStep external) {
+                byte[] src;
+                try (InputStream stream = currentSource.openStream()) {
+                    src = readAllBytes(stream);
+                }
+                byte[] removed = bgRemoval.remove(src, external.typedSpec());
+                currentSource = () -> new ByteArrayInputStream(removed);
+            } else if (node instanceof CopyStep) {
                 throw new IllegalStateException("generate_copy 不在像素链上");
             }
             // 非 remove_bg 的本地操作交给 PixelPipeline.run 统一处理
         }
         // 累积非 remove_bg 的本地 op 列表
         List<ImageOp> localOps = ops.stream()
-            .filter(n -> n.tool() != PixelTool.REMOVE_BG && n.tool() != PixelTool.GENERATE_COPY)
-            .map(nodeDispatcher::dispatch)
-            .filter(java.util.Objects::nonNull)
+            .filter(LocalImageStep.class::isInstance)
+            .map(LocalImageStep.class::cast)
+            .map(imageOpFactory::create)
             .toList();
         com.pixflow.infra.image.EncodeSpec encode = encodeTarget(ops);
-        return pixelPipeline.run(currentStream, localOps, encode);
+        return pixelPipeline.run(currentSource, localOps, encode);
     }
 
-    private com.pixflow.infra.image.EncodeSpec encodeTarget(List<DagNode> ops) {
+    private com.pixflow.infra.image.EncodeSpec encodeTarget(List<ExecutionStep> ops) {
         for (int i = ops.size() - 1; i >= 0; i--) {
-            DagNode n = ops.get(i);
-            if (n.tool() == PixelTool.CONVERT_FORMAT) {
-                Object fmt = n.params().get("targetFormat");
-                Object q = n.params().get("quality");
-                ImageFormat f;
-                try {
-                    f = ImageFormat.valueOf(fmt == null ? "JPEG" : fmt.toString());
-                } catch (IllegalArgumentException e) {
-                    f = ImageFormat.JPEG;
-                }
-                Integer quality = q instanceof Number num ? num.intValue() : null;
-                return new com.pixflow.infra.image.EncodeSpec(f, quality, null, null);
+            ExecutionStep step = ops.get(i);
+            if (step instanceof LocalImageStep local
+                    && local.typedSpec() instanceof LocalImageBindingSpec.ConvertFormat convert) {
+                return convert.value().toEncodeSpec();
             }
         }
         return new com.pixflow.infra.image.EncodeSpec(ImageFormat.JPEG, null, null, null);

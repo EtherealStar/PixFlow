@@ -140,7 +140,7 @@ class UploadSessionServiceTest {
         return new LockTemplate() {
             @Override public <T> T runWithLock(CacheKey key, Duration waitTime, Supplier<T> action) { return action.get(); }
             @Override public void runWithLock(CacheKey key, Duration waitTime, Runnable action) { action.run(); }
-            @Override public boolean tryRunWithLock(CacheKey key, Duration waitTime, Runnable action) { action.run(); return true; }
+            @Override public boolean tryRunWithLock(CacheKey key, Duration waitTime, java.util.function.Consumer<com.pixflow.infra.cache.lock.LockGuard> action) { action.accept(() -> true); return true; }
         };
     }
 

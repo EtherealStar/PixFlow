@@ -2,7 +2,6 @@ package com.pixflow.module.dag.validate;
 
 import com.pixflow.module.dag.ir.DagDocument;
 import com.pixflow.module.dag.ir.DagSchemaVersion;
-import com.pixflow.module.dag.ir.ValidatedDag;
 import com.pixflow.module.dag.validate.rule.AcyclicRule;
 import com.pixflow.module.dag.validate.rule.EdgeRule;
 import com.pixflow.module.dag.validate.rule.GroupBranchRule;
@@ -85,18 +84,6 @@ public class DagValidator {
         opOrderRule.check(doc, builder);
 
         return builder.build();
-    }
-
-    /**
-     * 校验成功时,把 DagDocument 升级为 {@link ValidatedDag};失败抛 IllegalStateException。
-     * 用于"已校验上下文内继续处理"的便利路径(SubmitImagePlanHandler)。
-     */
-    public ValidatedDag toValidated(DagDocument doc, DagSchemaVersion schemaVersion) {
-        DagValidationResult result = validate(doc);
-        if (!result.ok()) {
-            throw new IllegalStateException("DAG 校验未通过: " + String.join("; ", result.errors()));
-        }
-        return new ValidatedDag(doc.nodes(), doc.edges(), schemaVersion);
     }
 
     /** 暴露 schemaRegistry 以便其他模块(如 SchemaRegistryValidator)启动期自检。 */

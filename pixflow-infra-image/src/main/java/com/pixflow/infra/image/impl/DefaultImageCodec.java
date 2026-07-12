@@ -39,26 +39,16 @@ public class DefaultImageCodec implements ImageCodec {
 
     @Override
     public ImageProbe probe(InputStream data) {
-        byte[] bytes = readAll(data);
-        try (ImageInputStream imageInput = ImageIO.createImageInputStream(new ByteArrayInputStream(bytes))) {
+        Objects.requireNonNull(data, "data must not be null");
+        try (InputStream bounded = new BoundedInputStream(data, properties.getMaxSourceBytes());
+             ImageInputStream imageInput = ImageIO.createImageInputStream(bounded)) {
             if (imageInput == null) {
                 throw new ImageProcessingException(ImageProcessingException.Reason.DECODE_FAILED, null, null, null, "无法创建图片输入流");
             }
             ImageReader reader = nextReader(imageInput);
             try {
                 reader.setInput(imageInput, true, true);
-                String formatName = reader.getFormatName();
-                ImageFormat format = ImageFormat.fromName(formatName)
-                        .orElseThrow(() -> new ImageProcessingException(
-                                ImageProcessingException.Reason.UNSUPPORTED_DECODE_FORMAT,
-                                null,
-                                null,
-                                null,
-                                "不支持的图片格式: " + formatName));
-                int width = reader.getWidth(0);
-                int height = reader.getHeight(0);
-                boolean alpha = hasAlpha(reader);
-                ImageProbe probe = new ImageProbe(format, width, height, alpha);
+                ImageProbe probe = readProbe(reader);
                 guardSize(probe);
                 return probe;
             } finally {
@@ -73,25 +63,46 @@ public class DefaultImageCodec implements ImageCodec {
 
     @Override
     public RasterImage decode(InputStream data) {
-        byte[] bytes = readAll(data);
-        ImageProbe probe = probe(new ByteArrayInputStream(bytes));
-        guardSize(probe);
+        byte[] bytes = readBounded(data);
+        ImageProbe probe = null;
         try (ImageInputStream imageInput = ImageIO.createImageInputStream(new ByteArrayInputStream(bytes))) {
             ImageReader reader = nextReader(imageInput);
             try {
                 reader.setInput(imageInput, true, true);
+                probe = readProbe(reader);
+                guardSize(probe);
                 BufferedImage decoded = reader.read(0);
                 if (decoded == null) {
                     throw new ImageProcessingException(ImageProcessingException.Reason.CORRUPTED_IMAGE, probe.format(), probe.width(), probe.height(), "图片首帧为空");
                 }
-                return RasterImage.of(toSrgb(applyExifOrientation(decoded, bytes, probe.format())), probe.format());
+                BufferedImage oriented = null;
+                BufferedImage srgb = null;
+                boolean ownershipTransferred = false;
+                try {
+                    oriented = applyExifOrientation(decoded, bytes, probe.format());
+                    srgb = toSrgb(oriented);
+                    RasterImage result = RasterImage.takeOwnership(srgb, probe.format());
+                    ownershipTransferred = true;
+                    return result;
+                } finally {
+                    if (!ownershipTransferred) {
+                        if (srgb != null) srgb.flush();
+                        if (oriented != null && oriented != srgb) oriented.flush();
+                        if (decoded != oriented && decoded != srgb) decoded.flush();
+                    } else {
+                        if (oriented != decoded) decoded.flush();
+                        if (srgb != oriented) oriented.flush();
+                    }
+                }
             } finally {
                 reader.dispose();
             }
         } catch (ImageProcessingException ex) {
             throw ex;
         } catch (IOException | RuntimeException ex) {
-            throw new ImageProcessingException(ImageProcessingException.Reason.DECODE_FAILED, probe.format(), probe.width(), probe.height(), "图片解码失败", ex);
+            throw new ImageProcessingException(ImageProcessingException.Reason.DECODE_FAILED,
+                    probe == null ? null : probe.format(), probe == null ? null : probe.width(),
+                    probe == null ? null : probe.height(), "图片解码失败", ex);
         }
     }
 
@@ -143,17 +154,19 @@ public class DefaultImageCodec implements ImageCodec {
     }
 
     private byte[] encodeOnce(RasterImage image, EncodeSpec spec, int quality) {
-        BufferedImage output = normalizeForFormat(image.buffer(), spec);
-        return switch (spec.targetFormat()) {
-            case WEBP -> encodeWithWebpLibrary(output, quality);
-            case JPEG, PNG, BMP -> encodeWithImageIo(output, spec.targetFormat(), quality);
-            default -> throw new ImageProcessingException(
-                    ImageProcessingException.Reason.UNSUPPORTED_ENCODE_FORMAT,
-                    spec.targetFormat(),
-                    image.width(),
-                    image.height(),
-                    "目标格式无法编码: " + spec.targetFormat());
-        };
+        BufferedImage input = image.borrowBuffer();
+        BufferedImage output = normalizeForFormat(input, spec);
+        try {
+            return switch (spec.targetFormat()) {
+                case WEBP -> encodeWithWebpLibrary(output, quality);
+                case JPEG, PNG, BMP -> encodeWithImageIo(output, spec.targetFormat(), quality);
+                default -> throw new ImageProcessingException(
+                        ImageProcessingException.Reason.UNSUPPORTED_ENCODE_FORMAT,
+                        spec.targetFormat(), image.width(), image.height(), "目标格式无法编码: " + spec.targetFormat());
+            };
+        } finally {
+            if (output != input) output.flush();
+        }
     }
 
     private byte[] encodeWithImageIo(BufferedImage output, ImageFormat format, int quality) {
@@ -399,13 +412,72 @@ public class DefaultImageCodec implements ImageCodec {
         return types.hasNext() && types.next().getColorModel().hasAlpha();
     }
 
-    private byte[] readAll(InputStream data) {
+    private ImageProbe readProbe(ImageReader reader) throws IOException {
+        String formatName = reader.getFormatName();
+        ImageFormat format = ImageFormat.fromName(formatName)
+                .orElseThrow(() -> new ImageProcessingException(
+                        ImageProcessingException.Reason.UNSUPPORTED_DECODE_FORMAT,
+                        null, null, null, "不支持的图片格式: " + formatName));
+        return new ImageProbe(format, reader.getWidth(0), reader.getHeight(0), hasAlpha(reader));
+    }
+
+    private byte[] readBounded(InputStream data) {
         Objects.requireNonNull(data, "data must not be null");
-        try {
-            return data.readAllBytes();
+        long limit = properties.getMaxSourceBytes();
+        try (ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+            byte[] chunk = new byte[8192];
+            long total = 0;
+            int read;
+            while ((read = data.read(chunk)) >= 0) {
+                total += read;
+                if (total > limit) {
+                    // 在继续扩容完整源字节数组前拒绝，避免压缩文件本身耗尽堆内存。
+                    throw new ImageProcessingException(ImageProcessingException.Reason.SOURCE_TOO_LARGE,
+                            null, null, null, "图片源文件超过字节上限");
+                }
+                output.write(chunk, 0, read);
+            }
+            return output.toByteArray();
         } catch (IOException ex) {
             throw new ImageProcessingException(ImageProcessingException.Reason.DECODE_FAILED, null, null, null, "读取图片字节失败", ex);
         }
+    }
+
+    private static final class BoundedInputStream extends InputStream {
+        private final InputStream delegate;
+        private final long limit;
+        private long count;
+
+        private BoundedInputStream(InputStream delegate, long limit) {
+            this.delegate = delegate;
+            this.limit = limit;
+        }
+
+        @Override
+        public int read() throws IOException {
+            int value = delegate.read();
+            if (value >= 0 && ++count > limit) {
+                throw new ImageProcessingException(ImageProcessingException.Reason.SOURCE_TOO_LARGE,
+                        null, null, null, "图片源文件超过字节上限");
+            }
+            return value;
+        }
+
+        @Override
+        public int read(byte[] buffer, int offset, int length) throws IOException {
+            int value = delegate.read(buffer, offset, length);
+            if (value > 0) {
+                count += value;
+                if (count > limit) {
+                    throw new ImageProcessingException(ImageProcessingException.Reason.SOURCE_TOO_LARGE,
+                            null, null, null, "图片源文件超过字节上限");
+                }
+            }
+            return value;
+        }
+
+        @Override
+        public void close() throws IOException { delegate.close(); }
     }
 
     static void applyQualityHints(Graphics2D g) {

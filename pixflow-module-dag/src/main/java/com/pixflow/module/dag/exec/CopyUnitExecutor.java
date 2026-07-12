@@ -12,8 +12,6 @@ import com.pixflow.infra.ai.chat.ToolCall;
 import com.pixflow.infra.ai.model.ModelRole;
 import com.pixflow.module.dag.error.DagErrorCode;
 import com.pixflow.module.dag.expand.ExecutableBranch;
-import com.pixflow.module.dag.ir.DagNode;
-import com.pixflow.module.dag.ir.PixelTool;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -43,11 +41,12 @@ public class CopyUnitExecutor implements UnitExecutor {
                     ErrorCategory.VALIDATION));
         }
         try {
-            DagNode copyNode = branch.perMemberOps().stream()
-                .filter(n -> n.tool() == PixelTool.GENERATE_COPY)
+            CopyStep copyNode = branch.perMemberOps().stream()
+                .filter(CopyStep.class::isInstance)
+                .map(CopyStep.class::cast)
                 .findFirst()
                 .orElseThrow(() -> new IllegalStateException("支路不含 generate_copy"));
-            String prompt = buildPrompt(input.copyContext(), copyNode.params());
+            String prompt = buildPrompt(input.copyContext(), copyNode.typedSpec());
             ChatRequest req = new ChatRequest(
                 ModelRole.PRIMARY_CHAT,
                 List.of(new ChatMessage(ChatMessage.Role.USER,
@@ -82,10 +81,10 @@ public class CopyUnitExecutor implements UnitExecutor {
         }
     }
 
-    private String buildPrompt(CopyContext ctx, Map<String, Object> params) {
-        String style = String.valueOf(params.getOrDefault("style", "PROMOTIONAL"));
-        String language = String.valueOf(params.getOrDefault("language", "zh"));
-        int maxLen = ((Number) params.getOrDefault("maxLength", 200)).intValue();
+    private String buildPrompt(CopyContext ctx, CopyBindingSpec spec) {
+        String style = spec.style();
+        String language = spec.language();
+        int maxLen = spec.maxLength();
         StringBuilder sb = new StringBuilder();
         sb.append("请为以下商品生成 ").append(style).append(" 风格的电商文案(语言:").append(language)
           .append(",最长 ").append(maxLen).append(" 字):\n");

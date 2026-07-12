@@ -22,28 +22,35 @@ public final class StorageKeys {
         return ObjectLocation.of(BucketType.PACKAGES, packageId + "/doc/" + normalizeSegment(fileName));
     }
 
-    public static ObjectLocation result(long taskId, String skuId, long imageId, String branchId, String ext) {
-        return ObjectLocation.of(BucketType.RESULTS, taskId + "/" + normalizeSegment(skuId) + "_" + imageId + "_" + normalizeSegment(branchId) + "." + normalizeExtension(ext));
+    public static ObjectLocation resultUnit(String taskId, String unitKeyHash, long runEpoch, String ext) {
+        return ObjectLocation.of(BucketType.RESULTS, unitOutputKey(taskId, unitKeyHash, runEpoch, ext));
     }
 
-    public static ObjectLocation groupResult(long taskId, String skuId, String groupKey, String branchId, String ext) {
-        return ObjectLocation.of(BucketType.RESULTS, taskId + "/" + normalizeSegment(skuId) + "_g" + normalizeSegment(groupKey) + "_" + normalizeSegment(branchId) + "." + normalizeExtension(ext));
+    public static ObjectLocation generatedUnit(String taskId, String unitKeyHash, long runEpoch, String ext) {
+        return ObjectLocation.of(BucketType.GENERATED, unitOutputKey(taskId, unitKeyHash, runEpoch, ext));
     }
 
-    public static ObjectLocation generated(long taskId, String skuId, long imageId, String ext) {
-        return ObjectLocation.of(BucketType.GENERATED, taskId + "/" + normalizeSegment(skuId) + "_" + imageId + "." + normalizeExtension(ext));
+    public static ObjectLocation runtimeGroup(String taskId, long runEpoch, String unitKeyHash,
+                                              String memberId, String name) {
+        requirePositiveEpoch(runEpoch);
+        return ObjectLocation.of(BucketType.TMP, normalizeSegment(taskId) + "/" + runEpoch + "/"
+                + normalizeSegment(unitKeyHash) + "/" + normalizeSegment(memberId) + "/" + normalizeSegment(name));
     }
 
     public static ObjectLocation toolResult(String id) {
         return ObjectLocation.of(BucketType.TOOL_RESULTS, normalizeSegment(id) + ".txt");
     }
 
-    public static ObjectLocation tmpBranch(long taskId, long imageId, String branchId, String name) {
-        return ObjectLocation.of(BucketType.TMP, taskId + "/" + imageId + "/" + normalizeSegment(branchId) + "/" + normalizeSegment(name));
+    private static String unitOutputKey(String taskId, String unitKeyHash, long runEpoch, String ext) {
+        requirePositiveEpoch(runEpoch);
+        return "results/" + normalizeSegment(taskId) + "/units/" + normalizeSegment(unitKeyHash)
+                + "/epochs/" + runEpoch + "/output." + normalizeExtension(ext);
     }
 
-    public static ObjectLocation tmpGroup(long taskId, String groupKey, String branchId, long imageId, String name) {
-        return ObjectLocation.of(BucketType.TMP, taskId + "/" + normalizeSegment(groupKey) + "/" + normalizeSegment(branchId) + "/" + imageId + "/" + normalizeSegment(name));
+    private static void requirePositiveEpoch(long runEpoch) {
+        if (runEpoch <= 0) {
+            throw new IllegalArgumentException("runEpoch must be positive");
+        }
     }
 
     private static String normalizeExtension(String ext) {

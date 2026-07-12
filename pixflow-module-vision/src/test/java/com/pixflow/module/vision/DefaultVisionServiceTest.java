@@ -11,6 +11,7 @@ import com.pixflow.infra.ai.error.AiErrorCode;
 import com.pixflow.infra.ai.model.TokenUsage;
 import com.pixflow.infra.ai.vision.VisionModelClient;
 import com.pixflow.infra.image.EncodeSpec;
+import com.pixflow.infra.image.ReopenableImageSource;
 import com.pixflow.infra.image.op.ImageOp;
 import com.pixflow.infra.image.pipeline.ImagePipeline;
 import com.pixflow.infra.storage.BucketType;
@@ -161,13 +162,13 @@ class DefaultVisionServiceTest {
 
     private static class PassthroughPipeline implements ImagePipeline {
         @Override
-        public byte[] run(InputStream source, List<ImageOp> ops, EncodeSpec encode) {
+        public byte[] run(ReopenableImageSource source, List<ImageOp> ops, EncodeSpec encode) {
             return new byte[] {4, 5, 6};
         }
 
         @Override
         public byte[] runComposed(
-                List<InputStream> members,
+                List<ReopenableImageSource> members,
                 List<ImageOp> perMemberOps,
                 com.pixflow.infra.image.op.MultiImageOp compose,
                 List<ImageOp> postOps,

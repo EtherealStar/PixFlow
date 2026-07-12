@@ -48,7 +48,8 @@ class PendingPlanServiceTest {
         properties = new DagProperties();
         objectMapper = new ObjectMapper();
         clock = Clock.fixed(Instant.parse("2026-06-29T00:00:00Z"), ZoneOffset.UTC);
-        service = new PendingPlanService(mapper, validator, properties, objectMapper, clock);
+        service = new PendingPlanService(mapper, validator, properties, objectMapper, clock,
+                new com.pixflow.module.dag.ir.CanonicalDagFactory(objectMapper));
     }
 
     private String validDagJson() {
@@ -70,15 +71,8 @@ class PendingPlanServiceTest {
         assertThat(plan.getSchemaVersion()).isEqualTo("1.0");
         assertThat(plan.getType()).isEqualTo("IMAGE_PLAN");
         assertThat(plan.getConversationId()).isEqualTo("conv1");
-        // payload_hash 是 sha256(canonicalJson(dagJson));service 实际用 objectMapper
-        // 序列化后 canonicalize,这里比对序列化后的字节
-        String serialized;
-        try {
-            serialized = objectMapper.writeValueAsString(doc);
-        } catch (Exception e) {
-            throw new IllegalStateException(e);
-        }
-        String expectedHash = sha256(CanonicalJson.canonicalize(serialized));
+        // dagJson 已经是持久化 canonical bytes，hash 必须与这份唯一事实一致。
+        String expectedHash = sha256(plan.getDagJson().getBytes(java.nio.charset.StandardCharsets.UTF_8));
         assertThat(plan.getPayloadHash()).isEqualTo(expectedHash);
         assertThat(plan.getExpiresAt()).isEqualTo(
             Instant.parse("2026-06-29T00:00:00Z").plus(properties.getPendingPlan().getTtl()));
@@ -150,8 +144,10 @@ class PendingPlanServiceTest {
         plan.setId(1L);
         plan.setStatus(PendingPlanStatus.PENDING);
         when(mapper.findById(1L)).thenReturn(plan);
-        when(mapper.updateStatus(1L, "CONFIRMED",
-            Instant.parse("2026-06-29T00:00:00Z"), "task1")).thenReturn(1);
+        when(mapper.updateStatusFrom(1L, "PENDING", "CONFIRMING",
+            Instant.parse("2026-06-29T00:00:00Z"))).thenReturn(1);
+        when(mapper.markConfirmedWithTask(1L, "task1",
+            Instant.parse("2026-06-29T00:00:00Z"))).thenReturn(1);
         PendingPlan result = service.confirm(1L, "task1");
         assertThat(result.getStatus()).isEqualTo(PendingPlanStatus.CONFIRMED);
         assertThat(result.getTaskId()).isEqualTo("task1");

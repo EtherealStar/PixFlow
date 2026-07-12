@@ -7,7 +7,6 @@ import com.pixflow.module.dag.ir.DagDocument;
 import com.pixflow.module.dag.ir.DagJsonReader;
 import com.pixflow.module.dag.ir.DagSchemaVersion;
 import com.pixflow.module.dag.ir.PixelTool;
-import com.pixflow.module.dag.ir.ValidatedDag;
 import com.pixflow.module.dag.validate.DagValidator;
 import com.pixflow.module.dag.validate.ParamSchemaRegistry;
 import java.util.List;
@@ -33,8 +32,6 @@ class BranchIdTest {
             {"nodes":[{"id":"n1","tool":"resize","params":{"height":600,"width":800}}],
              "edges":[]}
             """;
-        ValidatedDag d1 = validator.toValidated(reader.read(json1), new DagSchemaVersion("1.0"));
-        ValidatedDag d2 = validator.toValidated(reader.read(json2), new DagSchemaVersion("1.0"));
         String id1 = BranchId.derive(List.of("n1"),
             List.of(Map.of("width", 800, "height", 600)));
         String id2 = BranchId.derive(List.of("n1"),

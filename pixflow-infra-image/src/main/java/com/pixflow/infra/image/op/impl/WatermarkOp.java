@@ -21,16 +21,16 @@ public class WatermarkOp implements ImageOp {
             BufferedImage output = new BufferedImage(src.width(), src.height(), BufferedImage.TYPE_INT_ARGB);
             Graphics2D g = output.createGraphics();
             try {
-                g.drawImage(src.buffer(), 0, 0, null);
+                g.drawImage(src.borrowBuffer(), 0, 0, null);
                 int watermarkWidth = Math.max(1, (int) Math.round(src.width() * spec.scale()));
                 int watermarkHeight = Math.max(1, (int) Math.round(spec.watermark().height() * (watermarkWidth / (double) spec.watermark().width())));
                 Point point = point(src.width(), src.height(), watermarkWidth, watermarkHeight);
                 g.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, spec.opacity()));
-                g.drawImage(spec.watermark().buffer(), point.x, point.y, watermarkWidth, watermarkHeight, null);
+                g.drawImage(spec.watermark().borrowBuffer(), point.x, point.y, watermarkWidth, watermarkHeight, null);
             } finally {
                 g.dispose();
             }
-            return RasterImage.of(output, src.sourceFormat());
+            return RasterImage.takeOwnership(output, src.sourceFormat());
         } catch (RuntimeException ex) {
             throw new ImageProcessingException(ImageProcessingException.Reason.INVALID_OP_PARAM, src.sourceFormat(), src.width(), src.height(), "水印操作失败", ex);
         }

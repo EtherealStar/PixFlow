@@ -2,21 +2,32 @@ package com.pixflow.infra.image.config;
 
 import java.awt.Color;
 import java.util.Objects;
+import java.time.Duration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 @ConfigurationProperties(prefix = "pixflow.image")
 public class ImageProperties {
     private long maxSourcePixels = 40_000_000L;
+    private long maxSourceBytes = 64L * 1024 * 1024;
     private int maxDimension = 12_000;
     private int defaultJpegQuality = 85;
     private int defaultWebpQuality = 80;
     private String flattenBackground = "#FFFFFF";
     private int targetSizeMaxIterations = 8;
+    private PixelBudget pixelBudget = new PixelBudget();
     private Resize resize = new Resize();
     private String colorSpace = "sRGB";
 
     public long getMaxSourcePixels() {
         return maxSourcePixels;
+    }
+
+    public long getMaxSourceBytes() { return maxSourceBytes; }
+    public void setMaxSourceBytes(long maxSourceBytes) {
+        if (maxSourceBytes <= 0) {
+            throw new IllegalArgumentException("maxSourceBytes must be positive");
+        }
+        this.maxSourceBytes = maxSourceBytes;
     }
 
     public void setMaxSourcePixels(long maxSourcePixels) {
@@ -65,6 +76,11 @@ public class ImageProperties {
 
     public int getTargetSizeMaxIterations() {
         return targetSizeMaxIterations;
+    }
+
+    public PixelBudget getPixelBudget() { return pixelBudget; }
+    public void setPixelBudget(PixelBudget pixelBudget) {
+        this.pixelBudget = Objects.requireNonNull(pixelBudget, "pixelBudget must not be null");
     }
 
     public void setTargetSizeMaxIterations(int targetSizeMaxIterations) {
@@ -133,6 +149,27 @@ public class ImageProperties {
 
         public void setAllowUpscale(boolean allowUpscale) {
             this.allowUpscale = allowUpscale;
+        }
+    }
+
+    public static class PixelBudget {
+        private long maxInFlightPixels = 120_000_000L;
+        private Duration acquireTimeout = Duration.ofSeconds(30);
+        private double targetHeadroomFactor = 1.25;
+
+        public long getMaxInFlightPixels() { return maxInFlightPixels; }
+        public void setMaxInFlightPixels(long value) {
+            if (value <= 0) throw new IllegalArgumentException("maxInFlightPixels must be positive");
+            this.maxInFlightPixels = value;
+        }
+        public Duration getAcquireTimeout() { return acquireTimeout; }
+        public void setAcquireTimeout(Duration value) {
+            this.acquireTimeout = Objects.requireNonNull(value, "acquireTimeout must not be null");
+        }
+        public double getTargetHeadroomFactor() { return targetHeadroomFactor; }
+        public void setTargetHeadroomFactor(double value) {
+            if (value < 0) throw new IllegalArgumentException("targetHeadroomFactor must not be negative");
+            this.targetHeadroomFactor = value;
         }
     }
 }

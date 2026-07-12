@@ -3,6 +3,7 @@ package com.pixflow.module.vision.image;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.pixflow.infra.image.EncodeSpec;
+import com.pixflow.infra.image.ReopenableImageSource;
 import com.pixflow.infra.image.op.ImageOp;
 import com.pixflow.infra.image.op.impl.ConvertFormatOp;
 import com.pixflow.infra.image.op.impl.ResizeOp;
@@ -11,7 +12,6 @@ import com.pixflow.infra.storage.BucketType;
 import com.pixflow.module.vision.analyze.VisionImageRef;
 import com.pixflow.module.vision.config.VisionProperties;
 import java.io.ByteArrayInputStream;
-import java.io.InputStream;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -24,7 +24,7 @@ class VisionImagePreprocessorTest {
 
         PreparedVisionImage prepared = preprocessor.preprocess(new ResolvedVisionImage(
                 VisionImageRef.of(BucketType.PACKAGES, "1/images/a.png", "sku", "main", "front"),
-                new ByteArrayInputStream(new byte[] {1, 2, 3}),
+                () -> new ByteArrayInputStream(new byte[] {1, 2, 3}),
                 3L,
                 "image/png"));
 
@@ -40,7 +40,7 @@ class VisionImagePreprocessorTest {
         EncodeSpec encode;
 
         @Override
-        public byte[] run(InputStream source, List<ImageOp> ops, EncodeSpec encode) {
+        public byte[] run(ReopenableImageSource source, List<ImageOp> ops, EncodeSpec encode) {
             this.ops = ops;
             this.encode = encode;
             return new byte[] {9, 9, 9};
@@ -48,7 +48,7 @@ class VisionImagePreprocessorTest {
 
         @Override
         public byte[] runComposed(
-                List<InputStream> members,
+                List<ReopenableImageSource> members,
                 List<ImageOp> perMemberOps,
                 com.pixflow.infra.image.op.MultiImageOp compose,
                 List<ImageOp> postOps,

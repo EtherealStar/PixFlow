@@ -3,7 +3,7 @@ package com.pixflow.harness.state.config;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.pixflow.common.time.TimeAutoConfiguration;
-import com.pixflow.harness.state.model.CompletedUnits;
+import com.pixflow.harness.state.model.SkippableWorkUnits;
 import com.pixflow.harness.state.model.TaskRunStatus;
 import com.pixflow.harness.state.port.CheckpointReadPort.PersistedCounts;
 import com.pixflow.harness.state.query.ExecutionStateService;
@@ -73,7 +73,7 @@ class StateAutoConfigurationTest {
             FakeCheckpointReadPort port = new FakeCheckpointReadPort();
             port.putTask(
                     "task-1",
-                    CompletedUnits.empty("task-1"),
+                    SkippableWorkUnits.empty("task-1"),
                     new PersistedCounts(1, 0, 0),
                     TaskRunStatus.RUNNING);
             return port;

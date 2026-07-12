@@ -13,6 +13,8 @@ import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.FilterInputStream;
+import java.io.IOException;
 import javax.imageio.ImageIO;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
@@ -46,7 +48,7 @@ class DefaultImageCodecTest {
             g.dispose();
         }
 
-        byte[] jpeg = codec.encode(RasterImage.of(transparent, ImageFormat.PNG), new EncodeSpec(ImageFormat.JPEG, 90, null, null));
+        byte[] jpeg = codec.encode(RasterImage.takeOwnership(transparent, ImageFormat.PNG), new EncodeSpec(ImageFormat.JPEG, 90, null, null));
         BufferedImage decoded = ImageIO.read(new ByteArrayInputStream(jpeg));
 
         assertThat(new Color(decoded.getRGB(0, 0)).getRed()).isGreaterThan(240);
@@ -73,16 +75,44 @@ class DefaultImageCodecTest {
     }
 
     @Test
-    void rasterImageDefensivelyCopiesBuffers() {
+    void probeDoesNotMaterializeTheWholeSource() throws Exception {
+        ImageCodec codec = new DefaultImageCodec(new ImageProperties());
+        byte[] png = png(sample(4, 4, Color.BLUE, false));
+        byte[] padded = java.util.Arrays.copyOf(png, png.length + 1_000_000);
+        CountingInputStream source = new CountingInputStream(new ByteArrayInputStream(padded));
+
+        ImageProbe probe = codec.probe(source);
+
+        assertThat(probe.width()).isEqualTo(4);
+        assertThat(source.bytesRead).isLessThan(padded.length);
+    }
+
+    @Test
+    void decodeRejectsSourceBytesOverConfiguredLimit() throws Exception {
+        ImageProperties properties = new ImageProperties();
+        byte[] bytes = png(sample(4, 4, Color.BLUE, false));
+        properties.setMaxSourceBytes(bytes.length - 1L);
+        ImageCodec codec = new DefaultImageCodec(properties);
+
+        assertThatThrownBy(() -> codec.decode(new ByteArrayInputStream(bytes)))
+                .isInstanceOf(ImageProcessingException.class)
+                .extracting("reason")
+                .isEqualTo(ImageProcessingException.Reason.SOURCE_TOO_LARGE);
+    }
+
+    @Test
+    void rasterImageUsesExplicitSharedOwnershipWithoutCopying() {
         BufferedImage original = sample(2, 2, Color.RED, false);
-        RasterImage raster = RasterImage.of(original, ImageFormat.PNG);
+        RasterImage raster = RasterImage.takeOwnership(original, ImageFormat.PNG);
+        RasterImage retained = raster.retain();
 
         original.setRGB(0, 0, Color.BLUE.getRGB());
-        assertThat(raster.buffer().getRGB(0, 0)).isEqualTo(Color.RED.getRGB());
-
-        BufferedImage exposed = raster.buffer();
-        exposed.setRGB(0, 0, Color.GREEN.getRGB());
-        assertThat(raster.buffer().getRGB(0, 0)).isEqualTo(Color.RED.getRGB());
+        assertThat(raster.borrowBuffer()).isSameAs(original);
+        assertThat(raster.borrowBuffer().getRGB(0, 0)).isEqualTo(Color.BLUE.getRGB());
+        raster.close();
+        assertThatThrownBy(raster::borrowBuffer).isInstanceOf(IllegalStateException.class);
+        assertThat(retained.borrowBuffer()).isSameAs(original);
+        retained.close();
     }
 
     @Test
@@ -110,7 +140,7 @@ class DefaultImageCodecTest {
     @Test
     void rejectsUnsupportedEncodeFormat() {
         ImageCodec codec = new DefaultImageCodec(new ImageProperties());
-        RasterImage image = RasterImage.of(sample(4, 4, Color.BLUE, false), ImageFormat.PNG);
+        RasterImage image = RasterImage.takeOwnership(sample(4, 4, Color.BLUE, false), ImageFormat.PNG);
 
         assertThatThrownBy(() -> codec.encode(image, EncodeSpec.of(ImageFormat.TIFF)))
                 .isInstanceOf(ImageProcessingException.class)
@@ -121,7 +151,7 @@ class DefaultImageCodecTest {
     @Test
     void writesWebpWhenNativeLibraryIsAvailable() {
         ImageCodec codec = new DefaultImageCodec(new ImageProperties());
-        RasterImage image = RasterImage.of(sample(6, 6, Color.BLUE, true), ImageFormat.PNG);
+        RasterImage image = RasterImage.takeOwnership(sample(6, 6, Color.BLUE, true), ImageFormat.PNG);
 
         byte[] encoded;
         try {
@@ -165,5 +195,27 @@ class DefaultImageCodecTest {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         ImageIO.write(image, "png", out);
         return out.toByteArray();
+    }
+
+    private static final class CountingInputStream extends FilterInputStream {
+        private long bytesRead;
+
+        private CountingInputStream(java.io.InputStream delegate) {
+            super(delegate);
+        }
+
+        @Override
+        public int read() throws IOException {
+            int value = super.read();
+            if (value >= 0) bytesRead++;
+            return value;
+        }
+
+        @Override
+        public int read(byte[] buffer, int offset, int length) throws IOException {
+            int count = super.read(buffer, offset, length);
+            if (count > 0) bytesRead += count;
+            return count;
+        }
     }
 }

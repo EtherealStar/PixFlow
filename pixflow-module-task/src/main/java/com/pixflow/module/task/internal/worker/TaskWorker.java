@@ -4,25 +4,26 @@ import com.pixflow.common.error.PixFlowException;
 import com.pixflow.module.task.config.TaskProperties;
 import com.pixflow.module.task.domain.error.TaskErrorCode;
 import com.pixflow.module.task.domain.model.ProcessTask;
-import com.pixflow.module.task.domain.model.ResultStatus;
 import com.pixflow.module.task.domain.model.TaskStatus;
 import com.pixflow.module.task.domain.model.WorkUnit;
 import com.pixflow.module.task.infra.lock.TaskLockManager;
 import com.pixflow.module.task.infra.metrics.TaskMetrics;
 import com.pixflow.module.task.infra.mq.TaskMessage;
-import com.pixflow.module.task.infra.persistence.ProcessResultMapper;
 import com.pixflow.module.task.infra.persistence.ProcessTaskMapper;
+import com.pixflow.harness.state.recovery.RecoveryCoordinator;
+import com.pixflow.module.task.internal.progress.ProgressAggregator;
+import com.pixflow.module.task.internal.recovery.HeartbeatWriter;
 import com.pixflow.module.task.internal.scheduler.WorkUnitScheduler;
 import com.pixflow.module.task.internal.terminal.TerminalStateJudge;
 import java.time.Clock;
 import java.util.List;
-import java.util.UUID;
+import java.time.Instant;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 
 public class TaskWorker {
     private final ProcessTaskMapper taskMapper;
-    private final ProcessResultMapper resultMapper;
     private final WorkerRouter router;
     private final WorkUnitScheduler scheduler;
     private final TerminalStateJudge terminalStateJudge;
@@ -30,18 +31,24 @@ public class TaskWorker {
     private final TaskMetrics metrics;
     private final TaskProperties properties;
     private final Clock clock;
+    private final RecoveryCoordinator recoveryCoordinator;
+    private final WorkUnitResultRepository resultRepository;
+    private final ProgressAggregator progressAggregator;
+    private final HeartbeatWriter heartbeatWriter;
 
     public TaskWorker(ProcessTaskMapper taskMapper,
-                      ProcessResultMapper resultMapper,
                       WorkerRouter router,
                       WorkUnitScheduler scheduler,
                       TerminalStateJudge terminalStateJudge,
                       TaskLockManager lockManager,
                       TaskMetrics metrics,
                       TaskProperties properties,
-                      Clock clock) {
+                      Clock clock,
+                      RecoveryCoordinator recoveryCoordinator,
+                      WorkUnitResultRepository resultRepository,
+                      ProgressAggregator progressAggregator,
+                      HeartbeatWriter heartbeatWriter) {
         this.taskMapper = taskMapper;
-        this.resultMapper = resultMapper;
         this.router = router;
         this.scheduler = scheduler;
         this.terminalStateJudge = terminalStateJudge;
@@ -49,16 +56,20 @@ public class TaskWorker {
         this.metrics = metrics;
         this.properties = properties;
         this.clock = clock;
+        this.recoveryCoordinator = recoveryCoordinator;
+        this.resultRepository = resultRepository;
+        this.progressAggregator = progressAggregator;
+        this.heartbeatWriter = heartbeatWriter;
     }
 
     public void handle(TaskMessage message) {
-        boolean accepted = lockManager.tryRunWithTaskLock(message.taskId(), () -> runLocked(message));
+        boolean accepted = lockManager.tryRunWithTaskLock(message.taskId(), guard -> runLocked(message, guard));
         if (!accepted) {
             metrics.recordLockContention();
         }
     }
 
-    private void runLocked(TaskMessage message) {
+    private void runLocked(TaskMessage message, com.pixflow.infra.cache.lock.LockGuard guard) {
         long taskId = Long.parseLong(message.taskId());
         ProcessTask task = taskMapper.selectById(taskId);
         if (task == null) {
@@ -67,36 +78,52 @@ public class TaskWorker {
         if (task.getStatus().terminal()) {
             return;
         }
-        TaskStatus from = task.getStatus() == TaskStatus.PENDING ? TaskStatus.PENDING : TaskStatus.QUEUED;
-        if (task.getStatus() == TaskStatus.PENDING) {
-            taskMapper.transit(taskId, TaskStatus.PENDING, TaskStatus.QUEUED, clock.instant());
-        }
-        taskMapper.markRunning(taskId, TaskStatus.QUEUED, TaskStatus.RUNNING, workerId(), clock.instant());
+        Instant now = clock.instant();
+        int claimed = taskMapper.claimExecution(taskId, workerId(), now,
+                now.minus(properties.getRecovery().getStaleAfter()));
+        if (claimed != 1) return;
         task = taskMapper.selectById(taskId);
-        List<WorkUnit> units = router.plan(task);
-        task.setTotalCount(units.size());
-        taskMapper.updateById(task);
-        UnitExecutionContext context = new UnitExecutionContext(UUID.randomUUID().toString(),
-                task.getAttemptCount() == null ? 1 : task.getAttemptCount(), units.size());
-        List<CompletableFuture<Void>> futures = scheduler.submitAll(units, unit -> {
-            if (resultMapper.findByUnit(taskId, unit.memberId(), unit.branchId()) != null) {
-                return;
+        ExecutionRun run = new ExecutionRun(message.taskId(), task.getRunEpoch(), guard);
+        try (var heartbeat = heartbeatWriter.start(run, properties.getWorker().getHeartbeatInterval())) {
+            List<WorkUnit> units = router.plan(task);
+            var skippable = recoveryCoordinator.resolveSkippable(message.taskId()).succeeded();
+            List<WorkUnit> pending = units.stream().filter(unit -> !skippable.contains(unit.unitKey())).toList();
+            var futures = scheduler.submitAll(pending, unit -> router.execute(unit, run));
+            var completions = new LinkedBlockingQueue<CompletableFuture<WorkUnitCompletion>>();
+            futures.forEach(future -> future.whenComplete((ignored, failure) -> completions.add(future)));
+            long deadline = System.nanoTime() + properties.getTerminal().getJudgeTimeout().toNanos();
+            for (int completed = 0; completed < futures.size(); completed++) {
+                WorkUnitCompletion completion;
+                try {
+                    long remaining = deadline - System.nanoTime();
+                    var future = remaining > 0 ? completions.poll(remaining, TimeUnit.NANOSECONDS) : null;
+                    if (future == null) throw new java.util.concurrent.TimeoutException("completion queue timed out");
+                    completion = future.get();
+                } catch (Exception e) {
+                    if (e instanceof InterruptedException) Thread.currentThread().interrupt();
+                    futures.forEach(item -> item.cancel(false));
+                    throw new PixFlowException(TaskErrorCode.TASK_WORKER_REJECTED, "task worker timed out", e);
+                }
+                run.assertCommitAllowed();
+                var committed = resultRepository.commit(run, completion);
+                if (committed == WorkUnitResultRepository.CommitResult.FENCED) {
+                    run.deactivate();
+                    futures.forEach(item -> item.cancel(false));
+                    return;
+                }
+                if (committed == WorkUnitResultRepository.CommitResult.APPLIED) {
+                    publishProgress(completion, units.size());
+                }
             }
-            router.execute(unit, context);
-        });
-        CompletableFuture<Void> all = CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new));
-        try {
-            all.get(properties.getTerminal().getJudgeTimeout().toMillis(), TimeUnit.MILLISECONDS);
-        } catch (Exception e) {
-            throw new PixFlowException(TaskErrorCode.TASK_WORKER_REJECTED, "task worker timed out", e);
+            run.assertCommitAllowed();
+            terminalStateJudge.judge(taskId, run.epoch());
         }
-        int terminalResults = resultMapper.countByStatus(taskId, ResultStatus.SUCCESS)
-                + resultMapper.countByStatus(taskId, ResultStatus.FAILED)
-                + resultMapper.countByStatus(taskId, ResultStatus.SKIPPED);
-        if (terminalResults < units.size()) {
-            throw new PixFlowException(TaskErrorCode.TASK_RESULT_WRITE_FAILED, "not all units reached terminal state");
-        }
-        terminalStateJudge.judge(taskId);
+    }
+
+    private void publishProgress(WorkUnitCompletion completion, int total) {
+        if (completion instanceof WorkUnitCompletion.Succeeded) progressAggregator.success(completion.unit().taskId(), total);
+        else if (completion instanceof WorkUnitCompletion.Failed) progressAggregator.failed(completion.unit().taskId(), total);
+        else progressAggregator.skipped(completion.unit().taskId(), total);
     }
 
     private static String workerId() {

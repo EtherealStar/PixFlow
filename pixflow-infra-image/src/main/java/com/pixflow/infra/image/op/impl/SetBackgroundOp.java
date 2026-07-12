@@ -21,11 +21,11 @@ public class SetBackgroundOp implements ImageOp {
             Graphics2D g = output.createGraphics();
             try {
                 drawBackground(g, src.width(), src.height());
-                g.drawImage(src.buffer(), 0, 0, null);
+                g.drawImage(src.borrowBuffer(), 0, 0, null);
             } finally {
                 g.dispose();
             }
-            return RasterImage.of(output, src.sourceFormat());
+            return RasterImage.takeOwnership(output, src.sourceFormat());
         } catch (RuntimeException ex) {
             throw new ImageProcessingException(ImageProcessingException.Reason.INVALID_OP_PARAM, src.sourceFormat(), src.width(), src.height(), "背景合成失败", ex);
         }
@@ -37,7 +37,7 @@ public class SetBackgroundOp implements ImageOp {
             g.fillRect(0, 0, width, height);
             return;
         }
-        BufferedImage bg = spec.background().buffer();
+        BufferedImage bg = spec.background().borrowBuffer();
         switch (spec.fit()) {
             case STRETCH -> g.drawImage(bg, 0, 0, width, height, null);
             case CENTER -> g.drawImage(bg, (width - bg.getWidth()) / 2, (height - bg.getHeight()) / 2, null);

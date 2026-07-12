@@ -24,11 +24,26 @@ public interface ProcessTaskMapper extends BaseMapper<ProcessTask> {
 
     @Select("""
             select * from process_task
+            where id = #{taskId} and status = 'RUNNING' and run_epoch = #{epoch}
+            for update
+            """)
+    ProcessTask lockRunningEpoch(@Param("taskId") long taskId, @Param("epoch") long epoch);
+
+    @Select("""
+            select * from process_task
             where status = #{status}
             order by started_at asc
             limit #{limit}
             """)
     List<ProcessTask> findByStatus(@Param("status") TaskStatus status, @Param("limit") int limit);
+
+    @Select("""
+            select * from process_task
+            where status = 'RUNNING' and (heartbeat_at is null or heartbeat_at < #{staleBefore})
+            order by heartbeat_at asc
+            limit #{limit}
+            """)
+    List<ProcessTask> findStaleRunning(@Param("staleBefore") Instant staleBefore, @Param("limit") int limit);
 
     @Update("""
             update process_task
@@ -40,28 +55,30 @@ public interface ProcessTaskMapper extends BaseMapper<ProcessTask> {
 
     @Update("""
             update process_task
-            set status = #{to}, worker_id = #{workerId}, started_at = coalesce(started_at, #{now}),
-                attempt_count = attempt_count + 1, updated_at = #{now}
-            where id = #{taskId} and status = #{from}
+            set status = 'RUNNING', worker_id = #{workerId}, started_at = coalesce(started_at, #{now}),
+                run_epoch = run_epoch + 1, heartbeat_at = #{now}, updated_at = #{now}
+            where id = #{taskId}
+              and (status = 'QUEUED'
+                or (status = 'RUNNING' and (heartbeat_at is null or heartbeat_at < #{staleBefore})))
             """)
-    int markRunning(@Param("taskId") long taskId, @Param("from") TaskStatus from,
-                    @Param("to") TaskStatus to, @Param("workerId") String workerId,
-                    @Param("now") Instant now);
+    int claimExecution(@Param("taskId") long taskId, @Param("workerId") String workerId,
+                       @Param("now") Instant now, @Param("staleBefore") Instant staleBefore);
 
     @Update("""
             update process_task
             set status = #{status}, done_count = #{done}, total_count = #{total},
                 finished_at = #{now}, updated_at = #{now}, last_error = #{lastError}
-            where id = #{taskId}
+            where id = #{taskId} and status = 'RUNNING' and run_epoch = #{epoch}
             """)
-    int markTerminal(@Param("taskId") long taskId, @Param("status") TaskStatus status,
-                     @Param("total") int total, @Param("done") int done,
-                     @Param("lastError") String lastError, @Param("now") Instant now);
+    int markTerminalEpoch(@Param("taskId") long taskId, @Param("epoch") long epoch,
+                          @Param("status") TaskStatus status, @Param("total") int total,
+                          @Param("done") int done, @Param("lastError") String lastError,
+                          @Param("now") Instant now);
 
     @Update("""
-            update process_task
-            set heartbeat_at = #{now}, updated_at = #{now}
-            where id = #{taskId}
+            update process_task set heartbeat_at = #{now}, updated_at = #{now}
+            where id = #{taskId} and status = 'RUNNING' and run_epoch = #{epoch}
             """)
-    int heartbeat(@Param("taskId") long taskId, @Param("now") Instant now);
+    int heartbeatEpoch(@Param("taskId") long taskId, @Param("epoch") long epoch,
+                       @Param("now") Instant now);
 }

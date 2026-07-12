@@ -33,13 +33,28 @@ public interface ProcessResultMapper extends BaseMapper<ProcessResult> {
 
     @Select("""
             select * from process_result
-            where task_id = #{taskId}
-              and branch_id = #{branchId}
-              and (image_id = #{memberId} or group_key = #{memberId})
+            where task_id = #{taskId} and unit_key = #{unitKey}
             limit 1
             """)
-    ProcessResult findByUnit(@Param("taskId") long taskId, @Param("memberId") String memberId,
-                             @Param("branchId") String branchId);
+    ProcessResult selectByUnit(@Param("taskId") long taskId, @Param("unitKey") String unitKey);
+
+    @Update("""
+            update process_result r
+            set status = #{row.status}, run_epoch = #{epoch},
+                output_minio_key = #{row.outputMinioKey}, generated_copy = #{row.generatedCopy},
+                bytes_out = #{row.bytesOut}, failure_code = #{row.failureCode},
+                failure_category = #{row.failureCategory}, failure_recovery = #{row.failureRecovery},
+                failure_details_json = #{row.failureDetailsJson}, error_msg = #{row.errorMsg},
+                attempt_count = attempt_count + 1, started_at = #{row.startedAt}, finished_at = #{row.finishedAt}
+            where r.task_id = #{taskId} and r.unit_key = #{unitKey}
+              and r.status <> 'SUCCESS' and r.run_epoch < #{epoch}
+              and exists (
+                select 1 from process_task t
+                where t.id = r.task_id and t.status = 'RUNNING' and t.run_epoch = #{epoch}
+              )
+            """)
+    int commitForEpoch(@Param("taskId") long taskId, @Param("unitKey") String unitKey,
+                       @Param("epoch") long epoch, @Param("row") ProcessResult row);
 
     @Select("select count(*) from process_result where task_id = #{taskId} and status = #{status}")
     int countByStatus(@Param("taskId") long taskId, @Param("status") ResultStatus status);

@@ -220,8 +220,8 @@ class FileAutoConfigurationTest {
                 }
 
                 @Override
-                public boolean tryRunWithLock(CacheKey key, Duration waitTime, Runnable action) {
-                    action.run();
+                public boolean tryRunWithLock(CacheKey key, Duration waitTime, java.util.function.Consumer<com.pixflow.infra.cache.lock.LockGuard> action) {
+                    action.accept(() -> true);
                     return true;
                 }
             };

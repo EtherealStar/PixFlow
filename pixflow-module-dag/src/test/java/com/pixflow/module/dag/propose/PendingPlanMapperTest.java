@@ -34,7 +34,8 @@ class PendingPlanMapperTest {
 
     @org.junit.jupiter.api.Test
     void pendingPlanStatus_enumValues() {
-        assertThat(PendingPlanStatus.values()).hasSize(4);
+        assertThat(PendingPlanStatus.values()).hasSize(5);
+        assertThat(PendingPlanStatus.valueOf("CONFIRMING")).isEqualTo(PendingPlanStatus.CONFIRMING);
         assertThat(PendingPlanStatus.valueOf("PENDING")).isEqualTo(PendingPlanStatus.PENDING);
     }
 }

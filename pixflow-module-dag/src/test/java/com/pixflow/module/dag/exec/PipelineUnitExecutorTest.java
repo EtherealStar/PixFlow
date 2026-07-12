@@ -11,7 +11,7 @@ import com.pixflow.module.dag.expand.ImageDescriptor;
 import com.pixflow.module.dag.ir.DagNode;
 import com.pixflow.module.dag.ir.DagSchemaVersion;
 import com.pixflow.module.dag.ir.PixelTool;
-import com.pixflow.module.dag.ir.ValidatedDag;
+import com.pixflow.module.dag.TestPlans;
 import com.pixflow.module.dag.validate.DagValidator;
 import com.pixflow.module.dag.validate.ParamSchemaRegistry;
 import java.io.ByteArrayInputStream;
@@ -51,9 +51,7 @@ class PipelineUnitExecutorTest {
               "edges":[{"from":"n1","to":"n2"}]
             }
             """;
-        ValidatedDag dag = validator.toValidated(
-            new com.pixflow.module.dag.ir.DagJsonReader().read(json),
-            new DagSchemaVersion("1.0"));
+        var dag = TestPlans.compile(json);
         List<ExecutableBranch> branches = new com.pixflow.module.dag.expand.BranchExpander()
             .expand(dag, List.of(ImageDescriptor.single("img1", "sku1", "k1")));
         return branches.get(0);
@@ -64,7 +62,8 @@ class PipelineUnitExecutorTest {
                                           PipelineUnitExecutor.PixelPipeline pipeline,
                                           PipelineUnitExecutor.ResultWriter writer) {
         return new PipelineUnitExecutor(properties, normalizer, reader, bg, pipeline, writer,
-            new NodeDispatcher(new SpecMapper()));
+            new TypedImageOpFactory(spec -> { throw new AssertionError("unexpected watermark"); },
+                    spec -> { throw new AssertionError("unexpected background image"); }));
     }
 
     @Test
@@ -89,8 +88,9 @@ class PipelineUnitExecutorTest {
         var ex = executor(reader, bg, pipeline, writer);
         var outcome = ex.execute(simpleBranch(),
             UnitInput.images(List.of(ImageDescriptor.single("img1", "sku1", "k1"))));
-        assertThat(outcome.status()).isEqualTo(UnitOutcome.Status.SUCCEEDED);
-        assertThat(outcome.outputObjectKey()).contains("img1");
+        assertThat(outcome.status()).withFailMessage("outcome=%s", outcome)
+                .isEqualTo(UnitOutcome.Status.SUCCEEDED);
+        assertThat(outcome.outputObjectKey()).isEqualTo("test/output.jpg");
     }
 
     @Test
@@ -151,7 +151,8 @@ class PipelineUnitExecutorTest {
         UnitOutcome outcome = ex.execute(simpleBranch(),
             UnitInput.images(List.of(ImageDescriptor.single("img1", "sku1", "k1"))));
         assertThat(outcome.status()).isEqualTo(UnitOutcome.Status.FAILED);
-        assertThat(outcome.error().code()).isEqualTo(DagErrorCode.DAG_UNIT_TIMEOUT);
+        assertThat(outcome.error().code()).withFailMessage("outcome=%s", outcome)
+                .isEqualTo(DagErrorCode.DAG_UNIT_TIMEOUT);
     }
 
     @Test

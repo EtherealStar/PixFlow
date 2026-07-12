@@ -16,7 +16,7 @@ import com.pixflow.module.dag.ir.DagJsonReader;
 import com.pixflow.module.dag.ir.DagNode;
 import com.pixflow.module.dag.ir.DagSchemaVersion;
 import com.pixflow.module.dag.ir.PixelTool;
-import com.pixflow.module.dag.ir.ValidatedDag;
+import com.pixflow.module.dag.TestPlans;
 import com.pixflow.module.dag.validate.DagValidator;
 import com.pixflow.module.dag.validate.ParamSchemaRegistry;
 import java.util.List;
@@ -39,7 +39,7 @@ class CopyUnitExecutorTest {
               "edges":[]
             }
             """;
-        ValidatedDag dag = validator.toValidated(reader.read(json), new DagSchemaVersion("1.0"));
+        var dag = TestPlans.compile(json);
         var branches = new com.pixflow.module.dag.expand.BranchExpander()
             .expand(dag, List.of(com.pixflow.module.dag.expand.ImageDescriptor.single("i1", "sku1", "k")));
         return branches.get(0);

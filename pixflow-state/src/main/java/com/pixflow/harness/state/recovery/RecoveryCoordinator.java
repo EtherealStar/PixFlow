@@ -1,7 +1,7 @@
 package com.pixflow.harness.state.recovery;
 
-import com.pixflow.harness.state.model.CompletedUnits;
+import com.pixflow.harness.state.model.SkippableWorkUnits;
 
 public interface RecoveryCoordinator {
-    CompletedUnits resolveSkippable(String taskId);
+    SkippableWorkUnits resolveSkippable(String taskId);
 }

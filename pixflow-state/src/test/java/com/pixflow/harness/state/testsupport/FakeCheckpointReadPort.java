@@ -1,6 +1,6 @@
 package com.pixflow.harness.state.testsupport;
 
-import com.pixflow.harness.state.model.CompletedUnits;
+import com.pixflow.harness.state.model.SkippableWorkUnits;
 import com.pixflow.harness.state.model.TaskRunStatus;
 import com.pixflow.harness.state.port.CheckpointReadPort;
 import java.util.ArrayList;
@@ -10,19 +10,19 @@ import java.util.Map;
 import java.util.Optional;
 
 public class FakeCheckpointReadPort implements CheckpointReadPort {
-    private final Map<String, CompletedUnits> completed = new LinkedHashMap<>();
+    private final Map<String, SkippableWorkUnits> skippable = new LinkedHashMap<>();
     private final Map<String, PersistedCounts> counts = new LinkedHashMap<>();
     private final Map<String, TaskRunStatus> statuses = new LinkedHashMap<>();
 
-    public void putTask(String taskId, CompletedUnits completedUnits, PersistedCounts persistedCounts, TaskRunStatus status) {
-        completed.put(taskId, completedUnits);
+    public void putTask(String taskId, SkippableWorkUnits skippableWorkUnits, PersistedCounts persistedCounts, TaskRunStatus status) {
+        skippable.put(taskId, skippableWorkUnits);
         counts.put(taskId, persistedCounts);
         statuses.put(taskId, status);
     }
 
     @Override
-    public Optional<CompletedUnits> loadCompletedUnits(String taskId) {
-        return Optional.ofNullable(completed.get(taskId));
+    public Optional<SkippableWorkUnits> loadSkippableWorkUnits(String taskId) {
+        return Optional.ofNullable(skippable.get(taskId));
     }
 
     @Override

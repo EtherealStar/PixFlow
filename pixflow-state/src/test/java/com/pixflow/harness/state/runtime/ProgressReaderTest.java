@@ -3,7 +3,7 @@ package com.pixflow.harness.state.runtime;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.pixflow.harness.state.config.StateProperties;
-import com.pixflow.harness.state.model.CompletedUnits;
+import com.pixflow.harness.state.model.SkippableWorkUnits;
 import com.pixflow.harness.state.model.ProgressSource;
 import com.pixflow.harness.state.model.TaskRunStatus;
 import com.pixflow.harness.state.observability.NoopStateMetrics;
@@ -62,7 +62,7 @@ class ProgressReaderTest {
         FakeCheckpointReadPort checkpoint = new FakeCheckpointReadPort();
         checkpoint.putTask(
                 "task-1",
-                new CompletedUnits("task-1", Set.of()),
+                new SkippableWorkUnits("task-1", Set.of()),
                 new PersistedCounts(10, 4, 1),
                 TaskRunStatus.RUNNING);
         return new DefaultProgressReader(checkpoint, keyPort, counter, properties, new NoopStateMetrics());

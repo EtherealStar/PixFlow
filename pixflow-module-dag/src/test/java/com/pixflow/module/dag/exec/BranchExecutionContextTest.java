@@ -1,6 +1,7 @@
 package com.pixflow.module.dag.exec;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.pixflow.infra.image.ImageFormat;
 import com.pixflow.infra.image.RasterImage;
@@ -73,16 +74,13 @@ class BranchExecutionContextTest {
 
     @Test
     void onDispose_invokesBufferGraphicsDispose() {
-        // 创建 RasterImage 并用 ctx.onDispose 注册清理;close 时会调 buffer().getGraphics().dispose()
-        // 验证 close 不抛异常即可(RasterImage 内部 Graphics 不可见,我们仅验"运行没崩")
+        // 注册后由上下文拥有句柄，退出作用域时必须关闭。
         BufferedImage img = new BufferedImage(1, 1, BufferedImage.TYPE_INT_RGB);
-        RasterImage raster = RasterImage.of(img, ImageFormat.PNG);
+        RasterImage raster = RasterImage.takeOwnership(img, ImageFormat.PNG);
         try (BranchExecutionContext ctx = new BranchExecutionContext()) {
             ctx.onDispose(raster);
         }
-        // 第二次 buffer() 调用应该仍正常(无副作用)
-        assertThat(raster.width()).isEqualTo(1);
-        assertThat(raster.height()).isEqualTo(1);
+        assertThatThrownBy(raster::width).isInstanceOf(IllegalStateException.class);
     }
 
     @Test

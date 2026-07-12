@@ -2,53 +2,73 @@ package com.pixflow.infra.image;
 
 import java.awt.image.BufferedImage;
 import java.util.Objects;
+import java.util.concurrent.atomic.AtomicInteger;
 
-public final class RasterImage {
-    private final BufferedImage buffer;
+public final class RasterImage implements AutoCloseable {
+    private final SharedRaster shared;
     private final ImageFormat sourceFormat;
+    private boolean closed;
 
-    private RasterImage(BufferedImage buffer, ImageFormat sourceFormat) {
-        this.buffer = copyOf(Objects.requireNonNull(buffer, "buffer must not be null"));
+    private RasterImage(SharedRaster shared, ImageFormat sourceFormat) {
+        this.shared = Objects.requireNonNull(shared, "shared must not be null");
         this.sourceFormat = Objects.requireNonNull(sourceFormat, "sourceFormat must not be null");
     }
 
-    public static RasterImage of(BufferedImage buffer, ImageFormat sourceFormat) {
-        return new RasterImage(buffer, sourceFormat);
+    public static RasterImage takeOwnership(BufferedImage buffer, ImageFormat sourceFormat) {
+        return new RasterImage(new SharedRaster(Objects.requireNonNull(buffer, "buffer must not be null")), sourceFormat);
     }
 
-    public BufferedImage buffer() {
-        return copyOf(buffer);
+    public synchronized RasterImage retain() {
+        ensureOpen();
+        shared.retain();
+        return new RasterImage(shared, sourceFormat);
+    }
+
+    public synchronized BufferedImage borrowBuffer() {
+        ensureOpen();
+        return shared.buffer;
     }
 
     public int width() {
-        return buffer.getWidth();
+        return borrowBuffer().getWidth();
     }
 
     public int height() {
-        return buffer.getHeight();
+        return borrowBuffer().getHeight();
     }
 
     public boolean hasAlpha() {
-        return buffer.getColorModel().hasAlpha();
+        return borrowBuffer().getColorModel().hasAlpha();
     }
 
     public ImageFormat sourceFormat() {
         return sourceFormat;
     }
 
-    private static BufferedImage copyOf(BufferedImage source) {
-        BufferedImage copy = new BufferedImage(
-                source.getWidth(),
-                source.getHeight(),
-                source.getType() == BufferedImage.TYPE_CUSTOM
-                        ? (source.getColorModel().hasAlpha() ? BufferedImage.TYPE_INT_ARGB : BufferedImage.TYPE_INT_RGB)
-                        : source.getType());
-        java.awt.Graphics2D g = copy.createGraphics();
-        try {
-            g.drawImage(source, 0, 0, null);
-        } finally {
-            g.dispose();
+    @Override
+    public synchronized void close() {
+        if (!closed) {
+            closed = true;
+            shared.release();
         }
-        return copy;
+    }
+
+    private void ensureOpen() {
+        if (closed) {
+            throw new IllegalStateException("RasterImage is closed");
+        }
+    }
+
+    private static final class SharedRaster {
+        private final BufferedImage buffer;
+        private final AtomicInteger references = new AtomicInteger(1);
+
+        private SharedRaster(BufferedImage buffer) { this.buffer = buffer; }
+        private void retain() {
+            if (references.incrementAndGet() <= 1) throw new IllegalStateException("RasterImage is released");
+        }
+        private void release() {
+            if (references.decrementAndGet() == 0) buffer.flush();
+        }
     }
 }

@@ -1,6 +1,7 @@
 package com.pixflow.infra.cache;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -14,6 +15,8 @@ import com.pixflow.infra.cache.key.CacheKey;
 import com.pixflow.infra.cache.key.CacheNamespace;
 import com.pixflow.infra.cache.key.DefaultCacheNamespace;
 import com.pixflow.infra.cache.observability.NoopCacheMetrics;
+import com.pixflow.infra.cache.lock.RedissonLockTemplate;
+import com.pixflow.infra.cache.error.CacheException;
 import com.pixflow.infra.cache.store.RedissonCacheStore;
 import com.pixflow.infra.cache.state.RedissonExpiringHashStore;
 import com.pixflow.infra.cache.state.RedissonExpiringStateStore;
@@ -26,6 +29,7 @@ import java.util.Optional;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.stream.IntStream;
 import org.junit.jupiter.api.AfterAll;
@@ -274,6 +278,48 @@ class RedisIntegrationTest {
         Thread.sleep(400);
 
         assertThat(store.consume("token-2")).isEmpty();
+    }
+
+    @Test
+    void executionLockAllowsOnlyOneOwnerForDuplicateMessages() throws Exception {
+        RedissonLockTemplate locks = new RedissonLockTemplate(redissonClient, new NoopCacheMetrics());
+        CacheKey key = namespace.key("lock", "task", UUID.randomUUID().toString());
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        var pool = Executors.newSingleThreadExecutor();
+        try {
+            var first = pool.submit(() -> locks.tryRunWithLock(key, Duration.ofSeconds(1), guard -> {
+                guard.assertHeld();
+                entered.countDown();
+                try {
+                    release.await();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException(e);
+                }
+            }));
+            assertThat(entered.await(2, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+
+            assertThat(locks.tryRunWithLock(key, Duration.ofMillis(50), guard -> {})).isFalse();
+            release.countDown();
+            assertThat(first.get()).isTrue();
+        } finally {
+            release.countDown();
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    void unavailableRedisFailsClosedInsteadOfRunningAction() {
+        Config config = new Config();
+        config.useSingleServer().setAddress("redis://" + REDIS.getHost() + ":" + REDIS.getMappedPort(6379));
+        RedissonClient stopped = Redisson.create(config);
+        stopped.shutdown();
+        RedissonLockTemplate locks = new RedissonLockTemplate(stopped, new NoopCacheMetrics());
+
+        assertThatThrownBy(() -> locks.tryRunWithLock(
+                namespace.key("lock", "stopped"), Duration.ofMillis(50), guard -> {}))
+                .isInstanceOf(CacheException.class);
     }
 
     private record SampleValue(String name, int count) {

@@ -19,6 +19,10 @@ public record UnitKey(String taskId, UnitKind kind, String memberId, String bran
         return new UnitKey(taskId, UnitKind.GROUP, groupKey, branchId);
     }
 
+    public static UnitKey generative(String taskId, String sourceImageId) {
+        return new UnitKey(taskId, UnitKind.GENERATIVE, sourceImageId, "GENERATIVE");
+    }
+
     private static String requireText(String value, String fieldName) {
         if (value == null || value.isBlank()) {
             throw new IllegalArgumentException(fieldName + " must not be blank");

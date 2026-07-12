@@ -6,6 +6,7 @@ import com.pixflow.infra.cache.key.CacheKey;
 import com.pixflow.infra.cache.observability.CacheMetrics;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
@@ -59,7 +60,7 @@ public class RedissonLockTemplate implements LockTemplate {
     }
 
     @Override
-    public boolean tryRunWithLock(CacheKey key, Duration waitTime, Runnable action) {
+    public boolean tryRunWithLock(CacheKey key, Duration waitTime, Consumer<LockGuard> action) {
         Instant start = Instant.now();
         RLock lock = redissonClient.getLock(key.value());
         boolean acquired;
@@ -79,7 +80,8 @@ public class RedissonLockTemplate implements LockTemplate {
         metrics.recordLock(key.namespace(), "acquired", Duration.between(start, Instant.now()));
         Throwable actionFailure = null;
         try {
-            action.run();
+            // RLock 具有线程归属；业务提交前必须通过同一 owner 线程上的 guard 再确认所有权。
+            action.accept(lock::isHeldByCurrentThread);
             return true;
         } catch (RuntimeException | Error ex) {
             actionFailure = ex;

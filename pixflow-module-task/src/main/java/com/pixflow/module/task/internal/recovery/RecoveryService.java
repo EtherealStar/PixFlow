@@ -2,7 +2,6 @@ package com.pixflow.module.task.internal.recovery;
 
 import com.pixflow.module.task.config.TaskProperties;
 import com.pixflow.module.task.domain.model.ProcessTask;
-import com.pixflow.module.task.domain.model.TaskStatus;
 import com.pixflow.module.task.infra.metrics.TaskMetrics;
 import com.pixflow.module.task.infra.mq.TaskMessage;
 import com.pixflow.module.task.infra.mq.TaskMessagePublisher;
@@ -30,17 +29,14 @@ public class RecoveryService {
 
     @Scheduled(cron = "${pixflow.task.recovery.cron:0 */1 * * * *}")
     public void scan() {
-        List<ProcessTask> running = taskMapper.findByStatus(TaskStatus.RUNNING,
-                properties.getRecovery().getScanLimit());
         Instant staleBefore = clock.instant().minus(properties.getRecovery().getStaleAfter());
+        // 恢复扫描只依据 MySQL heartbeat 发现并重投，不读取锁、不修改 epoch、更不解锁。
+        List<ProcessTask> running = taskMapper.findStaleRunning(staleBefore,
+                properties.getRecovery().getScanLimit());
         for (ProcessTask task : running) {
-            Instant heartbeat = task.getHeartbeatAt() == null ? task.getStartedAt() : task.getHeartbeatAt();
-            if (heartbeat != null && heartbeat.isAfter(staleBefore)) {
-                continue;
-            }
             publisher.publish(new TaskMessage(task.getId().toString(), task.getTaskType(),
                     task.getPriority() == null ? 0 : task.getPriority(), task.getSchemaVersion()));
-            metrics.recordTerminal(TaskStatus.RUNNING);
+            metrics.recordTerminal(com.pixflow.module.task.domain.model.TaskStatus.RUNNING);
         }
     }
 }

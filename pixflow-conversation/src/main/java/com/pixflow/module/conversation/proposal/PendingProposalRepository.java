@@ -4,7 +4,7 @@ import com.pixflow.common.error.BusinessException;
 import com.pixflow.module.conversation.error.ConversationErrorCode;
 import com.pixflow.module.dag.expand.BranchExpander;
 import com.pixflow.module.dag.expand.ImageDescriptor;
-import com.pixflow.module.dag.ir.ValidatedDag;
+import com.pixflow.module.dag.exec.DagCompiler;
 import com.pixflow.module.dag.propose.PendingPlan;
 import com.pixflow.module.dag.propose.PendingPlanMapper;
 import com.pixflow.module.dag.propose.PendingPlanService;
@@ -13,6 +13,8 @@ import com.pixflow.module.file.pkg.PackageReferenceResolver;
 import com.pixflow.module.imagegen.confirm.ImagegenConfirmationSupport;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collectors;
+import com.pixflow.module.dag.expand.GroupPreflight;
 
 public class PendingProposalRepository {
     private final PendingPlanMapper pendingPlanMapper;
@@ -20,18 +22,24 @@ public class PendingProposalRepository {
     private final PackageReferenceResolver packageReferenceResolver;
     private final BranchExpander branchExpander;
     private final ImagegenConfirmationSupport imagegenConfirmationSupport;
+    private final DagCompiler dagCompiler;
+    private final GroupPreflight groupPreflight;
 
     public PendingProposalRepository(
             PendingPlanMapper pendingPlanMapper,
             PendingPlanService pendingPlanService,
             PackageReferenceResolver packageReferenceResolver,
             BranchExpander branchExpander,
-            ImagegenConfirmationSupport imagegenConfirmationSupport) {
+            ImagegenConfirmationSupport imagegenConfirmationSupport,
+            DagCompiler dagCompiler,
+            GroupPreflight groupPreflight) {
         this.pendingPlanMapper = pendingPlanMapper;
         this.pendingPlanService = pendingPlanService;
         this.packageReferenceResolver = packageReferenceResolver;
         this.branchExpander = branchExpander;
         this.imagegenConfirmationSupport = imagegenConfirmationSupport;
+        this.dagCompiler = dagCompiler;
+        this.groupPreflight = groupPreflight;
     }
 
     public Optional<PendingProposal> find(String proposalId) {
@@ -102,12 +110,20 @@ public class PendingProposalRepository {
         if (packageId <= 0L) {
             return base;
         }
-        ValidatedDag dag = pendingPlanService.revalidate(plan.getDagJson());
+        var typedPlan = dagCompiler.compile(pendingPlanService.revalidate(plan.getDagJson()));
         List<ImageDescriptor> images = packageReferenceResolver.listImages(base.packageId()).stream()
                 .map(PendingProposalRepository::toImageDescriptor)
                 .toList();
+        var countsByGroup = images.stream()
+                .filter(image -> image.groupKey() != null)
+                .collect(Collectors.groupingBy(ImageDescriptor::groupKey, Collectors.summingInt(ignored -> 1)));
+        var differences = groupPreflight.preflight(typedPlan, countsByGroup);
+        if (!differences.isEmpty()) {
+            throw new BusinessException(ConversationErrorCode.PROPOSAL_CHALLENGE_FAILED,
+                    differences.get(0).message());
+        }
         // DAG 真实执行数量必须由当前提案和素材包事实重算，不能信任 note 或前端传入值。
-        int expectedCount = branchExpander.expand(dag, images).size();
+        int expectedCount = branchExpander.expand(typedPlan, images).size();
         return PendingProposal.from(plan, plan.getPayloadHash(), expectedCount);
     }
 

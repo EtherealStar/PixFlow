@@ -71,12 +71,12 @@ public class ComposeGroupOp implements MultiImageOp {
             g.fillRect(0, 0, width, height);
             for (int i = 0; i < members.size(); i++) {
                 Point p = points.get(i);
-                g.drawImage(members.get(i).buffer(), p.x, p.y, null);
+                g.drawImage(members.get(i).borrowBuffer(), p.x, p.y, null);
             }
         } finally {
             g.dispose();
         }
-        return RasterImage.of(output, sourceFormat);
+        return RasterImage.takeOwnership(output, sourceFormat);
     }
 
     private List<Point> positionsHorizontal(List<RasterImage> members) {

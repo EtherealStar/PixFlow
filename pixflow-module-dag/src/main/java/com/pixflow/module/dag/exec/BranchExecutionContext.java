@@ -13,7 +13,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * <p>try-with-resources 保证任何异常/正常返回都触发清理;LIFO 顺序,后注册先释放。
  * close() 幂等(AtomicBoolean 守护),允许多次 close 不重复释放。
  *
- * <p>注册的资源:BufferedImage(RasterImage)、InputStream、watermark byte[] 等。
+ * <p>注册的资源:RasterImage、InputStream、watermark byte[] 等。
  */
 public final class BranchExecutionContext implements AutoCloseable {
 
@@ -25,16 +25,7 @@ public final class BranchExecutionContext implements AutoCloseable {
         if (image == null) {
             return;
         }
-        cleanups.push(() -> {
-            try {
-                var buf = image.buffer();
-                if (buf != null) {
-                    buf.getGraphics().dispose();
-                }
-            } catch (Throwable ignored) {
-                // 释放失败不影响其他清理
-            }
-        });
+        cleanups.push(image::close);
     }
 
     /** 注册一个 InputStream 关闭任务。 */

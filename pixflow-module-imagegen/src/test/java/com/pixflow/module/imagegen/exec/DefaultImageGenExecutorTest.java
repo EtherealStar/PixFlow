@@ -77,7 +77,7 @@ class DefaultImageGenExecutorTest {
 
     private GenerativeUnitSpec spec() {
         return new GenerativeUnitSpec(
-            TASK_ID, SKU_ID, IMAGE_ID, SOURCE_LOC,
+            TASK_ID, "unit-hash-1", 3, SKU_ID, IMAGE_ID, SOURCE_LOC,
             "用 A 风格重绘", Map.of("style", "A"), "png");
     }
 
@@ -98,8 +98,8 @@ class DefaultImageGenExecutorTest {
 
         // 桶: GENERATED
         assertThat(artifact.output().bucket()).isEqualTo(BucketType.GENERATED);
-        // key 形如 {taskId as long}/sku-1_123.png
-        assertThat(artifact.output().key()).isEqualTo("1/" + SKU_ID + "_" + IMAGE_ID + ".png");
+        assertThat(artifact.output().key())
+            .isEqualTo("results/1/units/unit-hash-1/epochs/3/output.png");
         // size 与 generated.length 一致
         assertThat(artifact.output().size()).isEqualTo(generated.length);
         // contentType 透传
@@ -210,10 +210,10 @@ class DefaultImageGenExecutorTest {
     }
 
     @Test
-    @DisplayName("非数字 imageId 用 SHA-256 摘要折算成 long,落桶 key 仍稳定")
+    @DisplayName("Work Unit hash 与 epoch 生成稳定对象 key")
     void redraw_nonNumericImageId_fallsBackToShaLong_andKeyIsStable() {
         GenerativeUnitSpec nonNumericSpec = new GenerativeUnitSpec(
-            TASK_ID, SKU_ID, "uuid-style-abc-xyz", SOURCE_LOC,
+            TASK_ID, "unit-hash-2", 4, SKU_ID, "uuid-style-abc-xyz", SOURCE_LOC,
             "用 A 风格重绘", Map.of(), "png");
         byte[] generated = new byte[]{9, 9, 9};
         when(imageGenClient.generate(any(ImageGenRequest.class))).thenReturn(
@@ -229,7 +229,8 @@ class DefaultImageGenExecutorTest {
         // 同样 imageId 两次跑,落桶 key 一致(幂等)
         assertThat(a1.output().key()).isEqualTo(a2.output().key());
         // key 仍以 task/sku 开头
-        assertThat(a1.output().key()).startsWith(TASK_ID + "/" + SKU_ID + "_");
+        assertThat(a1.output().key())
+            .isEqualTo("results/" + TASK_ID + "/units/unit-hash-2/epochs/4/output.png");
         assertThat(a1.output().key()).endsWith(".png");
     }
 }

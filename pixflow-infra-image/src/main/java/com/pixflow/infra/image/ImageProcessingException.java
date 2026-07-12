@@ -9,6 +9,9 @@ public class ImageProcessingException extends RuntimeException {
         UNSUPPORTED_DECODE_FORMAT,
         UNSUPPORTED_ENCODE_FORMAT,
         SOURCE_TOO_LARGE,
+        PIXEL_BUDGET_EXCEEDED,
+        PIXEL_BUDGET_TIMEOUT,
+        PIXEL_BUDGET_CANCELLED,
         CORRUPTED_IMAGE,
         INVALID_OP_PARAM
     }

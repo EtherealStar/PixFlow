@@ -4,6 +4,8 @@ import com.pixflow.infra.image.ImageCodec;
 import com.pixflow.infra.image.impl.DefaultImageCodec;
 import com.pixflow.infra.image.pipeline.DefaultImagePipeline;
 import com.pixflow.infra.image.pipeline.ImagePipeline;
+import com.pixflow.infra.image.budget.DefaultPixelBudget;
+import com.pixflow.infra.image.budget.PixelBudget;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -27,7 +29,15 @@ public class ImageAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public ImagePipeline imagePipeline(ImageCodec imageCodec) {
-        return new DefaultImagePipeline(imageCodec);
+    public PixelBudget pixelBudget(ImageProperties properties) {
+        return new DefaultPixelBudget(properties.getPixelBudget().getMaxInFlightPixels());
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public ImagePipeline imagePipeline(ImageCodec imageCodec, PixelBudget pixelBudget, ImageProperties properties) {
+        ImageProperties.PixelBudget budget = properties.getPixelBudget();
+        return new DefaultImagePipeline(imageCodec, pixelBudget, properties.getMaxSourcePixels(),
+                properties.getMaxDimension(), budget.getTargetHeadroomFactor(), budget.getAcquireTimeout());
     }
 }

@@ -10,7 +10,6 @@ import com.pixflow.infra.image.op.impl.ResizeOp;
 import com.pixflow.infra.image.pipeline.ImagePipeline;
 import com.pixflow.module.vision.config.VisionProperties;
 import java.awt.Color;
-import java.io.IOException;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
@@ -28,8 +27,7 @@ public class VisionImagePreprocessor {
 
     public PreparedVisionImage preprocess(ResolvedVisionImage image) {
         Objects.requireNonNull(image, "image");
-        try (var stream = image.stream()) {
-            VisionProperties.Image imageProps = properties.getImage();
+        VisionProperties.Image imageProps = properties.getImage();
             List<ImageOp> ops = List.of(
                     new ResizeOp(new ResizeSpec(imageProps.getMaxLongEdge(), imageProps.getMaxLongEdge(), ResizeSpec.Mode.FIT, false)),
                     new ConvertFormatOp(new ConvertFormatSpec(
@@ -37,17 +35,14 @@ public class VisionImagePreprocessor {
                             imageProps.jpegQualityPercent(),
                             flattenBackground(imageProps))));
             byte[] encoded = imagePipeline.run(
-                    stream,
+                    image.source(),
                     ops,
                     new EncodeSpec(imageProps.getOutputFormat(), imageProps.jpegQualityPercent(), null, flattenBackground(imageProps)));
             String contentType = "image/" + imageProps.getOutputFormat().writerName().toLowerCase(Locale.ROOT);
             ChatMessage.ImagePart part = new ChatMessage.ImagePart(
                     new ChatMessage.BytesImageContent(encoded, contentType),
                     description(image.ref()));
-            return new PreparedVisionImage(image.ref(), part, image.sizeBytes(), encoded.length);
-        } catch (IOException ex) {
-            throw new IllegalStateException("failed to close image stream", ex);
-        }
+        return new PreparedVisionImage(image.ref(), part, image.sizeBytes(), encoded.length);
     }
 
     private Color flattenBackground(VisionProperties.Image imageProps) {

@@ -1,7 +1,7 @@
 package com.pixflow.module.task.api.query;
 
 import com.pixflow.module.task.domain.model.ResultStatus;
-import com.pixflow.module.task.domain.model.UnitKind;
+import com.pixflow.harness.state.model.UnitKind;
 import java.net.URL;
 import java.time.Instant;
 

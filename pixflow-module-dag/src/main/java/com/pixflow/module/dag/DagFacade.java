@@ -7,7 +7,10 @@ import com.pixflow.module.dag.expand.GroupPreflight.PreflightDifference;
 import com.pixflow.module.dag.expand.ImageDescriptor;
 import com.pixflow.module.dag.ir.DagDocument;
 import com.pixflow.module.dag.ir.DagSchemaVersion;
-import com.pixflow.module.dag.ir.ValidatedDag;
+import com.pixflow.module.dag.ir.CanonicalDag;
+import com.pixflow.module.dag.ir.CanonicalDagFactory;
+import com.pixflow.module.dag.exec.DagCompiler;
+import com.pixflow.module.dag.exec.TypedExecutionPlan;
 import com.pixflow.module.dag.validate.DagValidationResult;
 import com.pixflow.module.dag.validate.DagValidator;
 import java.util.List;
@@ -26,26 +29,37 @@ public class DagFacade {
     private final DagValidator validator;
     private final BranchExpander expander;
     private final GroupPreflight preflight;
+    private final CanonicalDagFactory canonicalDagFactory;
+    private final DagCompiler compiler;
 
-    public DagFacade(DagValidator validator, BranchExpander expander, GroupPreflight preflight) {
+    public DagFacade(DagValidator validator, BranchExpander expander, GroupPreflight preflight,
+                     CanonicalDagFactory canonicalDagFactory, DagCompiler compiler) {
         this.validator = validator;
         this.expander = expander;
         this.preflight = preflight;
+        this.canonicalDagFactory = canonicalDagFactory;
+        this.compiler = compiler;
     }
 
     public DagValidationResult validate(DagDocument doc) {
         return validator.validate(doc);
     }
 
-    public ValidatedDag validateToDag(DagDocument doc, DagSchemaVersion schemaVersion) {
-        return validator.toValidated(doc, schemaVersion);
+    public CanonicalDag validateToCanonical(DagDocument doc, DagSchemaVersion schemaVersion) {
+        DagValidationResult result = validator.validate(doc);
+        if (!result.ok()) {
+            throw new IllegalArgumentException("DAG 校验未通过: " + String.join("; ", result.errors()));
+        }
+        return canonicalDagFactory.fromDocument(doc, schemaVersion);
     }
 
-    public List<ExecutableBranch> expand(ValidatedDag dag, List<ImageDescriptor> images) {
+    public TypedExecutionPlan compile(CanonicalDag dag) { return compiler.compile(dag); }
+
+    public List<ExecutableBranch> expand(TypedExecutionPlan dag, List<ImageDescriptor> images) {
         return expander.expand(dag, images);
     }
 
-    public List<PreflightDifference> preflightGroups(ValidatedDag dag,
+    public List<PreflightDifference> preflightGroups(TypedExecutionPlan dag,
                                                        Map<String, Integer> actualGroupCounts) {
         return preflight.preflight(dag, actualGroupCounts);
     }

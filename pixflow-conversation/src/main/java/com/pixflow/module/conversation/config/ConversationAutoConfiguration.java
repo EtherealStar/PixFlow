@@ -196,15 +196,17 @@ public class ConversationAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     @ConditionalOnBean({PendingPlanMapper.class, PendingPlanService.class, PackageReferenceResolver.class,
-            BranchExpander.class})
+            BranchExpander.class, com.pixflow.module.dag.expand.GroupPreflight.class})
     public PendingProposalRepository pendingProposalRepository(
             PendingPlanMapper pendingPlanMapper,
             PendingPlanService pendingPlanService,
             PackageReferenceResolver packageReferenceResolver,
             BranchExpander branchExpander,
+            com.pixflow.module.dag.exec.DagCompiler dagCompiler,
+            com.pixflow.module.dag.expand.GroupPreflight groupPreflight,
             ObjectProvider<ImagegenConfirmationSupport> imagegenConfirmationSupportProvider) {
         return new PendingProposalRepository(pendingPlanMapper, pendingPlanService, packageReferenceResolver,
-                branchExpander, imagegenConfirmationSupportProvider.getIfAvailable());
+                branchExpander, imagegenConfirmationSupportProvider.getIfAvailable(), dagCompiler, groupPreflight);
     }
 
     @Bean

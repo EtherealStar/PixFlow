@@ -11,7 +11,6 @@ import com.pixflow.module.task.config.TaskProperties;
 import com.pixflow.module.task.domain.error.TaskErrorCode;
 import com.pixflow.module.task.domain.model.ProcessResult;
 import com.pixflow.module.task.domain.model.ResultStatus;
-import com.pixflow.module.task.domain.model.UnitKind;
 import com.pixflow.module.task.infra.metrics.TaskMetrics;
 import com.pixflow.module.task.infra.persistence.ProcessResultMapper;
 import java.net.URL;
@@ -66,7 +65,8 @@ public class DownloadService {
             metrics.recordDownload(metricType, "not_ready");
             throw new PixFlowException(TaskErrorCode.TASK_DOWNLOAD_NOT_READY, "result is not ready for download");
         }
-        BucketType bucket = result.getKind() == UnitKind.GENERATIVE ? BucketType.GENERATED : BucketType.RESULTS;
+        BucketType bucket = result.getUnitKind() == com.pixflow.harness.state.model.UnitKind.GENERATIVE
+                ? BucketType.GENERATED : BucketType.RESULTS;
         URL url = objectStorage.presignGet(ObjectLocation.of(bucket, result.getOutputMinioKey()),
                 properties.getDownload().getSingleUrlExpiry());
         metrics.recordDownload(metricType, "ok");

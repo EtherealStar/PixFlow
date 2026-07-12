@@ -21,14 +21,12 @@ class StorageKeysTest {
 
     @Test
     void buildsStableResultKeys() {
-        assertThat(StorageKeys.result(1001, "SKU123", 88, "b1", "webp"))
-                .isEqualTo(ObjectLocation.of(BucketType.RESULTS, "1001/SKU123_88_b1.webp"));
-
-        assertThat(StorageKeys.groupResult(1001, "SKU123", "g1", "b1", "png"))
-                .isEqualTo(ObjectLocation.of(BucketType.RESULTS, "1001/SKU123_gg1_b1.png"));
-
-        assertThat(StorageKeys.generated(1001, "SKU123", 88, "jpg"))
-                .isEqualTo(ObjectLocation.of(BucketType.GENERATED, "1001/SKU123_88.jpg"));
+        assertThat(StorageKeys.resultUnit("1001", "abc123", 7, "webp"))
+                .isEqualTo(ObjectLocation.of(BucketType.RESULTS,
+                        "results/1001/units/abc123/epochs/7/output.webp"));
+        assertThat(StorageKeys.generatedUnit("1001", "def456", 8, "jpg"))
+                .isEqualTo(ObjectLocation.of(BucketType.GENERATED,
+                        "results/1001/units/def456/epochs/8/output.jpg"));
     }
 
     @Test
@@ -36,22 +34,21 @@ class StorageKeysTest {
         assertThat(StorageKeys.toolResult("trace-1"))
                 .isEqualTo(ObjectLocation.of(BucketType.TOOL_RESULTS, "trace-1.txt"));
 
-        assertThat(StorageKeys.tmpBranch(1001, 88, "b1", "node.webp"))
-                .isEqualTo(ObjectLocation.of(BucketType.TMP, "1001/88/b1/node.webp"));
-
-        assertThat(StorageKeys.tmpGroup(1001, "g1", "b1", 88, "node.webp"))
-                .isEqualTo(ObjectLocation.of(BucketType.TMP, "1001/g1/b1/88/node.webp"));
+        assertThat(StorageKeys.runtimeGroup("1001", 9, "abc123", "88", "node.webp"))
+                .isEqualTo(ObjectLocation.of(BucketType.TMP, "1001/9/abc123/88/node.webp"));
     }
 
     @Test
     void rejectsTraversalAndPathSegments() {
         assertThatThrownBy(() -> StorageKeys.packageImage(42, "../evil.png"))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> StorageKeys.result(1001, "SKU/../A", 88, "b1", "webp"))
+        assertThatThrownBy(() -> StorageKeys.resultUnit("1001", "../bad", 1, "webp"))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> StorageKeys.packageDoc(42, "dir/copy.xlsx"))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> StorageKeys.generated(1001, "SKU123", 88, ".jpg"))
+        assertThatThrownBy(() -> StorageKeys.generatedUnit("1001", "abc", 1, ".jpg"))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> StorageKeys.runtimeGroup("1001", 0, "abc", "88", "x"))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 }

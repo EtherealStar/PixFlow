@@ -19,20 +19,24 @@ public class WorkerRouter {
     public List<WorkUnit> plan(ProcessTask task) {
         String taskId = task.getId().toString();
         if (task.getTaskType() == TaskType.IMAGE_PROCESS) {
-            return processWorker.plan(taskId, task.getPackageId(), task.getDagJson());
+            return processWorker.plan(taskId, task.getPackageId(), task.getDagJson(),
+                    task.getUnitSelectionJson());
         }
         if (task.getTaskType() == TaskType.IMAGE_GEN) {
-            return imageGenWorker.plan(taskId, task.getPackageId(), task.getDagJson());
+            return imageGenWorker.plan(taskId, task.getPackageId(), task.getRunEpoch(), task.getDagJson());
         }
         throw new PixFlowException(TaskErrorCode.TASK_DAG_PAYLOAD_INVALID,
                 "unknown task type: " + task.getTaskType());
     }
 
-    public void execute(WorkUnit unit, UnitExecutionContext context) {
+    public WorkUnitCompletion execute(WorkUnit unit, ExecutionRun run) {
         if (unit.taskType() == TaskType.IMAGE_PROCESS) {
-            processWorker.execute(unit, context);
-        } else {
-            imageGenWorker.execute(unit, context);
+            return processWorker.execute(unit, run);
         }
+        if (unit.taskType() == TaskType.IMAGE_GEN) {
+            return imageGenWorker.execute(unit, run);
+        }
+        throw new PixFlowException(TaskErrorCode.TASK_DAG_PAYLOAD_INVALID,
+                "unknown task type: " + unit.taskType());
     }
 }

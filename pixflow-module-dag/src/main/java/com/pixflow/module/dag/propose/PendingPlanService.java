@@ -9,7 +9,8 @@ import com.pixflow.module.dag.ir.CanonicalJson;
 import com.pixflow.module.dag.ir.DagDocument;
 import com.pixflow.module.dag.ir.DagJsonReader;
 import com.pixflow.module.dag.ir.DagSchemaVersion;
-import com.pixflow.module.dag.ir.ValidatedDag;
+import com.pixflow.module.dag.ir.CanonicalDag;
+import com.pixflow.module.dag.ir.CanonicalDagFactory;
 import com.pixflow.module.dag.validate.DagValidationResult;
 import com.pixflow.module.dag.validate.DagValidator;
 import java.nio.charset.StandardCharsets;
@@ -34,23 +35,20 @@ public class PendingPlanService {
     private final ObjectMapper objectMapper;
     private final Clock clock;
     private final DagProperties properties;
-
-    public PendingPlanService(PendingPlanMapper mapper,
-                              DagValidator validator,
-                              DagProperties properties) {
-        this(mapper, validator, properties, new ObjectMapper(), Clock.systemUTC());
-    }
+    private final CanonicalDagFactory canonicalDagFactory;
 
     public PendingPlanService(PendingPlanMapper mapper,
                               DagValidator validator,
                               DagProperties properties,
                               ObjectMapper objectMapper,
-                              Clock clock) {
+                              Clock clock,
+                              CanonicalDagFactory canonicalDagFactory) {
         this.mapper = mapper;
         this.validator = validator;
         this.properties = properties;
         this.objectMapper = objectMapper;
         this.clock = clock;
+        this.canonicalDagFactory = canonicalDagFactory;
     }
 
     /**
@@ -81,15 +79,10 @@ public class PendingPlanService {
             throw new PixFlowException(DagErrorCode.DAG_INVALID_STRUCTURE,
                 "DAG 校验未通过: " + String.join("; ", result.errors()));
         }
-        ValidatedDag validated = validator.toValidated(doc, currentSchemaVersion());
-        // 序列化(本表存规范化 JSON)
-        String dagJson;
-        try {
-            dagJson = objectMapper.writeValueAsString(doc);
-        } catch (JsonProcessingException e) {
-            throw new IllegalStateException("序列化 DAG 失败", e);
-        }
-        String payloadHash = sha256(CanonicalJson.canonicalize(dagJson));
+        CanonicalDag canonical = canonicalDagFactory.fromDocument(doc, currentSchemaVersion());
+        // pending_plan 与 process_task 只保存同一份 canonical JSON，hash 也直接取该事实的 hash。
+        String dagJson = new String(canonical.canonicalJson(), StandardCharsets.UTF_8);
+        String payloadHash = canonical.canonicalHash();
         // 入库
         PendingPlan plan = new PendingPlan();
         plan.setToolCallId(toolCallId);
@@ -121,14 +114,14 @@ public class PendingPlanService {
         return new DagJsonReader(objectMapper).read(storedJson);
     }
 
-    public ValidatedDag revalidate(String storedJson) {
+    public CanonicalDag revalidate(String storedJson) {
         DagDocument doc = parseStored(storedJson);
         DagValidationResult result = validator.validate(doc);
         if (!result.ok()) {
             throw new PixFlowException(DagErrorCode.DAG_INVALID_STRUCTURE,
                 "DAG 重校验未通过: " + String.join("; ", result.errors()));
         }
-        return validator.toValidated(doc, currentSchemaVersion());
+        return canonicalDagFactory.fromDocument(doc, currentSchemaVersion());
     }
 
     /**

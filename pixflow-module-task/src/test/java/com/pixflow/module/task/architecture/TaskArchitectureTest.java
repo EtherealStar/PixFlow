@@ -35,4 +35,16 @@ class TaskArchitectureTest {
         noClasses()
             .that().resideInAPackage("com.pixflow.module.task..")
             .should().dependOnClassesThat().resideInAPackage("org.springframework.ai..");
+
+    @ArchTest
+    static final ArchRule capability_workers_must_not_commit_or_publish =
+        noClasses()
+            .that().haveSimpleName("ProcessWorker")
+            .or().haveSimpleName("ImageGenWorker")
+            .or().haveSimpleName("FailureIsolator")
+            .or().haveSimpleName("WorkUnitScheduler")
+            .should().dependOnClassesThat().resideInAnyPackage(
+                    "com.pixflow.module.task.infra.persistence..",
+                    "com.pixflow.module.task.internal.progress..",
+                    "com.pixflow.module.task.api.event..");
 }

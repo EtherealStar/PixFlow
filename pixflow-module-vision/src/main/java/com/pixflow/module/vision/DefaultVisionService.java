@@ -73,7 +73,6 @@ public class DefaultVisionService implements VisionService {
                 if (resolved.sizeBytes() > properties.getImage().getMaxImageBytes()) {
                     skippedIssues.add(issue(ref, "too_large"));
                     metrics.recordImages("skipped", 1);
-                    closeQuietly(resolved);
                     continue;
                 }
                 prepared.add(imagePreprocessor.preprocess(resolved));
@@ -134,11 +133,4 @@ public class DefaultVisionService implements VisionService {
         return code + ":bucket=" + ref.object().bucket() + ",key=" + ref.object().key();
     }
 
-    private void closeQuietly(ResolvedVisionImage image) {
-        try {
-            image.stream().close();
-        } catch (Exception ignored) {
-            // skip path: stream close failure must not mask the original per-image skip reason
-        }
-    }
 }

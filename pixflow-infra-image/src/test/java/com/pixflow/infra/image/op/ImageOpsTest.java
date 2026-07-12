@@ -57,6 +57,6 @@ class ImageOpsTest {
         } finally {
             g.dispose();
         }
-        return RasterImage.of(buffered, ImageFormat.PNG);
+        return RasterImage.takeOwnership(buffered, ImageFormat.PNG);
     }
 }

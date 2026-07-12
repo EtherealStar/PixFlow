@@ -4,7 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.pixflow.module.dag.ir.DagJsonReader;
 import com.pixflow.module.dag.ir.DagSchemaVersion;
-import com.pixflow.module.dag.ir.ValidatedDag;
+import com.pixflow.module.dag.exec.TypedExecutionPlan;
+import com.pixflow.module.dag.TestPlans;
 import com.pixflow.module.dag.validate.DagValidator;
 import com.pixflow.module.dag.validate.ParamSchemaRegistry;
 import java.util.Map;
@@ -26,13 +27,13 @@ class GroupPreflightTest {
         validator = new DagValidator(new ParamSchemaRegistry(), 50, 1);
     }
 
-    private ValidatedDag parse(String json) {
-        return validator.toValidated(reader.read(json), new DagSchemaVersion("1.0"));
+    private TypedExecutionPlan parse(String json) {
+        return TestPlans.compile(json);
     }
 
     @Test
     void noExpectedCount_producesNoDiffs() {
-        ValidatedDag dag = parse("""
+        TypedExecutionPlan dag = parse("""
             {
               "nodes":[
                 {"id":"c","tool":"compose_group","params":{"layout":"HORIZONTAL"}}
@@ -46,7 +47,7 @@ class GroupPreflightTest {
 
     @Test
     void expectedMatchesActual_producesNoDiffs() {
-        ValidatedDag dag = parse("""
+        TypedExecutionPlan dag = parse("""
             {
               "nodes":[
                 {"id":"c","tool":"compose_group","params":{"layout":"HORIZONTAL","expected_count":3}}
@@ -60,7 +61,7 @@ class GroupPreflightTest {
 
     @Test
     void expectedGreaterThanActual_producesDiff() {
-        ValidatedDag dag = parse("""
+        TypedExecutionPlan dag = parse("""
             {
               "nodes":[
                 {"id":"c","tool":"compose_group","params":{"layout":"HORIZONTAL","expected_count":3}}
@@ -76,7 +77,7 @@ class GroupPreflightTest {
 
     @Test
     void expectedLessThanActual_producesDiff() {
-        ValidatedDag dag = parse("""
+        TypedExecutionPlan dag = parse("""
             {
               "nodes":[
                 {"id":"c","tool":"compose_group","params":{"layout":"GRID","expected_count":2}}
@@ -92,7 +93,7 @@ class GroupPreflightTest {
 
     @Test
     void missingActualCount_producesDiff() {
-        ValidatedDag dag = parse("""
+        TypedExecutionPlan dag = parse("""
             {
               "nodes":[
                 {"id":"c","tool":"compose_group","params":{"layout":"HORIZONTAL","expected_count":3}}

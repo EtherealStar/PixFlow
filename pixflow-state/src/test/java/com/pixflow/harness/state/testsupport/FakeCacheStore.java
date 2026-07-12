@@ -12,6 +12,7 @@ public class FakeCacheStore implements CacheStore {
     private boolean failReads;
     private boolean failWrites;
     private boolean failDeletes;
+    private Duration lastTtl;
 
     public void failReads(boolean failReads) {
         this.failReads = failReads;
@@ -23,6 +24,10 @@ public class FakeCacheStore implements CacheStore {
 
     public void failDeletes(boolean failDeletes) {
         this.failDeletes = failDeletes;
+    }
+
+    public Duration lastTtl() {
+        return lastTtl;
     }
 
     @Override
@@ -43,6 +48,7 @@ public class FakeCacheStore implements CacheStore {
             throw new IllegalStateException("cache write failed");
         }
         values.put(key.value(), value);
+        lastTtl = ttl;
     }
 
     @Override

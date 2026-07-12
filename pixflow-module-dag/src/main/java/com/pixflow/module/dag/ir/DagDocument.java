@@ -7,7 +7,7 @@ import java.util.Objects;
  * 浅解析的 DAG 文档:来自 Agent 的原始 JSON 经 {@link DagJsonReader} 解析。
  *
  * <p>此处**未校验**:节点 tool 可能为白名单外、边可能引用不存在的 id、结构可能含环。
- * 校验由 {@link com.pixflow.module.dag.validate.DagValidator} 负责,产出 ValidatedDag。
+ * 校验由 {@link com.pixflow.module.dag.validate.DagValidator} 负责,随后生成 CanonicalDag。
  */
 public record DagDocument(List<DagNode> nodes, List<DagEdge> edges) {
     public DagDocument {

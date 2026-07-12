@@ -8,7 +8,6 @@ import com.pixflow.infra.storage.ObjectStorage;
 import com.pixflow.module.task.config.TaskProperties;
 import com.pixflow.module.task.domain.error.TaskErrorCode;
 import com.pixflow.module.task.domain.model.ProcessResult;
-import com.pixflow.module.task.domain.model.UnitKind;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -30,7 +29,8 @@ public class DownloadBundleBuilder {
         List<BundleSource> sources = results.stream()
                 .filter(result -> result.getOutputMinioKey() != null)
                 .map(result -> {
-                    BucketType bucket = result.getKind() == UnitKind.GENERATIVE ? BucketType.GENERATED : BucketType.RESULTS;
+                    BucketType bucket = result.getUnitKind() == com.pixflow.harness.state.model.UnitKind.GENERATIVE
+                            ? BucketType.GENERATED : BucketType.RESULTS;
                     return new BundleSource(entryName(result), ObjectLocation.of(bucket, result.getOutputMinioKey()));
                 })
                 .toList();

@@ -10,7 +10,7 @@ import com.pixflow.module.task.api.query.DownloadHandle;
 import com.pixflow.module.task.config.TaskProperties;
 import com.pixflow.module.task.domain.error.TaskErrorCode;
 import com.pixflow.module.task.domain.model.ProcessResult;
-import com.pixflow.module.task.domain.model.UnitKind;
+import com.pixflow.harness.state.model.UnitKind;
 import com.pixflow.module.task.infra.persistence.ProcessResultMapper;
 import com.pixflow.module.task.internal.download.DownloadBundleBuilder;
 import java.net.URL;
@@ -74,7 +74,8 @@ public class CustomDownloadService {
             if (result == null || result.getDeletedAt() != null || result.getOutputMinioKey() == null) {
                 throw new PixFlowException(TaskErrorCode.TASK_DOWNLOAD_NOT_READY, "task result is not ready for bundle");
             }
-            BucketType bucket = result.getKind() == UnitKind.GENERATIVE ? BucketType.GENERATED : BucketType.RESULTS;
+            BucketType bucket = result.getUnitKind() == UnitKind.GENERATIVE
+                    ? BucketType.GENERATED : BucketType.RESULTS;
             return new DownloadBundleBuilder.BundleSource(
                     firstNonBlank(item.filename(), result.getDisplayName(), basename(result.getOutputMinioKey()), result.getId() + ".image"),
                     ObjectLocation.of(bucket, result.getOutputMinioKey()));

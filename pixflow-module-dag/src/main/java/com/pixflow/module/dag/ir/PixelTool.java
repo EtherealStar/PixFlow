@@ -4,7 +4,7 @@ package com.pixflow.module.dag.ir;
  * 像素工具白名单枚举。
  *
  * <p>dag 模块拥有的 8 个像素工具,封闭不可扩展。每种工具的派发目标、输入基数、参数 spec 映射关系
- * 在此集中声明,被 {@link com.pixflow.module.dag.exec.NodeDispatcher} / SpecMapper 消费。
+ * 在此集中声明,由 DagCompiler 与 StepBindingRegistry 穷举消费。
  *
  * <p>新增工具需修改此处编译期枚举 + 新增 JSON Schema 资源,严禁运行时注册。
  */

@@ -25,6 +25,8 @@ import java.util.Objects;
  */
 public record GenerativeUnitSpec(
         String taskId,
+        String unitKeyHash,
+        long runEpoch,
         String skuId,
         String sourceImageId,
         ObjectLocation sourceLocation,
@@ -34,6 +36,8 @@ public record GenerativeUnitSpec(
 
     public GenerativeUnitSpec {
         Objects.requireNonNull(taskId, "taskId");
+        Objects.requireNonNull(unitKeyHash, "unitKeyHash");
+        if (runEpoch <= 0) throw new IllegalArgumentException("runEpoch must be positive");
         Objects.requireNonNull(skuId, "skuId");
         Objects.requireNonNull(sourceImageId, "sourceImageId");
         Objects.requireNonNull(sourceLocation, "sourceLocation");

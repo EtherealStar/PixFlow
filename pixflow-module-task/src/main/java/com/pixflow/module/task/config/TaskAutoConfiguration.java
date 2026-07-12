@@ -18,6 +18,7 @@ import com.pixflow.module.imagegen.exec.DefaultImageGenExecutor;
 import com.pixflow.module.imagegen.exec.ImageGenExecutor;
 import com.pixflow.module.task.api.TaskCommandService;
 import com.pixflow.module.task.api.TaskQueryService;
+import com.pixflow.module.task.api.TaskOutcomeQuery;
 import com.pixflow.module.task.domain.idempotency.IdempotencyGuard;
 import com.pixflow.module.task.infra.cache.TaskCacheKeys;
 import com.pixflow.module.task.infra.cache.TaskCancelFlag;
@@ -35,12 +36,14 @@ import com.pixflow.module.task.infra.persistence.ProcessTaskMapper;
 import com.pixflow.module.task.api.port.TaskAssetReader;
 import com.pixflow.module.task.internal.cancel.CancellationService;
 import com.pixflow.module.task.internal.create.CreateTaskServiceImpl;
+import com.pixflow.module.task.internal.planning.WorkUnitPlanner;
 import com.pixflow.module.task.internal.download.DownloadService;
 import com.pixflow.module.task.internal.download.DownloadBundleBuilder;
 import com.pixflow.module.task.internal.failure.FailureIsolator;
 import com.pixflow.module.task.internal.progress.ProgressAggregator;
 import com.pixflow.module.task.internal.publish.TaskEventPublisher;
 import com.pixflow.module.task.internal.query.TaskQueryServiceImpl;
+import com.pixflow.module.task.internal.query.TaskOutcomeQueryImpl;
 import com.pixflow.module.task.internal.recovery.HeartbeatWriter;
 import com.pixflow.module.task.internal.recovery.RecoveryService;
 import com.pixflow.module.task.internal.scheduler.WorkUnitScheduler;
@@ -49,7 +52,9 @@ import com.pixflow.module.task.internal.terminal.TerminalStateJudge;
 import com.pixflow.module.task.internal.worker.ImageGenWorker;
 import com.pixflow.module.task.internal.worker.ProcessWorker;
 import com.pixflow.module.task.internal.worker.TaskWorker;
+import com.pixflow.module.task.internal.worker.WorkUnitResultRepository;
 import com.pixflow.module.task.internal.worker.WorkerRouter;
+import com.pixflow.harness.state.recovery.RecoveryCoordinator;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Clock;
 import org.apache.ibatis.annotations.Mapper;
@@ -67,6 +72,15 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 @EnableConfigurationProperties(TaskProperties.class)
 @MapperScan(value = "com.pixflow.module.task.infra.persistence", annotationClass = Mapper.class)
 public class TaskAutoConfiguration {
+    @Bean
+    @ConditionalOnMissingBean
+    public WorkUnitPlanner workUnitPlanner(ObjectMapper objectMapper,
+                                           com.pixflow.module.dag.ir.DagJsonReader reader,
+                                           com.pixflow.module.dag.DagFacade dagFacade,
+                                           TaskAssetReader assetReader) {
+        return new WorkUnitPlanner(objectMapper, reader, dagFacade, assetReader);
+    }
+
     @Bean
     @ConditionalOnMissingBean
     public TaskMetrics taskMetrics(MeterRegistry registry) {
@@ -150,26 +164,23 @@ public class TaskAutoConfiguration {
     }
 
     @Bean
-    @ConditionalOnBean({ProcessResultMapper.class, ProgressAggregator.class})
+    @ConditionalOnBean(ProcessResultMapper.class)
     @ConditionalOnMissingBean
-    public FailureIsolator failureIsolator(ProcessResultMapper mapper,
-                                           ProgressAggregator progress,
-                                           ErrorNormalizer normalizer,
+    public FailureIsolator failureIsolator(ErrorNormalizer normalizer,
                                            TaskMetrics metrics,
                                            Clock clock) {
-        return new FailureIsolator(mapper, progress, normalizer, metrics, clock);
+        return new FailureIsolator(normalizer, metrics, clock);
     }
 
     @Bean
-    @ConditionalOnBean({ProcessTaskMapper.class, ProcessResultMapper.class, CancellationService.class})
+    @ConditionalOnBean({ProcessTaskMapper.class, ProcessResultMapper.class})
     @ConditionalOnMissingBean
     public TerminalStateJudge terminalStateJudge(ProcessTaskMapper taskMapper,
                                                  ProcessResultMapper resultMapper,
-                                                 CancellationService cancellationService,
                                                  TaskEventPublisher publisher,
                                                  TaskMetrics metrics,
                                                  Clock clock) {
-        return new TerminalStateJudge(taskMapper, resultMapper, cancellationService, publisher, metrics, clock);
+        return new TerminalStateJudge(taskMapper, resultMapper, publisher, metrics, clock);
     }
 
     @Bean
@@ -188,31 +199,43 @@ public class TaskAutoConfiguration {
     }
 
     @Bean
-    @ConditionalOnBean({BranchExpander.class, UnitExecutor.class, TaskAssetReader.class, ProgressAggregator.class})
+    @ConditionalOnBean({BranchExpander.class, UnitExecutor.class, ProgressAggregator.class})
     @ConditionalOnMissingBean
-    public ProcessWorker processWorker(ObjectMapper objectMapper, BranchExpander branchExpander,
-                                       UnitExecutor unitExecutor, TaskAssetReader assetReader,
-                                       ProcessResultMapper resultMapper,
-                                       ProcessResultMemberMapper memberMapper,
-                                       ProgressAggregator progress,
+    public ProcessWorker processWorker(ObjectMapper objectMapper,
+                                       com.pixflow.module.dag.ir.DagJsonReader dagJsonReader,
+                                       com.pixflow.module.dag.DagFacade dagFacade,
+                                       BranchExpander branchExpander,
+                                       UnitExecutor unitExecutor,
                                        FailureIsolator failure,
                                        CancellationService cancellation,
                                        TaskMetrics metrics,
                                        Clock clock) {
-        return new ProcessWorker(objectMapper, branchExpander, unitExecutor, assetReader,
-                resultMapper, memberMapper, progress, failure, cancellation, metrics, clock);
+        return new ProcessWorker(objectMapper, dagJsonReader, dagFacade, branchExpander,
+                unitExecutor,
+                failure, cancellation, metrics, clock);
     }
 
     @Bean
     @ConditionalOnBean({ImageGenExecutor.class, TaskAssetReader.class, ProgressAggregator.class})
     @ConditionalOnMissingBean
     public ImageGenWorker imageGenWorker(ObjectMapper objectMapper, ImageGenExecutor executor,
-                                         TaskAssetReader assetReader, ProcessResultMapper resultMapper,
-                                         ProgressAggregator progress, FailureIsolator failure,
+                                         TaskAssetReader assetReader, FailureIsolator failure,
                                          CancellationService cancellation, TaskMetrics metrics,
                                          Clock clock) {
-        return new ImageGenWorker(objectMapper, executor, assetReader, resultMapper,
-                progress, failure, cancellation, metrics, clock);
+        return new ImageGenWorker(objectMapper, executor, assetReader,
+                failure, cancellation, metrics, clock);
+    }
+
+    @Bean
+    @ConditionalOnBean({ProcessResultMapper.class, ProcessResultMemberMapper.class,
+            ProcessTaskMapper.class, com.pixflow.infra.storage.ObjectStorage.class})
+    @ConditionalOnMissingBean
+    public WorkUnitResultRepository workUnitResultRepository(ProcessResultMapper resultMapper,
+                                                              ProcessResultMemberMapper memberMapper,
+                                                              ProcessTaskMapper taskMapper,
+                                                              com.pixflow.infra.storage.ObjectStorage objectStorage,
+                                                              ObjectMapper objectMapper) {
+        return new WorkUnitResultRepository(resultMapper, memberMapper, taskMapper, objectStorage, objectMapper);
     }
 
     @Bean
@@ -223,13 +246,19 @@ public class TaskAutoConfiguration {
     }
 
     @Bean
-    @ConditionalOnBean({WorkerRouter.class, TaskLockManager.class, TerminalStateJudge.class})
+    @ConditionalOnBean({WorkerRouter.class, TaskLockManager.class, TerminalStateJudge.class,
+            RecoveryCoordinator.class, WorkUnitResultRepository.class, HeartbeatWriter.class})
     @ConditionalOnMissingBean
-    public TaskWorker taskWorker(ProcessTaskMapper taskMapper, ProcessResultMapper resultMapper,
+    public TaskWorker taskWorker(ProcessTaskMapper taskMapper,
                                  WorkerRouter router, WorkUnitScheduler scheduler,
                                  TerminalStateJudge terminal, TaskLockManager lock,
-                                 TaskMetrics metrics, TaskProperties properties, Clock clock) {
-        return new TaskWorker(taskMapper, resultMapper, router, scheduler, terminal, lock, metrics, properties, clock);
+                                 TaskMetrics metrics, TaskProperties properties, Clock clock,
+                                 RecoveryCoordinator recoveryCoordinator,
+                                 WorkUnitResultRepository resultRepository,
+                                 ProgressAggregator progressAggregator,
+                                 HeartbeatWriter heartbeatWriter) {
+        return new TaskWorker(taskMapper, router, scheduler, terminal, lock, metrics, properties, clock,
+                recoveryCoordinator, resultRepository, progressAggregator, heartbeatWriter);
     }
 
     @Bean
@@ -276,8 +305,12 @@ public class TaskAutoConfiguration {
                                                     CancellationService cancellation,
                                                     TaskEventPublisher events,
                                                     TaskMetrics metrics,
-                                                    Clock clock) {
-        return new CreateTaskServiceImpl(taskMapper, publisher, idempotency, cancellation, events, metrics, clock);
+                                                    Clock clock,
+                                                    ProcessResultMapper resultMapper,
+                                                    WorkUnitPlanner planner,
+                                                    ObjectMapper objectMapper) {
+        return new CreateTaskServiceImpl(taskMapper, publisher, idempotency, cancellation,
+                events, metrics, clock, resultMapper, planner, objectMapper);
     }
 
     @Bean
@@ -304,6 +337,13 @@ public class TaskAutoConfiguration {
                                                  DownloadService downloadService,
                                                  Clock clock) {
         return new TaskQueryServiceImpl(taskMapper, resultMapper, downloadService, clock);
+    }
+
+    @Bean
+    @ConditionalOnBean(ProcessResultMapper.class)
+    @ConditionalOnMissingBean(TaskOutcomeQuery.class)
+    public TaskOutcomeQuery taskOutcomeQuery(ProcessResultMapper resultMapper) {
+        return new TaskOutcomeQueryImpl(resultMapper);
     }
 
     @Bean

@@ -1,14 +1,14 @@
 package com.pixflow.module.task.internal.stateadapter;
 
-import com.pixflow.harness.state.model.CompletedUnits;
+import com.pixflow.harness.state.model.SkippableWorkUnits;
 import com.pixflow.harness.state.model.TaskRunStatus;
 import com.pixflow.harness.state.model.UnitKey;
+import com.pixflow.harness.state.model.UnitKeyCodec;
 import com.pixflow.harness.state.port.CheckpointReadPort;
 import com.pixflow.module.task.domain.model.ProcessResult;
 import com.pixflow.module.task.domain.model.ProcessTask;
 import com.pixflow.module.task.domain.model.ResultStatus;
 import com.pixflow.module.task.domain.model.TaskStatus;
-import com.pixflow.module.task.domain.model.UnitKind;
 import com.pixflow.module.task.infra.persistence.ProcessResultMapper;
 import com.pixflow.module.task.infra.persistence.ProcessTaskMapper;
 import java.util.List;
@@ -26,15 +26,16 @@ public class CheckpointReadPortImpl implements CheckpointReadPort {
     }
 
     @Override
-    public Optional<CompletedUnits> loadCompletedUnits(String taskId) {
+    public Optional<SkippableWorkUnits> loadSkippableWorkUnits(String taskId) {
         long id = Long.parseLong(taskId);
+        if (taskMapper.selectById(id) == null) {
+            return Optional.empty();
+        }
+        // MySQL SUCCESS 是唯一 checkpoint；FAILED/SKIPPED/PENDING/RUNNING 均不得跳过。
         Set<UnitKey> keys = resultMapper.findByTaskIdAndStatus(id, ResultStatus.SUCCESS).stream()
-                .filter(result -> result.getKind() != UnitKind.GENERATIVE)
-                .map(result -> result.getKind() == UnitKind.GROUP
-                        ? UnitKey.group(taskId, result.getGroupKey(), result.getBranchId())
-                        : UnitKey.branch(taskId, result.getImageId(), result.getBranchId()))
+                .map(result -> UnitKeyCodec.decode(taskId, result.getUnitKey()))
                 .collect(Collectors.toSet());
-        return Optional.of(new CompletedUnits(taskId, keys));
+        return Optional.of(new SkippableWorkUnits(taskId, keys));
     }
 
     @Override

@@ -1,10 +1,12 @@
 package com.pixflow.module.dag.expand;
 
 import com.pixflow.harness.state.model.UnitKind;
-import com.pixflow.module.dag.ir.DagEdge;
-import com.pixflow.module.dag.ir.DagNode;
-import com.pixflow.module.dag.ir.PixelTool;
-import com.pixflow.module.dag.ir.ValidatedDag;
+import com.pixflow.module.dag.exec.ExecutionEdge;
+import com.pixflow.module.dag.exec.ExecutionStep;
+import com.pixflow.module.dag.exec.GroupStep;
+import com.pixflow.module.dag.exec.LocalImageStep;
+import com.pixflow.module.dag.exec.TypedExecutionPlan;
+import com.pixflow.module.dag.exec.LocalImageBindingSpec;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -16,7 +18,7 @@ import java.util.Set;
 import org.springframework.stereotype.Component;
 
 /**
- * BranchExpander:把 ValidatedDag + 图片成员展开为 List&lt;ExecutableBranch&gt;。
+ * BranchExpander:把 TypedExecutionPlan + 图片成员展开为 List&lt;ExecutableBranch&gt;。
  *
  * <p>纯函数、无状态:同输入 → 同输出(含 branchId);被 task 调用于 fan-out 单元计划。
  *
@@ -39,34 +41,34 @@ public class BranchExpander {
      *               组支路按 (groupKey) 分组,组内按 viewId 排序
      * @return 可执行支路列表(每张图或每组至少一条)
      */
-    public List<ExecutableBranch> expand(ValidatedDag dag, List<ImageDescriptor> images) {
+    public List<ExecutableBranch> expand(TypedExecutionPlan dag, List<ImageDescriptor> images) {
         if (images == null) {
             images = List.of();
         }
         // 构建邻接表
         Map<String, List<String>> successors = new HashMap<>();
         Map<String, List<String>> predecessors = new HashMap<>();
-        for (DagNode node : dag.nodes()) {
-            successors.computeIfAbsent(node.id(), k -> new ArrayList<>());
-            predecessors.computeIfAbsent(node.id(), k -> new ArrayList<>());
+        for (ExecutionStep node : dag.steps()) {
+            successors.computeIfAbsent(node.nodeId(), k -> new ArrayList<>());
+            predecessors.computeIfAbsent(node.nodeId(), k -> new ArrayList<>());
         }
-        for (DagEdge edge : dag.edges()) {
+        for (ExecutionEdge edge : dag.edges()) {
             successors.computeIfAbsent(edge.from(), k -> new ArrayList<>()).add(edge.to());
             predecessors.computeIfAbsent(edge.to(), k -> new ArrayList<>()).add(edge.from());
         }
         // 找 source 节点(无前驱)
         List<String> sources = new ArrayList<>();
-        for (DagNode node : dag.nodes()) {
-            if (predecessors.get(node.id()).isEmpty()) {
-                sources.add(node.id());
+        for (ExecutionStep node : dag.steps()) {
+            if (predecessors.get(node.nodeId()).isEmpty()) {
+                sources.add(node.nodeId());
             }
         }
         if (sources.isEmpty()) {
             return List.of();
         }
         // 找 compose_group 节点(用于拆 perMember/post)
-        DagNode composeNode = dag.nodes().stream()
-            .filter(n -> n.tool() == PixelTool.COMPOSE_GROUP)
+        GroupStep composeNode = dag.steps().stream()
+            .filter(GroupStep.class::isInstance).map(GroupStep.class::cast)
             .findFirst()
             .orElse(null);
 
@@ -83,7 +85,7 @@ public class BranchExpander {
             for (List<String> path : allPaths) {
                 String branchId = pathBranchId(dag, path);
                 ExecutableBranch.EncodeTarget encode = inferEncodeTarget(dag, path);
-                List<DagNode> ops = resolveNodes(dag, path);
+                List<ExecutionStep> ops = resolveNodes(dag, path);
                 for (ImageDescriptor img : images) {
                     branches.add(new ExecutableBranch(
                         UnitKind.BRANCH,
@@ -101,17 +103,17 @@ public class BranchExpander {
             // 后续路径(从 compose 出去)为 postOps。
             // 普通成员(非分组的图)按不含 compose 的兄弟路径生成 BRANCH。
             Map<String, List<ImageDescriptor>> byGroup = groupImages(images);
-            List<String> composePredecessors = predecessors.getOrDefault(composeNode.id(), List.of());
-            List<DagNode> perMemberOps = resolveNodes(dag, composePredecessors);
+            List<String> composePredecessors = predecessors.getOrDefault(composeNode.nodeId(), List.of());
+            List<ExecutionStep> perMemberOps = resolveNodes(dag, composePredecessors);
 
             // 找从 compose 出发的所有后继路径(共享 postOps)
-            List<String> postPath = collectPostPath(composeNode.id(), successors);
-            List<DagNode> postOps = resolveNodes(dag, postPath);
+            List<String> postPath = collectPostPath(composeNode.nodeId(), successors);
+            List<ExecutionStep> postOps = resolveNodes(dag, postPath);
 
             // 组支路的 branchId 由 perMemberOps + composeNode + postOps 派生
             List<String> composeBranchPath = new ArrayList<>();
             composeBranchPath.addAll(composePredecessors);
-            composeBranchPath.add(composeNode.id());
+            composeBranchPath.add(composeNode.nodeId());
             composeBranchPath.addAll(postPath);
             String composeBranchId = pathBranchId(dag, composeBranchPath);
             ExecutableBranch.EncodeTarget composeEncode = inferEncodeTarget(dag, composeBranchPath);
@@ -132,12 +134,12 @@ public class BranchExpander {
                 .filter(img -> img.groupKey() == null || img.groupKey().isBlank())
                 .toList();
             for (List<String> otherPath : allPaths) {
-                if (otherPath.contains(composeNode.id())) {
+                if (otherPath.contains(composeNode.nodeId())) {
                     continue; // 只展开"不含 compose"的兄弟路径作为普通成员
                 }
                 String otherBranchId = pathBranchId(dag, otherPath);
                 ExecutableBranch.EncodeTarget otherEncode = inferEncodeTarget(dag, otherPath);
-                List<DagNode> otherOps = resolveNodes(dag, otherPath);
+                List<ExecutionStep> otherOps = resolveNodes(dag, otherPath);
                 for (ImageDescriptor img : singles) {
                     branches.add(new ExecutableBranch(
                         UnitKind.BRANCH,
@@ -196,14 +198,14 @@ public class BranchExpander {
         visited.remove(cur);
     }
 
-    private List<DagNode> resolveNodes(ValidatedDag dag, List<String> pathIds) {
-        Map<String, DagNode> byId = new LinkedHashMap<>();
-        for (DagNode node : dag.nodes()) {
-            byId.put(node.id(), node);
+    private List<ExecutionStep> resolveNodes(TypedExecutionPlan dag, List<String> pathIds) {
+        Map<String, ExecutionStep> byId = new LinkedHashMap<>();
+        for (ExecutionStep node : dag.steps()) {
+            byId.put(node.nodeId(), node);
         }
-        List<DagNode> result = new ArrayList<>();
+        List<ExecutionStep> result = new ArrayList<>();
         for (String id : pathIds) {
-            DagNode node = byId.get(id);
+            ExecutionStep node = byId.get(id);
             if (node != null) {
                 result.add(node);
             }
@@ -211,26 +213,24 @@ public class BranchExpander {
         return result;
     }
 
-    private String pathBranchId(ValidatedDag dag, List<String> path) {
-        List<DagNode> nodes = resolveNodes(dag, path);
+    private String pathBranchId(TypedExecutionPlan dag, List<String> path) {
+        List<ExecutionStep> nodes = resolveNodes(dag, path);
         List<Map<String, Object>> params = new ArrayList<>();
-        for (DagNode n : nodes) {
-            params.add(n.params());
+        for (ExecutionStep n : nodes) {
+            params.add(Map.of("step", n.toString()));
         }
         return BranchId.derive(path, params);
     }
 
-    private ExecutableBranch.EncodeTarget inferEncodeTarget(ValidatedDag dag, List<String> path) {
+    private ExecutableBranch.EncodeTarget inferEncodeTarget(TypedExecutionPlan dag, List<String> path) {
         // 末端节点若是 convert_format,用其格式;否则默认 JPEG
-        List<DagNode> nodes = resolveNodes(dag, path);
+        List<ExecutionStep> nodes = resolveNodes(dag, path);
         for (int i = nodes.size() - 1; i >= 0; i--) {
-            DagNode n = nodes.get(i);
-            if (n.tool() == PixelTool.CONVERT_FORMAT) {
-                Object fmt = n.params().get("targetFormat");
-                Object quality = n.params().get("quality");
-                String format = fmt instanceof String s ? s : "JPEG";
-                Integer q = quality instanceof Number num ? num.intValue() : null;
-                return new ExecutableBranch.EncodeTarget(format, q);
+            ExecutionStep n = nodes.get(i);
+            if (n instanceof LocalImageStep local
+                    && local.typedSpec() instanceof LocalImageBindingSpec.ConvertFormat spec) {
+                return new ExecutableBranch.EncodeTarget(
+                        spec.value().targetFormat().name(), spec.value().quality());
             }
         }
         return ExecutableBranch.EncodeTarget.defaultJpeg();

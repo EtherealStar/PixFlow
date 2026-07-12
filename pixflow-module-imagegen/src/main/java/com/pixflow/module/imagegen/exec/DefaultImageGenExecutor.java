@@ -34,7 +34,7 @@ import org.slf4j.LoggerFactory;
  *   <li>{@code imageGenClient.generate} 重绘</li>
  *   <li>字节预检:result.image.length 超过 {@code output.max-output-bytes} → 抛 {@code IMAGEGEN_OUTPUT_BYTES_TOO_LARGE}
  *       (生成图字节防护;不调 put)</li>
- *   <li>{@code objectStorage.put} 落 {@code GENERATED} 桶,key 用 {@code StorageKeys.generated}</li>
+ *   <li>{@code objectStorage.put} 落 {@code GENERATED} 桶，key 使用 Work Unit 与 execution epoch 寻址</li>
  *   <li>返回 {@link GeneratedArtifact}</li>
  * </ol>
  *
@@ -109,14 +109,8 @@ public class DefaultImageGenExecutor implements ImageGenExecutor {
         }
 
         // 5. 落 GENERATED 桶
-        ObjectLocation outputLoc = StorageKeys.generated(
-            hashTaskId(spec.taskId()),
-            spec.skuId(),
-            // StorageKeys.generated 接受 long imageId;spec.sourceImageId 是 String,
-            // 数字串直接 parseLong;非数字走 SHA-256 摘要前 8 字节
-            // (同一 imageId 多次跑 key 一致,支持 redraw 幂等)。
-            hashImageId(spec.sourceImageId()),
-            spec.outputExt());
+        ObjectLocation outputLoc = StorageKeys.generatedUnit(
+            spec.taskId(), spec.unitKeyHash(), spec.runEpoch(), spec.outputExt());
         ObjectRef ref;
         try (InputStream in = new ByteArrayInputStream(result.image())) {
             ref = objectStorage.put(outputLoc, in, result.image().length, result.contentType());
@@ -166,41 +160,6 @@ public class DefaultImageGenExecutor implements ImageGenExecutor {
         return new ChatOptions(temp, seed, Duration.ofSeconds(60));
     }
 
-    /**
-     * 把 String imageId 折算为 long(用于 {@link StorageKeys#generated})。
-     *
-     * <p>策略:优先 parseLong(若 imageId 本身就是数字串);否则取 SHA-256 摘要前 8 字节的 long 值。
-     * 该转换仅用于落桶 key 命名,不影响 ImagegenPlan 自身 imageId 字段的事实。
-     */
-    private static long hashImageId(String imageId) {
-        return stableHashToLong(imageId);
-    }
-
-    /** 把 String taskId 折算为 long(用于 {@link StorageKeys#generated})。 */
-    private static long hashTaskId(String taskId) {
-        return stableHashToLong(taskId);
-    }
-
-    private static long stableHashToLong(String value) {
-        if (value == null || value.isBlank()) {
-            return 0L;
-        }
-        try {
-            return Long.parseLong(value);
-        } catch (NumberFormatException ignored) {
-            try {
-                byte[] digest = java.security.MessageDigest.getInstance("SHA-256")
-                    .digest(value.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-                long v = 0L;
-                for (int i = 0; i < 8; i++) {
-                    v = (v << 8) | (digest[i] & 0xFFL);
-                }
-                return v;
-            } catch (java.security.NoSuchAlgorithmException e) {
-                throw new IllegalStateException("SHA-256 不可用", e);
-            }
-        }
-    }
 
     /** 默认输出扩展名(供单元 / 集成测试或上层组装 spec 时引用)。 */
     public String defaultOutputExt() {

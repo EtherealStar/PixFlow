@@ -5,7 +5,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.pixflow.module.dag.ir.DagJsonReader;
 import com.pixflow.module.dag.ir.DagSchemaVersion;
 import com.pixflow.module.dag.ir.PixelTool;
-import com.pixflow.module.dag.ir.ValidatedDag;
+import com.pixflow.module.dag.exec.TypedExecutionPlan;
+import com.pixflow.module.dag.TestPlans;
 import com.pixflow.module.dag.validate.DagValidator;
 import com.pixflow.module.dag.validate.ParamSchemaRegistry;
 import java.util.List;
@@ -27,13 +28,13 @@ class BranchExpanderTest {
         expander = new BranchExpander();
     }
 
-    private ValidatedDag parse(String json) {
-        return validator.toValidated(reader.read(json), new DagSchemaVersion("1.0"));
+    private TypedExecutionPlan parse(String json) {
+        return TestPlans.compile(json);
     }
 
     @Test
     void expand_singleNode_producesOneBranchPerImage() {
-        ValidatedDag dag = parse("""
+        TypedExecutionPlan dag = parse("""
             {"nodes":[{"id":"n1","tool":"resize","params":{"width":800}}],"edges":[]}
             """);
         List<ImageDescriptor> images = List.of(
@@ -44,7 +45,7 @@ class BranchExpanderTest {
         assertThat(branches).hasSize(2);
         assertThat(branches).allSatisfy(b -> {
             assertThat(b.kind()).isEqualTo(com.pixflow.harness.state.model.UnitKind.BRANCH);
-            assertThat(b.composeNode()).isNull();
+            assertThat(b.composeStep()).isNull();
             assertThat(b.perMemberOps()).hasSize(1);
             assertThat(b.perMemberOps().get(0).tool()).isEqualTo(PixelTool.RESIZE);
         });
@@ -54,7 +55,7 @@ class BranchExpanderTest {
 
     @Test
     void expand_linearChain_producesLinearOps() {
-        ValidatedDag dag = parse("""
+        TypedExecutionPlan dag = parse("""
             {
               "nodes":[
                 {"id":"n1","tool":"remove_bg","params":{}},
@@ -67,14 +68,14 @@ class BranchExpanderTest {
         var branches = expander.expand(dag, List.of(ImageDescriptor.single("i1", "sku1", "k")));
         assertThat(branches).hasSize(1);
         ExecutableBranch b = branches.get(0);
-        assertThat(b.perMemberOps()).extracting(n -> n.id())
+        assertThat(b.perMemberOps()).extracting(n -> n.nodeId())
             .containsExactly("n1", "n2", "n3");
     }
 
     @Test
     void expand_branchingGraph_producesMultiplePaths() {
         // n1 → n2, n1 → n3(分叉):两条支路
-        ValidatedDag dag = parse("""
+        TypedExecutionPlan dag = parse("""
             {
               "nodes":[
                 {"id":"n1","tool":"remove_bg","params":{}},
@@ -93,7 +94,7 @@ class BranchExpanderTest {
 
     @Test
     void expand_composeGroup_producesPerMemberComposeAndPost() {
-        ValidatedDag dag = parse("""
+        TypedExecutionPlan dag = parse("""
             {
               "nodes":[
                 {"id":"n1","tool":"resize","params":{"width":100}},
@@ -117,15 +118,15 @@ class BranchExpanderTest {
             .filter(b -> b.kind() == com.pixflow.harness.state.model.UnitKind.GROUP)
             .findFirst().orElseThrow();
         assertThat(groupBranch.perMemberOps()).hasSize(2);
-        assertThat(groupBranch.composeNode()).isNotNull();
-        assertThat(groupBranch.composeNode().id()).isEqualTo("c");
+        assertThat(groupBranch.composeStep()).isNotNull();
+        assertThat(groupBranch.composeStep().nodeId()).isEqualTo("c");
         assertThat(groupBranch.postOps()).hasSize(1);
-        assertThat(groupBranch.postOps().get(0).id()).isEqualTo("p");
+        assertThat(groupBranch.postOps().get(0).nodeId()).isEqualTo("p");
     }
 
     @Test
     void expand_determinism_sameInput_sameBranches() {
-        ValidatedDag dag = parse("""
+        TypedExecutionPlan dag = parse("""
             {
               "nodes":[
                 {"id":"n1","tool":"remove_bg","params":{}},
@@ -145,7 +146,7 @@ class BranchExpanderTest {
 
     @Test
     void expand_encodeTarget_infersFromConvertFormat() {
-        ValidatedDag dag = parse("""
+        TypedExecutionPlan dag = parse("""
             {
               "nodes":[
                 {"id":"n1","tool":"remove_bg","params":{}},
@@ -161,7 +162,7 @@ class BranchExpanderTest {
 
     @Test
     void expand_defaultEncodeTarget_isJpeg() {
-        ValidatedDag dag = parse("""
+        TypedExecutionPlan dag = parse("""
             {"nodes":[{"id":"n1","tool":"resize","params":{"width":800}}],"edges":[]}
             """);
         var branches = expander.expand(dag, List.of(ImageDescriptor.single("i1", "sku1", "k")));
@@ -171,7 +172,7 @@ class BranchExpanderTest {
 
     @Test
     void expand_emptyImages_noBranches() {
-        ValidatedDag dag = parse("""
+        TypedExecutionPlan dag = parse("""
             {"nodes":[{"id":"n1","tool":"resize","params":{"width":800}}],"edges":[]}
             """);
         var branches = expander.expand(dag, List.of());
@@ -180,7 +181,7 @@ class BranchExpanderTest {
 
     @Test
     void expand_groupBranchMemberId_isGroupKey() {
-        ValidatedDag dag = parse("""
+        TypedExecutionPlan dag = parse("""
             {
               "nodes":[
                 {"id":"n1","tool":"resize","params":{"width":100}},

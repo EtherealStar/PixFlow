@@ -15,7 +15,7 @@ import java.util.Objects;
  *   branchId = sha256( pathHash + "|" + paramHash )
  * </pre>
  *
- * <p>同一 ValidatedDag 的同一条 source→sink 路径,每次调用得到相同 branchId。
+ * <p>同一类型化计划的同一条 source→sink 路径,每次调用得到相同 branchId。
  * 这保证崩溃恢复时 {@code UnitKey.branchId} 对得上 process_result.branch_id。
  */
 public final class BranchId {

@@ -1,8 +1,10 @@
 package com.pixflow.module.task.infra.lock;
 
 import com.pixflow.infra.cache.lock.LockTemplate;
+import com.pixflow.infra.cache.lock.LockGuard;
 import com.pixflow.module.task.infra.cache.TaskCacheKeys;
 import java.time.Duration;
+import java.util.function.Consumer;
 
 public class TaskLockManager {
     private final LockTemplate lockTemplate;
@@ -15,7 +17,7 @@ public class TaskLockManager {
         this.waitTime = waitTime;
     }
 
-    public boolean tryRunWithTaskLock(String taskId, Runnable action) {
+    public boolean tryRunWithTaskLock(String taskId, Consumer<LockGuard> action) {
         return lockTemplate.tryRunWithLock(keys.executionLockKey(taskId), waitTime, action);
     }
 }

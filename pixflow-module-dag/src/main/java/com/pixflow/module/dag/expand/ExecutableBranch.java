@@ -1,7 +1,8 @@
 package com.pixflow.module.dag.expand;
 
 import com.pixflow.harness.state.model.UnitKind;
-import com.pixflow.module.dag.ir.DagNode;
+import com.pixflow.module.dag.exec.ExecutionStep;
+import com.pixflow.module.dag.exec.GroupStep;
 import java.util.List;
 
 /**
@@ -19,9 +20,9 @@ public record ExecutableBranch(
     UnitKind kind,
     String branchId,
     String memberId,
-    List<DagNode> perMemberOps,
-    DagNode composeNode,
-    List<DagNode> postOps,
+    List<ExecutionStep> perMemberOps,
+    GroupStep composeStep,
+    List<ExecutionStep> postOps,
     EncodeTarget encode
 ) {
     public ExecutableBranch {

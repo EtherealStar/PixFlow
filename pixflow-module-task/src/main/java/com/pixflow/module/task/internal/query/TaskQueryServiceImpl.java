@@ -17,7 +17,6 @@ import com.pixflow.module.task.domain.error.TaskErrorCode;
 import com.pixflow.module.task.domain.model.ProcessResult;
 import com.pixflow.module.task.domain.model.ProcessTask;
 import com.pixflow.module.task.domain.model.ResultStatus;
-import com.pixflow.module.task.domain.model.UnitKind;
 import com.pixflow.module.task.infra.persistence.ProcessResultMapper;
 import com.pixflow.module.task.infra.persistence.ProcessTaskMapper;
 import com.pixflow.module.task.internal.download.DownloadService;
@@ -155,7 +154,7 @@ public class TaskQueryServiceImpl implements TaskQueryService {
                 String.valueOf(result.getTaskId()),
                 task.getConversationId(),
                 result.getStatus(),
-                result.getKind(),
+                result.getUnitKind(),
                 result.getImageId(),
                 result.getSkuId(),
                 result.getGroupKey(),
@@ -182,7 +181,8 @@ public class TaskQueryServiceImpl implements TaskQueryService {
         if (result.getDisplayName() != null && !result.getDisplayName().isBlank()) {
             return result.getDisplayName();
         }
-        String suffix = result.getKind() == UnitKind.GENERATIVE ? "generated" : "result";
+        String suffix = result.getUnitKind() == com.pixflow.harness.state.model.UnitKind.GENERATIVE
+                ? "generated" : "result";
         String member = result.getGroupKey() != null ? result.getGroupKey() : result.getImageId();
         String branch = result.getBranchId() == null ? "default" : result.getBranchId();
         return "%s_%s_%s.png".formatted(member == null ? "item" : member, branch, suffix);

@@ -1,6 +1,6 @@
 package com.pixflow.harness.state.port;
 
-import com.pixflow.harness.state.model.CompletedUnits;
+import com.pixflow.harness.state.model.SkippableWorkUnits;
 import com.pixflow.harness.state.model.ProgressView.PersistedProgress;
 import com.pixflow.harness.state.model.TaskRunStatus;
 import java.util.List;
@@ -8,7 +8,7 @@ import java.util.Optional;
 
 public interface CheckpointReadPort {
 
-    Optional<CompletedUnits> loadCompletedUnits(String taskId);
+    Optional<SkippableWorkUnits> loadSkippableWorkUnits(String taskId);
 
     Optional<PersistedCounts> loadCounts(String taskId);
 

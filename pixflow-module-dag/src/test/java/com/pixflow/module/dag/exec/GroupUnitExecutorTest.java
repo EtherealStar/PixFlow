@@ -13,7 +13,7 @@ import com.pixflow.module.dag.ir.DagJsonReader;
 import com.pixflow.module.dag.ir.DagNode;
 import com.pixflow.module.dag.ir.DagSchemaVersion;
 import com.pixflow.module.dag.ir.PixelTool;
-import com.pixflow.module.dag.ir.ValidatedDag;
+import com.pixflow.module.dag.TestPlans;
 import com.pixflow.module.dag.validate.DagValidator;
 import com.pixflow.module.dag.validate.ParamSchemaRegistry;
 import java.io.ByteArrayInputStream;
@@ -56,7 +56,7 @@ class GroupUnitExecutorTest {
               ]
             }
             """;
-        ValidatedDag dag = validator.toValidated(reader.read(json), new DagSchemaVersion("1.0"));
+        var dag = TestPlans.compile(json);
         var images = List.of(
             ImageDescriptor.grouped("img1", "g1", "v1", "k1"),
             ImageDescriptor.grouped("img2", "g1", "v2", "k2")
@@ -73,7 +73,8 @@ class GroupUnitExecutorTest {
                                         GroupUnitExecutor.PixelPipeline pipeline,
                                         GroupUnitExecutor.ResultWriter writer) {
         return new GroupUnitExecutor(properties, normalizer, reader, bg, pipeline, writer,
-            new NodeDispatcher(new SpecMapper()));
+            new TypedImageOpFactory(spec -> { throw new AssertionError("unexpected watermark"); },
+                    spec -> { throw new AssertionError("unexpected background image"); }), null);
     }
 
     @Test
@@ -106,7 +107,7 @@ class GroupUnitExecutorTest {
         assertThat(outcome.members()).hasSize(2);
         assertThat(pipelineCalled.get()).isEqualTo(1);
         assertThat(writerCalled.get()).isEqualTo(1);
-        assertThat(outcome.outputObjectKey()).contains("g1");
+        assertThat(outcome.outputObjectKey()).isEqualTo("test/output.jpg");
     }
 
     @Test

@@ -19,10 +19,12 @@ public class ProcessTask {
     private Integer totalCount;
     private Integer doneCount;
     private String dagJson;
+    private String unitSelectionJson;
     private String payloadHash;
     private String schemaVersion;
+    private Long retryOfTaskId;
+    private Long runEpoch;
     private String workerId;
-    private Integer attemptCount;
     private Instant enqueuedAt;
     private Instant startedAt;
     private Instant finishedAt;
@@ -54,14 +56,18 @@ public class ProcessTask {
     public void setDoneCount(Integer doneCount) { this.doneCount = doneCount; }
     public String getDagJson() { return dagJson; }
     public void setDagJson(String dagJson) { this.dagJson = dagJson; }
+    public String getUnitSelectionJson() { return unitSelectionJson; }
+    public void setUnitSelectionJson(String unitSelectionJson) { this.unitSelectionJson = unitSelectionJson; }
     public String getPayloadHash() { return payloadHash; }
     public void setPayloadHash(String payloadHash) { this.payloadHash = payloadHash; }
     public String getSchemaVersion() { return schemaVersion; }
     public void setSchemaVersion(String schemaVersion) { this.schemaVersion = schemaVersion; }
+    public Long getRetryOfTaskId() { return retryOfTaskId; }
+    public void setRetryOfTaskId(Long retryOfTaskId) { this.retryOfTaskId = retryOfTaskId; }
+    public Long getRunEpoch() { return runEpoch; }
+    public void setRunEpoch(Long runEpoch) { this.runEpoch = runEpoch; }
     public String getWorkerId() { return workerId; }
     public void setWorkerId(String workerId) { this.workerId = workerId; }
-    public Integer getAttemptCount() { return attemptCount; }
-    public void setAttemptCount(Integer attemptCount) { this.attemptCount = attemptCount; }
     public Instant getEnqueuedAt() { return enqueuedAt; }
     public void setEnqueuedAt(Instant enqueuedAt) { this.enqueuedAt = enqueuedAt; }
     public Instant getStartedAt() { return startedAt; }
