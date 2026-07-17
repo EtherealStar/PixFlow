@@ -10,9 +10,13 @@ import java.util.Map;
  */
 public class PixFlowException extends RuntimeException {
     private final ErrorCode code;
+
     private final Map<String, Object> details;
+
     private final RecoveryHint recoveryOverride;
+
     private final Duration retryAfter;
+
     private final String traceId;
 
     public PixFlowException(ErrorCode code, String message) {

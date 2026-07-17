@@ -37,6 +37,7 @@ import org.springframework.web.multipart.MultipartFile;
 @RestController
 public class FileController {
     private final FileService fileService;
+
     private final UploadSessionService uploadSessionService;
 
     public FileController(FileService fileService, UploadSessionService uploadSessionService) {
@@ -54,7 +55,9 @@ public class FileController {
         return ApiResponse.ok(uploadSessionService.getSession(uploadId));
     }
 
-    @PutMapping(path = "/api/files/packages/sessions/{uploadId}/chunks/{index}", consumes = MediaType.APPLICATION_OCTET_STREAM_VALUE)
+    @PutMapping(
+            path = "/api/files/packages/sessions/{uploadId}/chunks/{index}",
+            consumes = MediaType.APPLICATION_OCTET_STREAM_VALUE)
     public ApiResponse<PutChunkResponse> putChunk(
             @PathVariable String uploadId,
             @PathVariable int index,

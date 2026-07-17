@@ -14,9 +14,13 @@ import java.util.HexFormat;
  */
 final class ChunkInputVerifier extends FilterInputStream {
     private final MessageDigest digest;
+
     private final long expectedSize;
+
     private final String expectedHash;
+
     private long bytesRead;
+
     private boolean completed;
 
     ChunkInputVerifier(InputStream in, long expectedSize, String expectedHash) {

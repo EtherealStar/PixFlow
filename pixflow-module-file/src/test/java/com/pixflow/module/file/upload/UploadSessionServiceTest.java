@@ -215,6 +215,9 @@ class UploadSessionServiceTest {
         @Override public void deleteByPrefix(BucketType bucket, String prefix) {
             values.keySet().removeIf(location -> location.bucket() == bucket && location.key().startsWith(prefix));
         }
+        @Override public ObjectRef copy(ObjectLocation source, ObjectLocation target) {
+            throw new UnsupportedOperationException();
+        }
         @Override public URL presignGet(ObjectLocation loc, Duration ttl) { throw new UnsupportedOperationException(); }
         @Override public URL presignPut(ObjectLocation loc, Duration ttl) { throw new UnsupportedOperationException(); }
     }

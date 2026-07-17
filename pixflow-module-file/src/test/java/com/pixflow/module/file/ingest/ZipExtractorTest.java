@@ -55,7 +55,7 @@ class ZipExtractorTest {
 
     @Test
     void validImagesAreStoredInsertedAndReportedReady() {
-        when(objectStorage.getStream(StorageKeys.packageSource(99L))).thenReturn(zipStream(
+        when(objectStorage.getStream(StorageKeys.packageSource(99L, "zip"))).thenReturn(zipStream(
                 entry("G1_SKU9_FRONT.png", pngBytes()),
                 entry("SKU8_SIDE.jpg", jpgBytes())));
         when(objectStorage.put(any(), any(InputStream.class), any(Long.class), any()))
@@ -81,7 +81,7 @@ class ZipExtractorTest {
 
     @Test
     void invalidImageIsRecordedAndPackageEndsPartialWhenAnotherImageSucceeds() {
-        when(objectStorage.getStream(StorageKeys.packageSource(99L))).thenReturn(zipStream(
+        when(objectStorage.getStream(StorageKeys.packageSource(99L, "zip"))).thenReturn(zipStream(
                 entry("SKU9_FRONT.png", pngBytes()),
                 entry("SKU9_BAD.jpg", "not an image".getBytes())));
         when(objectStorage.put(any(), any(InputStream.class), any(Long.class), any()))
@@ -101,7 +101,7 @@ class ZipExtractorTest {
 
     @Test
     void packageWithNoValidImagesFinishesFailedAndThrowsDomainException() {
-        when(objectStorage.getStream(StorageKeys.packageSource(99L))).thenReturn(zipStream(
+        when(objectStorage.getStream(StorageKeys.packageSource(99L, "zip"))).thenReturn(zipStream(
                 entry("SKU9_BAD.jpg", "not an image".getBytes())));
 
         assertThatThrownBy(() -> extractor.extract(99L))

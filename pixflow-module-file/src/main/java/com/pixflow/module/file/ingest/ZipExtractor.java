@@ -21,20 +21,26 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.time.Clock;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
 public class ZipExtractor {
     private final ObjectStorage objectStorage;
+
     private final AssetPackageService packageService;
+
     private final AssetImageMapper imageMapper;
+
     private final AssetIngestErrorMapper errorMapper;
+
     private final FileNameParser fileNameParser;
+
     private final ImageAdmission imageAdmission;
+
     private final FileProperties properties;
+
     private final ProgressNotifier progressNotifier;
+
     private final Clock clock;
 
     public ZipExtractor(
@@ -63,7 +69,7 @@ public class ZipExtractor {
         int total = 0;
         int extracted = 0;
         int failures = 0;
-        try (InputStream source = objectStorage.getStream(StorageKeys.packageSource(packageId));
+        try (InputStream source = objectStorage.getStream(StorageKeys.packageSource(packageId, "zip"));
              ZipInputStream zip = new ZipInputStream(source)) {
             ZipEntry entry;
             while ((entry = zip.getNextEntry()) != null) {
@@ -74,7 +80,8 @@ public class ZipExtractor {
                 enforceZipLimits(total, entry);
                 String relPath = ZipPathValidator.validate(entry.getName());
                 byte[] bytes = readEntry(zip, entry);
-                ImageAdmission.AdmissionResult admission = imageAdmission.inspect(relPath, bytes, bytes.length);
+                ImageAdmission.AdmissionResult admission =
+                        imageAdmission.inspect(relPath, bytes, bytes.length);
                 if (!admission.accepted()) {
                     failures++;
                     recordError(packageId, relPath, IngestStage.IMAGE_ADMISSION, admission.code(), admission.message());
@@ -87,7 +94,12 @@ public class ZipExtractor {
                     publishProgress(packageId, extracted, total, PackageStatus.EXTRACTING);
                 } catch (RuntimeException ex) {
                     failures++;
-                    recordError(packageId, relPath, IngestStage.STORAGE_UPLOAD, "STORAGE_UPLOAD_FAILED", ex.getMessage());
+                    recordError(
+                            packageId,
+                            relPath,
+                            IngestStage.STORAGE_UPLOAD,
+                            "STORAGE_UPLOAD_FAILED",
+                            ex.getMessage());
                 }
             }
         } catch (IOException ex) {

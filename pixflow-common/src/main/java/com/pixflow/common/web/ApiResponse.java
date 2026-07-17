@@ -25,11 +25,27 @@ public record ApiResponse<T>(
 
     public static <T> ApiResponse<T> error(PixFlowException error, String safeMessage) {
         String message = Sanitizer.sanitizeMessage(safeMessage);
-        return new ApiResponse<>(false, error.code().code(), message, null, sanitizeDetails(error.details()), error.traceId());
+        return new ApiResponse<>(
+                false,
+                error.code().code(),
+                message,
+                null,
+                sanitizeDetails(error.details()),
+                error.traceId());
     }
 
-    public static <T> ApiResponse<T> error(String code, String message, Map<String, Object> details, String traceId) {
-        return new ApiResponse<>(false, code, Sanitizer.sanitizeMessage(message), null, sanitizeDetails(details), traceId);
+    public static <T> ApiResponse<T> error(
+            String code,
+            String message,
+            Map<String, Object> details,
+            String traceId) {
+        return new ApiResponse<>(
+                false,
+                code,
+                Sanitizer.sanitizeMessage(message),
+                null,
+                sanitizeDetails(details),
+                traceId);
     }
 
     public static <T> ApiResponse<T> error(PixFlowException error) {
@@ -37,7 +53,13 @@ public record ApiResponse<T>(
     }
 
     public static <T> ApiResponse<T> failure(String message) {
-        return new ApiResponse<>(false, CommonErrorCode.INTERNAL_ERROR.code(), Sanitizer.sanitizeMessage(message), null, null, null);
+        return new ApiResponse<>(
+                false,
+                CommonErrorCode.INTERNAL_ERROR.code(),
+                Sanitizer.sanitizeMessage(message),
+                null,
+                null,
+                null);
     }
 
     private static Map<String, Object> sanitizeDetails(Map<String, Object> details) {

@@ -8,7 +8,9 @@ import java.util.concurrent.atomic.AtomicReference;
 
 public final class CancellationSource {
     private final AtomicReference<CancellationReason> reason = new AtomicReference<>();
+
     private final CompletableFuture<Void> signal = new CompletableFuture<>();
+
     private final CancellationToken token = new SourceToken();
 
     public CancellationToken token() {

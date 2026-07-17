@@ -8,7 +8,6 @@ import java.util.Optional;
  * <p>由 {@code harness/context} 定义，{@code agent} 模块在 Wave 5 实现。
  * 沿用 PixFlow 跨模块 SPI 倒置手法（与
  * {@code context.TranscriptPort} ← session、
- * {@code contracts.ConfirmationTokenStore} ← cache、
  * {@code common.ErrorRecorder} ← eval 同款）。
  *
  * <p>对应 {@code agent.md §7.7} 的 SPI 契约：4 方法

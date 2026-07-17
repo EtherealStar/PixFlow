@@ -22,6 +22,7 @@ public enum ErrorCategory {
     INTERNAL(RecoveryHint.TERMINATE, HttpStatus.INTERNAL_SERVER_ERROR);
 
     private final RecoveryHint defaultRecovery;
+
     private final HttpStatus defaultHttpStatus;
 
     ErrorCategory(RecoveryHint defaultRecovery, HttpStatus defaultHttpStatus) {

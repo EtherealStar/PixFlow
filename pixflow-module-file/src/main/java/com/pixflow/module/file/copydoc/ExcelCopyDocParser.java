@@ -12,6 +12,7 @@ import org.apache.poi.ss.usermodel.WorkbookFactory;
 
 public class ExcelCopyDocParser implements CopyDocParser {
     private final FileProperties properties;
+
     private final DataFormatter formatter = new DataFormatter();
 
     public ExcelCopyDocParser(FileProperties properties) {

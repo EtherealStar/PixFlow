@@ -9,6 +9,7 @@ import java.util.List;
 
 public class DefaultPackageReferenceResolver implements PackageReferenceResolver {
     private final AssetPackageService packageService;
+
     private final AssetImageMapper imageMapper;
 
     public DefaultPackageReferenceResolver(AssetPackageService packageService, AssetImageMapper imageMapper) {

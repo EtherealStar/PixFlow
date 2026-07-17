@@ -20,6 +20,7 @@ public enum CommonErrorCode implements ErrorCode {
     TOOL_FAILURE("TOOL_FAILURE", ErrorCategory.TOOL);
 
     private final String code;
+
     private final ErrorCategory category;
 
     CommonErrorCode(String code, ErrorCategory category) {

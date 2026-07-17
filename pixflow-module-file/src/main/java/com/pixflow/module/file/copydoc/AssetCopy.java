@@ -8,10 +8,15 @@ import com.baomidou.mybatisplus.annotation.TableName;
 public class AssetCopy {
     @TableId(type = IdType.AUTO)
     private Long id;
+
     private Long packageId;
+
     private String skuId;
+
     private String productName;
+
     private String keywords;
+
     private String description;
 
     public Long getId() {

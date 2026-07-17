@@ -9,6 +9,7 @@ import java.util.stream.Collectors;
 
 public class CopyDocColumnMapping {
     private final Map<String, String> normalizedHeaders;
+
     private final FileProperties.Copydoc properties;
 
     public CopyDocColumnMapping(List<String> headers, FileProperties.Copydoc properties) {

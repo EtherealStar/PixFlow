@@ -7,7 +7,9 @@ import java.util.stream.Collectors;
 
 public class ImageAdmission {
     private final Set<String> allowedExtensions;
+
     private final boolean magicBytesCheck;
+
     private final long maxImageBytes;
 
     public ImageAdmission(FileProperties properties) {
@@ -38,7 +40,9 @@ public class ImageAdmission {
             return false;
         }
         return switch (extension) {
-            case "jpg", "jpeg" -> unsigned(header[0]) == 0xFF && unsigned(header[1]) == 0xD8 && unsigned(header[2]) == 0xFF;
+            case "jpg", "jpeg" -> unsigned(header[0]) == 0xFF
+                    && unsigned(header[1]) == 0xD8
+                    && unsigned(header[2]) == 0xFF;
             case "png" -> header.length >= 8
                     && unsigned(header[0]) == 0x89 && header[1] == 0x50 && header[2] == 0x4E && header[3] == 0x47
                     && header[4] == 0x0D && header[5] == 0x0A && header[6] == 0x1A && header[7] == 0x0A;

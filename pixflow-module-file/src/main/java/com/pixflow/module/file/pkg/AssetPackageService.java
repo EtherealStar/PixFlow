@@ -11,8 +11,11 @@ import java.time.Instant;
 
 public class AssetPackageService {
     private final AssetPackageMapper packageMapper;
+
     private final PackageReferenceChecker referenceChecker;
+
     private final ObjectStorage objectStorage;
+
     private final Clock clock;
 
     public AssetPackageService(

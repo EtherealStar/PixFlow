@@ -93,6 +93,9 @@ class VisionServiceAutoConfigurationSentinelTest {
                 }
                 @Override public void delete(ObjectLocation loc) {}
                 @Override public void deleteByPrefix(BucketType bucket, String prefix) {}
+                @Override public ObjectRef copy(ObjectLocation source, ObjectLocation target) {
+                    throw new UnsupportedOperationException();
+                }
                 @Override public URL presignGet(ObjectLocation loc, Duration ttl) { throw new UnsupportedOperationException(); }
                 @Override public URL presignPut(ObjectLocation loc, Duration ttl) { throw new UnsupportedOperationException(); }
             };

@@ -12,14 +12,23 @@ import java.util.regex.Pattern;
  */
 public final class Sanitizer {
     private static final Pattern BEARER_TOKEN = Pattern.compile("Bearer\\s+\\S+", Pattern.CASE_INSENSITIVE);
+
     private static final Pattern OPENAI_KEY = Pattern.compile("sk-[A-Za-z0-9]{16,}");
+
     private static final Pattern ALIYUN_KEY = Pattern.compile("LTAI[A-Za-z0-9]+");
+
     private static final Pattern KEY_VALUE_SECRET = Pattern.compile(
-            "(?i)\\b(api[_-]?key|access[_-]?key[_-]?secret|secret[_-]?key|token|authorization|cookie|password)\\s*[:=]\\s*([^\\s,;}&]+)");
+            "(?i)\\b(api[_-]?key|access[_-]?key[_-]?secret|secret[_-]?key|token|authorization|cookie|password)"
+                    + "\\s*[:=]\\s*([^\\s,;}&]+)");
+
     private static final Pattern EMAIL = Pattern.compile("\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}\\b");
+
     private static final Pattern MAINLAND_PHONE = Pattern.compile("(?<!\\d)1[3-9]\\d{9}(?!\\d)");
+
     private static final Pattern WINDOWS_PATH = Pattern.compile("(?i)[A-Z]:\\\\[^\\s]+");
+
     private static final Pattern UNIX_PATH = Pattern.compile("(?<![A-Za-z0-9_/.-])/(?:[^\\s/]+/)*[^\\s/]+");
+
     private static final int DEFAULT_TRACE_TEXT_LIMIT = 4000;
 
     private Sanitizer() {

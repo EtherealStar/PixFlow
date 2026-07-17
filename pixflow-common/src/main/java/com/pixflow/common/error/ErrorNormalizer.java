@@ -6,7 +6,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeoutException;
 import org.springframework.beans.TypeMismatchException;
-import org.springframework.core.convert.ConversionFailedException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.util.StringUtils;
@@ -49,7 +48,12 @@ public class ErrorNormalizer {
             return invalidParam(ex, "请求参数绑定失败", fieldErrors(bindException.getFieldErrors()));
         }
         if (ex instanceof MissingServletRequestParameterException missing) {
-            return invalidParam(ex, "缺少请求参数", Map.of("parameterName", missing.getParameterName(), "parameterType", missing.getParameterType()));
+            return invalidParam(
+                    ex,
+                    "缺少请求参数",
+                    Map.of(
+                            "parameterName", missing.getParameterName(),
+                            "parameterType", missing.getParameterType()));
         }
         if (ex instanceof HttpMessageNotReadableException) {
             return invalidParam(ex, "请求体无法解析", Map.of("reason", ex.getMessage()));
@@ -71,10 +75,18 @@ public class ErrorNormalizer {
             return invalidParam(ex, "上传文件超过大小限制", Map.of("maxUploadSize", upload.getMaxUploadSize()));
         }
         if (ex instanceof MethodArgumentTypeMismatchException typeMismatch) {
-            return invalidParam(ex, "参数类型不匹配", Map.of("name", typeMismatch.getName(), "value", String.valueOf(typeMismatch.getValue())));
+            return invalidParam(
+                    ex,
+                    "参数类型不匹配",
+                    Map.of("name", typeMismatch.getName(), "value", String.valueOf(typeMismatch.getValue())));
         }
         if (ex instanceof TypeMismatchException typeMismatch) {
-            return invalidParam(ex, "参数类型不匹配", Map.of("value", String.valueOf(typeMismatch.getValue()), "requiredType", typeMismatch.getRequiredType()));
+            return invalidParam(
+                    ex,
+                    "参数类型不匹配",
+                    Map.of(
+                            "value", String.valueOf(typeMismatch.getValue()),
+                            "requiredType", typeMismatch.getRequiredType()));
         }
         if (ex instanceof ResponseStatusException statusException) {
             return fromHttpStatus(statusException, ex);

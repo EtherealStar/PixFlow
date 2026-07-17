@@ -9,7 +9,9 @@ import java.util.Map;
  */
 public record Pagination(long page, long size) {
     public static final long DEFAULT_PAGE = 1L;
+
     public static final long DEFAULT_SIZE = 20L;
+
     public static final long MAX_SIZE = 100L;
 
     public static Pagination of(Long page, Long size) {

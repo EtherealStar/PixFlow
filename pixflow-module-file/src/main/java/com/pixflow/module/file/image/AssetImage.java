@@ -9,14 +9,23 @@ import java.time.Instant;
 public class AssetImage {
     @TableId(type = IdType.AUTO)
     private Long id;
+
     private Long packageId;
+
     private String skuId;
+
     private String groupKey;
+
     private String viewId;
+
     private String minioKey;
+
     private String originalPath;
+
     private String displayName;
+
     private Instant deletedAt;
+
     private Instant createdAt;
 
     public Long getId() {

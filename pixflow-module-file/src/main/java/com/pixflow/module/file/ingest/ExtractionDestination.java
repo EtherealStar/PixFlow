@@ -5,10 +5,13 @@ import com.pixflow.infra.mq.destination.MessageDestination;
 
 public final class ExtractionDestination {
     public static final String TOPIC = "pixflow-file";
+
     public static final String TAG = "PACKAGE_EXTRACT";
+
     public static final String CONSUMER_GROUP = "pixflow-file-extractor";
 
-    private ExtractionDestination() {}
+    private ExtractionDestination() {
+    }
 
     public static MessageDestination destination(long packageId) {
         return MessageDestination.of(TOPIC, TAG).withKey("package:" + packageId);

@@ -9,10 +9,15 @@ import org.springframework.util.unit.DataSize;
 @ConfigurationProperties(prefix = "pixflow.file")
 public class FileProperties {
     private final Upload upload = new Upload();
+
     private final Extract extract = new Extract();
+
     private final Zip zip = new Zip();
+
     private final Image image = new Image();
+
     private final Copydoc copydoc = new Copydoc();
+
     private final PublishGapRescan publishGapRescan = new PublishGapRescan();
 
     public Upload getUpload() {
@@ -41,8 +46,11 @@ public class FileProperties {
 
     public static class Upload {
         private DataSize maxZipSize = DataSize.ofGigabytes(2);
+
         private DataSize maxDocSize = DataSize.ofMegabytes(50);
+
         private DataSize chunkSize = DataSize.ofMegabytes(5);
+
         private Duration sessionTtl = Duration.ofHours(24);
 
         public DataSize getMaxZipSize() {
@@ -80,8 +88,11 @@ public class FileProperties {
 
     public static class Extract {
         private int consumerConcurrency = 2;
+
         private int intraPackageParallelism = 4;
+
         private Duration consumerTimeout = Duration.ofMinutes(30);
+
         private String tempDir = System.getProperty("java.io.tmpdir") + "/pixflow-extract";
 
         public int getConsumerConcurrency() {
@@ -91,7 +102,6 @@ public class FileProperties {
         public void setConsumerConcurrency(int consumerConcurrency) {
             this.consumerConcurrency = consumerConcurrency;
         }
-
 
         public int getIntraPackageParallelism() {
             return intraPackageParallelism;
@@ -120,8 +130,11 @@ public class FileProperties {
 
     public static class Zip {
         private int maxEntries = 50_000;
+
         private DataSize maxTotalBytes = DataSize.ofGigabytes(5);
+
         private DataSize maxEntryBytes = DataSize.ofMegabytes(200);
+
         private int maxCompressionRatio = 100;
 
         public int getMaxEntries() {
@@ -158,8 +171,11 @@ public class FileProperties {
     }
 
     public static class Image {
-        private List<String> allowedExtensions = new ArrayList<>(List.of("jpg", "jpeg", "png", "webp", "bmp", "gif", "tiff"));
+        private List<String> allowedExtensions = new ArrayList<>(
+                List.of("jpg", "jpeg", "png", "webp", "bmp", "gif", "tiff"));
+
         private boolean magicBytesCheck = true;
+
         private DataSize maxImageSize = DataSize.ofMegabytes(200);
 
         public List<String> getAllowedExtensions() {
@@ -189,9 +205,13 @@ public class FileProperties {
 
     public static class Copydoc {
         private CopyDocDuplicatePolicy onDuplicateSku = CopyDocDuplicatePolicy.OVERWRITE;
+
         private List<String> skuIdColumns = new ArrayList<>(List.of("sku_id", "商品编号", "SKU"));
+
         private List<String> productNameColumns = new ArrayList<>(List.of("product_name", "标题", "商品名"));
+
         private List<String> keywordsColumns = new ArrayList<>(List.of("keywords", "关键词"));
+
         private List<String> descriptionColumns = new ArrayList<>(List.of("description", "描述", "详情"));
 
         public CopyDocDuplicatePolicy getOnDuplicateSku() {
@@ -237,6 +257,7 @@ public class FileProperties {
 
     public static class PublishGapRescan {
         private Duration interval = Duration.ofMinutes(1);
+
         private Duration staleAfter = Duration.ofSeconds(30);
 
         public Duration getInterval() {

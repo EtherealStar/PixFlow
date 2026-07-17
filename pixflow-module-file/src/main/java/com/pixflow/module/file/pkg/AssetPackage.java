@@ -9,16 +9,27 @@ import java.time.Instant;
 public class AssetPackage {
     @TableId(type = IdType.AUTO)
     private Long id;
+
     private String name;
+
     private String fileHash;
+
     private String minioZipKey;
+
     private String docKey;
+
     private PackageStatus status;
+
     private Integer imageCount;
+
     private Integer extractedCount;
+
     private String errorSummary;
+
     private Instant deletedAt;
+
     private Instant createdAt;
+
     private Instant updatedAt;
 
     public Long getId() {

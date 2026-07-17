@@ -13,9 +13,13 @@ import java.util.Optional;
 
 public final class RedisUploadSessionStore implements UploadSessionStore {
     private final ExpiringStateStore stateStore;
+
     private final ExpiringHashStore hashStore;
+
     private final CacheNamespace namespace;
+
     private final Duration ttl;
+
     private final Clock clock;
 
     public RedisUploadSessionStore(
@@ -34,16 +38,22 @@ public final class RedisUploadSessionStore implements UploadSessionStore {
     @Override
     public Optional<UploadSnapshot> findByFileHash(String fileHash) {
         Optional<String> uploadId = stateStore.get(fileHashKey(fileHash), String.class);
-        if (uploadId.isEmpty()) return Optional.empty();
+        if (uploadId.isEmpty()) {
+            return Optional.empty();
+        }
         Optional<UploadSnapshot> snapshot = findByUploadId(uploadId.get());
-        if (snapshot.isEmpty()) stateStore.delete(fileHashKey(fileHash));
+        if (snapshot.isEmpty()) {
+            stateStore.delete(fileHashKey(fileHash));
+        }
         return snapshot;
     }
 
     @Override
     public Optional<UploadSnapshot> findByUploadId(String uploadId) {
         Map<String, String> fields = hashStore.entries(sessionKey(uploadId), String.class);
-        if (fields.isEmpty()) return Optional.empty();
+        if (fields.isEmpty()) {
+            return Optional.empty();
+        }
         UploadSession session = decodeSession(uploadId, fields);
         Map<Integer, ChunkMetadata> chunks = new HashMap<>();
         hashStore.entries(chunksKey(uploadId), ChunkMetadata.class)
@@ -67,7 +77,9 @@ public final class RedisUploadSessionStore implements UploadSessionStore {
         } else {
             stateStore.expire(fileHashKey(renewed.fileHash()), ttl);
         }
-        if (!snapshot.chunks().isEmpty()) hashStore.expire(chunksKey(renewed.uploadId()), ttl);
+        if (!snapshot.chunks().isEmpty()) {
+            hashStore.expire(chunksKey(renewed.uploadId()), ttl);
+        }
     }
 
     @Override
@@ -83,7 +95,8 @@ public final class RedisUploadSessionStore implements UploadSessionStore {
 
     @Override
     public ChunkWriteResult recordChunk(String uploadId, ChunkMetadata metadata) {
-        Optional<ChunkMetadata> existing = hashStore.get(chunksKey(uploadId), field(metadata.index()), ChunkMetadata.class);
+        Optional<ChunkMetadata> existing =
+                hashStore.get(chunksKey(uploadId), field(metadata.index()), ChunkMetadata.class);
         if (existing.isPresent()) {
             if (existing.get().chunkHash().equalsIgnoreCase(metadata.chunkHash())) {
                 findByUploadId(uploadId).ifPresent(this::touch);
@@ -123,8 +136,11 @@ public final class RedisUploadSessionStore implements UploadSessionStore {
         put(key, "chunkSize", Long.toString(session.chunkSize()));
         put(key, "expectedChunks", Integer.toString(session.expectedChunks()));
         put(key, "status", session.status());
-        if (session.packageId() == null) hashStore.deleteField(key, "packageId");
-        else put(key, "packageId", Long.toString(session.packageId()));
+        if (session.packageId() == null) {
+            hashStore.deleteField(key, "packageId");
+        } else {
+            put(key, "packageId", Long.toString(session.packageId()));
+        }
         put(key, "createdAt", session.createdAt().toString());
         put(key, "updatedAt", session.updatedAt().toString());
         put(key, "expiresAt", session.expiresAt().toString());
@@ -151,7 +167,9 @@ public final class RedisUploadSessionStore implements UploadSessionStore {
 
     private static String required(Map<String, String> fields, String field) {
         String value = fields.get(field);
-        if (value == null) throw new IllegalStateException("上传会话缺少字段: " + field);
+        if (value == null) {
+            throw new IllegalStateException("上传会话缺少字段: " + field);
+        }
         return value;
     }
 

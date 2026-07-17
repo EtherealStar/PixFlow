@@ -14,9 +14,13 @@ import org.springframework.scheduling.annotation.Scheduled;
 
 public class PublishGapRescan {
     private final AssetPackageService packageService;
+
     private final ExtractionPublisher extractionPublisher;
+
     private final AssetPackageMapper packageMapper;
+
     private final Clock clock;
+
     private final FileProperties properties;
 
     public PublishGapRescan(

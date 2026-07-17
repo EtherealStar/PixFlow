@@ -9,11 +9,17 @@ import java.time.Instant;
 public class AssetIngestError {
     @TableId(type = IdType.AUTO)
     private Long id;
+
     private Long packageId;
+
     private String originalPath;
+
     private IngestStage stage;
+
     private String code;
+
     private String message;
+
     private Instant createdAt;
 
     public Long getId() {
