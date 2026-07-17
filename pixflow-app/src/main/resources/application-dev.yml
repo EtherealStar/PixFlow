@@ -6,6 +6,7 @@ spring:
     driver-class-name: com.mysql.cj.jdbc.Driver
 pixflow:
   auth:
+    admin-username: ${PIXFLOW_AUTH_ADMIN_USERNAME}
     jwt:
       secret: ${PIXFLOW_AUTH_JWT_SECRET:pixflow-dev-jwt-secret-at-least-32-bytes}
     refresh:
@@ -28,8 +29,14 @@ pixflow:
     secret-key: minioadmin
     auto-create-bucket: true
   vector:
-    host: localhost
-    port: 6334
+    qdrant:
+      host: localhost
+      grpc-port: 6334
+      timeout: 5s
+  memory:
+    insight:
+      collection: analysis_insight
+      expected-dimension: 1536
   mq:
     namesrv-addr: localhost:9876
     producer-group: pixflow-producer
@@ -39,8 +46,8 @@ pixflow:
       consume-thread-max: 8
       consume-timeout: 5m
     in-process-retries: 2
-    max-retries: 5
-    retry-backoff: [5s, 30s, 2m, 10m, 30m]
+    max-retries: 3
+    retry-backoff: [5s, 30s, 2m]
     retry-mode: broker
     dlq-alert-threshold: 1
     topic-auto-create: true
@@ -89,14 +96,15 @@ pixflow:
         model: Qwen/Qwen3-Reranker-8B
         capability: RERANK
     # 以下数值仅为开发环境的 provider attempt 权重示例，不代表真实 token 或账单额度。
-    quotas:
-      primary-chat: { quota-group: chat, capacity: 60, refill-tokens: 60, refill-period: 1m, idle-ttl: 10m, cost-per-attempt: 1 }
-      vision: { quota-group: vision, capacity: 30, refill-tokens: 30, refill-period: 1m, idle-ttl: 10m, cost-per-attempt: 2 }
-      rubrics-judge-text: { quota-group: rubrics-judge-text, capacity: 30, refill-tokens: 30, refill-period: 1m, idle-ttl: 10m, cost-per-attempt: 1 }
-      rubrics-judge-vision: { quota-group: rubrics-judge-vision, capacity: 15, refill-tokens: 15, refill-period: 1m, idle-ttl: 10m, cost-per-attempt: 2 }
-      imagegen: { quota-group: imagegen, capacity: 20, refill-tokens: 10, refill-period: 1m, idle-ttl: 10m, cost-per-attempt: 5 }
-      embedding: { quota-group: embedding, capacity: 100, refill-tokens: 100, refill-period: 1m, idle-ttl: 10m, cost-per-attempt: 1 }
-      rerank: { quota-group: rerank, capacity: 100, refill-tokens: 100, refill-period: 1m, idle-ttl: 10m, cost-per-attempt: 1 }
+    quota:
+      roles:
+        primary-chat: { quota-group: chat, capacity: 60, refill-tokens: 60, refill-period: 1m, idle-ttl: 10m, cost-per-attempt: 1 }
+        vision: { quota-group: vision, capacity: 30, refill-tokens: 30, refill-period: 1m, idle-ttl: 10m, cost-per-attempt: 2 }
+        rubrics-judge-text: { quota-group: rubrics-judge-text, capacity: 30, refill-tokens: 30, refill-period: 1m, idle-ttl: 10m, cost-per-attempt: 1 }
+        rubrics-judge-vision: { quota-group: rubrics-judge-vision, capacity: 15, refill-tokens: 15, refill-period: 1m, idle-ttl: 10m, cost-per-attempt: 2 }
+        imagegen: { quota-group: imagegen, capacity: 20, refill-tokens: 10, refill-period: 1m, idle-ttl: 10m, cost-per-attempt: 5 }
+        embedding: { quota-group: embedding, capacity: 100, refill-tokens: 100, refill-period: 1m, idle-ttl: 10m, cost-per-attempt: 1 }
+        rerank: { quota-group: rerank, capacity: 100, refill-tokens: 100, refill-period: 1m, idle-ttl: 10m, cost-per-attempt: 1 }
   thirdparty:
     bg-removal:
       default-provider: removebg
