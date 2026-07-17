@@ -17,14 +17,12 @@ public class MqProperties {
 
     private int inProcessRetries = 2;
 
-    private int maxRetries = 5;
+    private int maxRetries = 3;
 
     private List<Duration> retryBackoff = new ArrayList<>(List.of(
             Duration.ofSeconds(5),
             Duration.ofSeconds(30),
-            Duration.ofMinutes(2),
-            Duration.ofMinutes(10),
-            Duration.ofMinutes(30)));
+            Duration.ofMinutes(2)));
 
     private RetryMode retryMode = RetryMode.BROKER;
 
