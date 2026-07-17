@@ -12,6 +12,13 @@ public class RubricsRunItemEntity {
     private Long id;
     private Long runId;
     private Long resultId;
+    private String subjectType;
+    private String subjectId;
+    private String subjectSnapshotHash;
+    private String qualityGate;
+    private java.math.BigDecimal passRate;
+    private java.math.BigDecimal coverage;
+    private String evidencePackHash;
     private Long taskId;
     private String skuId;
     private RunItemStatus status;
@@ -28,6 +35,13 @@ public class RubricsRunItemEntity {
     public void setRunId(Long runId) { this.runId = runId; }
     public Long getResultId() { return resultId; }
     public void setResultId(Long resultId) { this.resultId = resultId; }
+    public String getSubjectType() { return subjectType; } public void setSubjectType(String value) { subjectType = value; }
+    public String getSubjectId() { return subjectId; } public void setSubjectId(String value) { subjectId = value; }
+    public String getSubjectSnapshotHash() { return subjectSnapshotHash; } public void setSubjectSnapshotHash(String value) { subjectSnapshotHash = value; }
+    public String getQualityGate() { return qualityGate; } public void setQualityGate(String value) { qualityGate = value; }
+    public java.math.BigDecimal getPassRate() { return passRate; } public void setPassRate(java.math.BigDecimal value) { passRate = value; }
+    public java.math.BigDecimal getCoverage() { return coverage; } public void setCoverage(java.math.BigDecimal value) { coverage = value; }
+    public String getEvidencePackHash() { return evidencePackHash; } public void setEvidencePackHash(String value) { evidencePackHash = value; }
     public Long getTaskId() { return taskId; }
     public void setTaskId(Long taskId) { this.taskId = taskId; }
     public String getSkuId() { return skuId; }

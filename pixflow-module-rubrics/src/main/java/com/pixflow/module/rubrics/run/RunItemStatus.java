@@ -4,6 +4,7 @@ public enum RunItemStatus {
     PENDING,
     RUNNING,
     SUCCEEDED,
+    PARTIAL,
     ISOLATED,
     FAILED
 }

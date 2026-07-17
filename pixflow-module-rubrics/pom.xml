@@ -11,7 +11,7 @@
 
     <artifactId>pixflow-module-rubrics</artifactId>
     <name>PixFlow Module Rubrics</name>
-    <description>离线评分、基线回归、可追溯写回与前端/PM 自助 API</description>
+    <description>Evidence-grounded criterion evaluation and regression</description>
 
     <dependencies>
         <dependency>
@@ -29,6 +29,10 @@
         <dependency>
             <groupId>com.pixflow</groupId>
             <artifactId>pixflow-infra-image</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.pixflow</groupId>
+            <artifactId>pixflow-module-task</artifactId>
         </dependency>
         <dependency>
             <groupId>com.baomidou</groupId>

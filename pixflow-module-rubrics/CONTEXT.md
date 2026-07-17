@@ -56,6 +56,6 @@ _Avoid_: arbitrary run, recent production sample
 A human-adjudicated criterion verdict used to validate a rubric and its judge.
 _Avoid_: model label, training reward
 
-**Promotion**:
-An explicit human-reviewed action that turns an evaluation finding into an Agent memory insight.
-_Avoid_: automatic feedback, score writeback
+**Evaluation Alert**:
+A Rubrics-owned signal that one or more evidence-grounded findings require human attention; it never becomes Agent memory in the current product.
+_Avoid_: memory insight, automatic feedback

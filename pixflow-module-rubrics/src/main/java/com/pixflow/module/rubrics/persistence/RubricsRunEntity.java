@@ -13,6 +13,12 @@ public class RubricsRunEntity {
     private Long id;
     private String templateId;
     private String templateVersion;
+    private String templateHash;
+    private String evaluatorVersion;
+    private String subjectType;
+    private String datasetId;
+    private String datasetVersion;
+    private String statsJson;
     private RunTriggerType triggerType;
     private RunStatus status;
     private Integer totalCount;
@@ -31,6 +37,18 @@ public class RubricsRunEntity {
     public void setTemplateId(String templateId) { this.templateId = templateId; }
     public String getTemplateVersion() { return templateVersion; }
     public void setTemplateVersion(String templateVersion) { this.templateVersion = templateVersion; }
+    public String getTemplateHash() { return templateHash; }
+    public void setTemplateHash(String value) { templateHash = value; }
+    public String getEvaluatorVersion() { return evaluatorVersion; }
+    public void setEvaluatorVersion(String value) { evaluatorVersion = value; }
+    public String getSubjectType() { return subjectType; }
+    public void setSubjectType(String value) { subjectType = value; }
+    public String getDatasetId() { return datasetId; }
+    public void setDatasetId(String value) { datasetId = value; }
+    public String getDatasetVersion() { return datasetVersion; }
+    public void setDatasetVersion(String value) { datasetVersion = value; }
+    public String getStatsJson() { return statsJson; }
+    public void setStatsJson(String value) { statsJson = value; }
     public RunTriggerType getTriggerType() { return triggerType; }
     public void setTriggerType(RunTriggerType triggerType) { this.triggerType = triggerType; }
     public RunStatus getStatus() { return status; }
