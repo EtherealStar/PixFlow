@@ -32,10 +32,10 @@ class ImagegenMetricsTest {
     @DisplayName("proposal counter:按 result + code 标签")
     void proposalCounter_tagsAlign() {
         metrics.recordProposal("ok", null);
-        metrics.recordProposal("reject", ImagegenErrorCode.IMAGEGEN_TOO_MANY_SOURCES);
+        metrics.recordProposal("reject", ImagegenErrorCode.IMAGEGEN_PROMPT_INVALID);
         Counter ok = registry.find("pixflow.imagegen.proposal").tag("result", "ok").tag("code", "UNKNOWN").counter();
         Counter reject = registry.find("pixflow.imagegen.proposal").tag("result", "reject")
-            .tag("code", "IMAGEGEN_TOO_MANY_SOURCES").counter();
+            .tag("code", "IMAGEGEN_PROMPT_INVALID").counter();
         assertThat(ok).isNotNull();
         assertThat(ok.count()).isEqualTo(1.0d);
         assertThat(reject.count()).isEqualTo(1.0d);

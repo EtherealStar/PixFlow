@@ -4,7 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.pixflow.common.time.TimeAutoConfiguration;
-import com.pixflow.contracts.proposal.ProposalPublicationPort;
 import com.pixflow.infra.ai.imagegen.ImageGenClient;
 import com.pixflow.infra.storage.ObjectStorage;
 import com.pixflow.module.imagegen.exec.DefaultImageGenExecutor;
@@ -40,20 +39,18 @@ class ImagegenAutoConfigurationSentinelTest {
     @DisplayName("默认(Default):DefaultImageGenExecutor 不在 Spring 容器中")
     void default_imageGenExecutor_isNotExposed() {
         defaultRunner.run(ctx -> {
-            // 上下文能起来（只缺 ProposalPublicationPort / SourceImageReader SPI）
-            // 但 DefaultImageGenExecutor 必须不在容器内
+            // 默认只暴露 producer validated API，不暴露执行器或 Proposal adapter。
             assertThatThrownBy(() -> ctx.getBean(DefaultImageGenExecutor.class))
                 .isInstanceOf(NoSuchBeanDefinitionException.class);
         });
     }
 
     @Test
-    @DisplayName("默认(Default):imagegen 服务消费 contracts ProposalPublicationPort")
-    void default_imagegenServices_useContractsProposalPublicationPort() {
+    @DisplayName("默认(Default):只装配 Imagegen validated service")
+    void default_imagegenServices_exposeValidatedServiceOnly() {
         defaultRunner.run(ctx -> {
-            assertThat(ctx).hasSingleBean(ProposalPublicationPort.class);
             assertThat(ctx).hasSingleBean(com.pixflow.module.imagegen.proposal.ImagegenPlanService.class);
-            assertThat(ctx).hasBean("submitImagegenPlanDescriptor");
+            assertThat(ctx).doesNotHaveBean("submitImagegenPlanDescriptor");
         });
     }
 
@@ -128,13 +125,6 @@ class ImagegenAutoConfigurationSentinelTest {
                 @Override public java.net.URL presignPut(com.pixflow.infra.storage.ObjectLocation loc, java.time.Duration ttl) {
                     throw new UnsupportedOperationException("not used in sentinel test");
                 }
-            };
-        }
-
-        @Bean
-        ProposalPublicationPort proposalPublicationPort() {
-            return proposal -> {
-                    return "test-plan-id";
             };
         }
 

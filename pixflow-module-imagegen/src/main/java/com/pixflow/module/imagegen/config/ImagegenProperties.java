@@ -51,22 +51,12 @@ public class ImagegenProperties {
 
     /** 提案入参护栏。 */
     public static class Proposal {
-        /** 单条生图提案的源图张数上限(超限 → IMAGEGEN_TOO_MANY_SOURCES)。 */
-        private int maxSourceImages = 200;
         /** prompt 长度下界。 */
         private int promptMinChars = 1;
         /** prompt 长度上界。 */
         private int promptMaxChars = 2000;
         /** params 白名单(白名单外键 → IMAGEGEN_PROMPT_INVALID)。 */
         private List<String> allowedParamKeys = List.of("style", "strength", "negative_prompt", "seed");
-
-        public int getMaxSourceImages() {
-            return maxSourceImages;
-        }
-
-        public void setMaxSourceImages(int maxSourceImages) {
-            this.maxSourceImages = maxSourceImages;
-        }
 
         public int getPromptMinChars() {
             return promptMinChars;
@@ -97,6 +87,7 @@ public class ImagegenProperties {
     public static class Output {
         /** 默认输出扩展名(落 GENERATED 桶时使用)。 */
         private String defaultExt = "png";
+
         /** 生成图字节防护:超过此值 → IMAGEGEN_OUTPUT_BYTES_TOO_LARGE(单位隔离)。 */
         private long maxOutputBytes = 52_428_800L; // 50 MiB
 
@@ -121,6 +112,7 @@ public class ImagegenProperties {
     public static class Source {
         /** 源图内容类型白名单(仅形状校验,不实际解码)。 */
         private List<String> supportedTypes = List.of("image/jpeg", "image/png", "image/webp");
+
         /** 源图字节解析上限:超过此值不读取(保护堆)。 */
         private long maxReadBytes = 52_428_800L; // 50 MiB
 

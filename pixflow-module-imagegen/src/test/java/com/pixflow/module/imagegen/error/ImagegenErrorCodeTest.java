@@ -10,17 +10,17 @@ import org.junit.jupiter.api.Test;
 /**
  * ImagegenErrorCode 单测(对齐 imagegen.md §十二 / §十六.8)。
  *
- * <p>校验 10 条错误码唯一、category 非空、按 category 推断的 recovery 方向与设计预期一致。
+ * <p>校验 9 条错误码唯一、category 非空、按 category 推断的 recovery 方向与设计预期一致。
  */
 class ImagegenErrorCodeTest {
 
     @Test
-    @DisplayName("10 条错误码全部枚举且唯一")
-    void enumHas10UniqueCodes() {
+    @DisplayName("9 条错误码全部枚举且唯一")
+    void enumHas9UniqueCodes() {
         ImagegenErrorCode[] values = ImagegenErrorCode.values();
-        assertThat(values).hasSize(10);
+        assertThat(values).hasSize(9);
         long distinct = java.util.Arrays.stream(values).map(Enum::name).distinct().count();
-        assertThat(distinct).isEqualTo(10);
+        assertThat(distinct).isEqualTo(9);
     }
 
     @Test
@@ -40,9 +40,6 @@ class ImagegenErrorCodeTest {
             .isEqualTo(ErrorCategory.NOT_FOUND);
         assertThat(ImagegenErrorCode.IMAGEGEN_PROMPT_INVALID.category())
             .isEqualTo(ErrorCategory.VALIDATION);
-        assertThat(ImagegenErrorCode.IMAGEGEN_TOO_MANY_SOURCES.category())
-            .isEqualTo(ErrorCategory.BUSINESS_RULE);
-
         // 执行侧字节 / 存储 / 内容审查
         assertThat(ImagegenErrorCode.IMAGEGEN_OUTPUT_BYTES_TOO_LARGE.category())
             .isEqualTo(ErrorCategory.VALIDATION);

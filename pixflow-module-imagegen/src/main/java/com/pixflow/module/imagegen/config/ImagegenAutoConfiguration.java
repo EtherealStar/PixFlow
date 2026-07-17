@@ -1,14 +1,10 @@
 package com.pixflow.module.imagegen.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.pixflow.contracts.proposal.ProposalPublicationPort;
 import com.pixflow.module.imagegen.confirm.ImagegenPayloadHasher;
-import com.pixflow.harness.tools.ToolDescriptor;
 import com.pixflow.module.imagegen.metrics.ImagegenMetrics;
 import com.pixflow.module.imagegen.proposal.ImagegenPlanService;
-import com.pixflow.module.imagegen.proposal.ImagegenPlanToolHandler;
 import com.pixflow.module.imagegen.proposal.ImagegenPlanValidator;
-import java.time.Clock;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -59,24 +55,10 @@ public class ImagegenAutoConfiguration {
     @ConditionalOnMissingBean
     public ImagegenPlanService imagegenPlanService(
             ImagegenPlanValidator validator,
-            ProposalPublicationPort publicationPort,
             ImagegenPayloadHasher payloadHasher,
             ObjectMapper objectMapper,
-            Clock clock,
             ImagegenMetrics metrics) {
-        return new ImagegenPlanService(validator, publicationPort, payloadHasher, objectMapper, clock, metrics);
-    }
-
-    @Bean
-    @ConditionalOnMissingBean
-    public ImagegenPlanToolHandler imagegenPlanToolHandler(ImagegenPlanService service, ObjectMapper objectMapper) {
-        return new ImagegenPlanToolHandler(service, objectMapper);
-    }
-
-    @Bean
-    @ConditionalOnMissingBean(name = "submitImagegenPlanDescriptor")
-    public ToolDescriptor submitImagegenPlanDescriptor(ImagegenPlanToolHandler handler) {
-        return handler.submitImagegenPlanDescriptor();
+        return new ImagegenPlanService(validator, payloadHasher, objectMapper, metrics);
     }
 
     /**

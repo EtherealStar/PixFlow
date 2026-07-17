@@ -1,13 +1,15 @@
 package com.pixflow.module.imagegen.proposal;
 
 import com.pixflow.common.error.PixFlowException;
+import com.pixflow.contracts.asset.AssetReferenceKey;
+import com.pixflow.contracts.asset.CanonicalAssetReferenceCodec;
+import com.pixflow.contracts.asset.ImageAssetReferenceKey;
 import com.pixflow.module.imagegen.config.ImagegenProperties;
 import com.pixflow.module.imagegen.error.ImagegenErrorCode;
 import com.pixflow.module.imagegen.port.SourceImageInfo;
 import com.pixflow.module.imagegen.port.SourceImageReader;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
@@ -17,9 +19,9 @@ import java.util.TreeMap;
  *
  * <p>校验顺序:
  * <ol>
- *   <li>源图集非空 + 去重 + 张数 ≤ max-source-images</li>
+ *   <li>referenceKey 是 canonical concrete IMAGE key</li>
  *   <li>prompt 长度在 [min, max] 区间内</li>
- *   <li>params 仅含白名单键(白名单外的键被丢弃并记入 details)</li>
+ *   <li>params 仅含白名单键(白名单外的键直接拒绝)</li>
  *   <li>经 {@link SourceImageReader} 校验源图存在 + 归属 packageId + contentType 在白名单</li>
  * </ol>
  *
@@ -29,7 +31,11 @@ import java.util.TreeMap;
 public class ImagegenPlanValidator {
 
     private final ImagegenProperties properties;
+
     private final SourceImageReader sourceImageReader;
+
+    private final CanonicalAssetReferenceCodec referenceCodec =
+            new CanonicalAssetReferenceCodec();
 
     public ImagegenPlanValidator(ImagegenProperties properties, SourceImageReader sourceImageReader) {
         this.properties = properties;
@@ -37,38 +43,19 @@ public class ImagegenPlanValidator {
     }
 
     /**
-     * 深校验入参;返回规范化后的 {@link ImagegenPlan}(含字典序排序的 sourceImageIds、白名单归一后的 params)。
+     * 深校验入参；返回绑定一个 concrete IMAGE key 的规范化 {@link ImagegenPlan}。
      *
      * @throws PixFlowException 任一校验项失败
      */
-    public ImagegenPlan validate(ImagegenPlanInputs inputs, String conversationId, String packageId) {
+    public ImagegenPlan validate(ImagegenPlanInputs inputs, String conversationId) {
         // 0. 浅层兜底:必填字段
         if (inputs == null) {
             throw new PixFlowException(ImagegenErrorCode.IMAGEGEN_PROMPT_INVALID, "入参不能为空");
         }
-        if (inputs.source_image_ids() == null || inputs.source_image_ids().isEmpty()) {
-            throw new PixFlowException(ImagegenErrorCode.IMAGEGEN_SOURCE_IMAGE_NOT_FOUND, "source_image_ids 不能为空");
-        }
         if (inputs.prompt() == null || inputs.prompt().isBlank()) {
             throw new PixFlowException(ImagegenErrorCode.IMAGEGEN_PROMPT_INVALID, "prompt 不能为空");
         }
-        if (packageId == null || packageId.isBlank()) {
-            // 无 packageId 无法校验归属,直接拒
-            throw new PixFlowException(ImagegenErrorCode.IMAGEGEN_SOURCE_NOT_IN_PACKAGE, "缺少 packageId,无法校验源图归属");
-        }
-
-        // 1. 源图集去重
-        Set<String> uniqueIds = new LinkedHashSet<>();
-        for (String id : inputs.source_image_ids()) {
-            if (id == null || id.isBlank()) {
-                throw new PixFlowException(ImagegenErrorCode.IMAGEGEN_SOURCE_IMAGE_NOT_FOUND, "source_image_ids 含空值");
-            }
-            uniqueIds.add(id);
-        }
-        if (uniqueIds.size() > properties.getProposal().getMaxSourceImages()) {
-            throw new PixFlowException(ImagegenErrorCode.IMAGEGEN_TOO_MANY_SOURCES,
-                "源图张数超过上限: " + uniqueIds.size() + " > " + properties.getProposal().getMaxSourceImages());
-        }
+        ImageAssetReferenceKey source = requireImageReference(inputs.referenceKey());
 
         // 2. prompt 长度
         String prompt = inputs.prompt().trim();
@@ -80,7 +67,7 @@ public class ImagegenPlanValidator {
                 "prompt 长度越界: " + promptLen + " 不在 [" + min + ", " + max + "]");
         }
 
-        // 3. params 白名单归一(白名单外的键丢弃,避免污染 payloadHash)
+        // 3. params 白名单归一；白名单外键直接拒绝，不能静默改变用户请求。
         Map<String, Object> normalizedParams = new TreeMap<>();
         Set<String> allowedKeys = new LinkedHashSet<>(properties.getProposal().getAllowedParamKeys());
         Map<String, Object> rawParams = inputs.params() == null ? Map.of() : inputs.params();
@@ -101,18 +88,13 @@ public class ImagegenPlanValidator {
         }
 
         // 4. 源图存在 / 归属 / 类型白名单(经 SPI)
-        List<SourceImageInfo> infos = sourceImageReader.findAll(List.copyOf(uniqueIds), packageId);
-        if (infos == null || infos.size() != uniqueIds.size()) {
-            Set<String> foundIds = new LinkedHashSet<>();
-            if (infos != null) {
-                for (SourceImageInfo info : infos) {
-                    foundIds.add(info.imageId());
-                }
-            }
-            Set<String> missing = new LinkedHashSet<>(uniqueIds);
-            missing.removeAll(foundIds);
+        String imageId = Long.toString(source.imageId());
+        String packageId = Long.toString(source.packageId());
+        java.util.List<SourceImageInfo> infos = sourceImageReader.findAll(
+                java.util.List.of(imageId), packageId);
+        if (infos == null || infos.size() != 1 || !imageId.equals(infos.getFirst().imageId())) {
             throw new PixFlowException(ImagegenErrorCode.IMAGEGEN_SOURCE_IMAGE_NOT_FOUND,
-                "源图不存在: " + missing);
+                "源图不存在");
         }
 
         // 校验归属 + contentType
@@ -130,15 +112,29 @@ public class ImagegenPlanValidator {
             }
         }
 
-        // 5. 规范化 sourceImageIds(按字典序)入 record
-        List<String> sortedIds = uniqueIds.stream().sorted().toList();
-
         return new ImagegenPlan(
-            sortedIds,
+            referenceCodec.serialize(source),
             prompt,
             normalizedParams,
             inputs.note(), // note 原样保留,不参与 hash
             conversationId,
-            packageId);
+            source.packageId());
+    }
+
+    private ImageAssetReferenceKey requireImageReference(String referenceKey) {
+        try {
+            AssetReferenceKey parsed = referenceCodec.parse(referenceKey);
+            if (parsed instanceof ImageAssetReferenceKey imageReference) {
+                return imageReference;
+            }
+        } catch (IllegalArgumentException invalidReference) {
+            throw new PixFlowException(
+                    ImagegenErrorCode.IMAGEGEN_SOURCE_IMAGE_NOT_FOUND,
+                    "referenceKey 不是 canonical IMAGE key",
+                    invalidReference);
+        }
+        throw new PixFlowException(
+                ImagegenErrorCode.IMAGEGEN_SOURCE_IMAGE_NOT_FOUND,
+                "referenceKey 必须指向一个 concrete IMAGE");
     }
 }

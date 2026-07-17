@@ -23,7 +23,6 @@ class ImagegenPropertiesTest {
         runner.run(ctx -> {
             ImagegenProperties props = ctx.getBean(ImagegenProperties.class);
             // proposal
-            assertThat(props.getProposal().getMaxSourceImages()).isEqualTo(200);
             assertThat(props.getProposal().getPromptMinChars()).isEqualTo(1);
             assertThat(props.getProposal().getPromptMaxChars()).isEqualTo(2000);
             assertThat(props.getProposal().getAllowedParamKeys())
@@ -41,15 +40,13 @@ class ImagegenPropertiesTest {
     }
 
     @Test
-    @DisplayName("自定义值:覆盖 max-source-images 与 max-output-bytes")
+    @DisplayName("自定义值:覆盖 max-output-bytes 与 executor expose")
     void customValues() {
         runner.withPropertyValues(
-            "pixflow.imagegen.proposal.max-source-images=50",
             "pixflow.imagegen.output.max-output-bytes=10485760",
             "pixflow.imagegen.executor.expose=true"
         ).run(ctx -> {
             ImagegenProperties props = ctx.getBean(ImagegenProperties.class);
-            assertThat(props.getProposal().getMaxSourceImages()).isEqualTo(50);
             assertThat(props.getOutput().getMaxOutputBytes()).isEqualTo(10_485_760L);
             assertThat(props.getExecutor().isExpose()).isTrue();
         });

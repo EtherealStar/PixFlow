@@ -12,7 +12,7 @@ import com.tngtech.archunit.lang.ArchRule;
  *
  * <ul>
  *   <li>不依赖 module/file / module/dag / module/task / module/conversation(均由 SPI 倒置)</li>
- *   <li>不依赖 harness/loop / agent</li>
+ *   <li>不依赖 harness/loop / harness/tools / agent</li>
  *   <li>不依赖 infra/mq / infra/cache(纯能力模块)</li>
  *   <li>不依赖 harness/state(不直连 process_result)</li>
  *   <li>不出现 MyBatis-Plus / JDBC / Redisson / SimpMessagingTemplate</li>
@@ -54,6 +54,12 @@ class ImagegenArchitectureTest {
         noClasses()
             .that().resideInAPackage("com.pixflow.module.imagegen..")
             .should().dependOnClassesThat().resideInAPackage("com.pixflow.harness.loop..");
+
+    @ArchTest
+    static final ArchRule should_not_depend_on_harness_tools =
+        noClasses()
+            .that().resideInAPackage("com.pixflow.module.imagegen..")
+            .should().dependOnClassesThat().resideInAPackage("com.pixflow.harness.tools..");
 
     @ArchTest
     static final ArchRule should_not_depend_on_agent =

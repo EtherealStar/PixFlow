@@ -9,7 +9,7 @@ import java.util.Objects;
 /**
  * 生成式单元的执行载荷(对齐 imagegen.md §8.2)。
  *
- * <p>由 {@code module/task} 在 fan-out 时按 ImagegenPlan.sourceImageIds 逐单元构造:
+ * <p>由 {@code module/task} 按 ImagegenPlan 的单一 sourceReferenceKey 构造：
  * 一个源图 ID 对应一个 {@code GenerativeUnitSpec},作为 {@link ImageGenExecutor#redraw} 的入参。
  *
  * <p>字段说明:

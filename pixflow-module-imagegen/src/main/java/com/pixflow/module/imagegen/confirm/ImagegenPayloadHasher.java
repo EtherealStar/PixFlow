@@ -8,7 +8,6 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
@@ -21,7 +20,7 @@ import org.springframework.stereotype.Component;
  *
  * <p>规范化口径:
  * <ol>
- *   <li>{@code sourceImageIds} 按 imageId 字典序排序</li>
+ *   <li>{@code sourceReferenceKey} 是 canonical IMAGE key</li>
  *   <li>{@code prompt} trim</li>
  *   <li>{@code params} 仅含白名单键,按字典序归一;白名单外键 / 缺失字段不补默认值,不参与 hash</li>
  *   <li>{@code note} / {@code conversationId} / {@code packageId} 不参与 hash(用户输入 + 会话元数据不应影响 fingerprint)</li>
@@ -78,12 +77,7 @@ public class ImagegenPayloadHasher {
         if (plan == null) {
             throw new IllegalArgumentException("plan 不能为空");
         }
-        // 1. sourceImageIds 字典序排序(record 已规范化,但仍防御一次)
-        List<String> sortedIds = plan.sourceImageIds().stream()
-            .sorted()
-            .toList();
-
-        // 2. params 白名单内键按字典序归一(TreeMap),白名单外的键 / null 值不进入 hash 树
+        // params 白名单内键按字典序归一，白名单外或 null 值不进入 hash 树。
         Map<String, Object> canonicalParams = new TreeMap<>();
         if (plan.params() != null) {
             for (String key : hashableKeys) {
@@ -98,7 +92,7 @@ public class ImagegenPayloadHasher {
         }
 
         Map<String, Object> canonical = new TreeMap<>();
-        canonical.put("sourceImageIds", sortedIds);
+        canonical.put("sourceReferenceKey", plan.sourceReferenceKey());
         canonical.put("prompt", plan.prompt() == null ? "" : plan.prompt().trim());
         canonical.put("params", canonicalParams);
 
@@ -110,20 +104,6 @@ public class ImagegenPayloadHasher {
         } catch (Exception e) {
             throw new IllegalStateException("payloadHash 序列化失败", e);
         }
-    }
-
-    /**
-     * 把给定的 sourceImageIds + prompt + params 直接算 payloadHash(供 confirm 边界重算用)。
-     */
-    public String hash(List<String> sourceImageIds, String prompt, Map<String, Object> params) {
-        ImagegenPlan plan = new ImagegenPlan(
-            sourceImageIds == null ? List.of() : sourceImageIds,
-            prompt == null ? "" : prompt,
-            params == null ? Map.of() : params,
-            null,
-            null,
-            null);
-        return hash(plan);
     }
 
     /** 标准 UTF-8 编码(供外部对齐使用)。 */
