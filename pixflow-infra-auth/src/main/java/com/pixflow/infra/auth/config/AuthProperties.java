@@ -1,5 +1,6 @@
 package com.pixflow.infra.auth.config;
 
+import com.pixflow.infra.auth.identity.UsernameNormalizer;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.Max;
@@ -14,6 +15,9 @@ import org.springframework.validation.annotation.Validated;
 @ConfigurationProperties(prefix = "pixflow.auth")
 @Validated
 public class AuthProperties {
+    @NotBlank
+    private String adminUsername;
+
     @Valid
     private final Jwt jwt = new Jwt();
 
@@ -25,6 +29,19 @@ public class AuthProperties {
 
     @Valid
     private final Throttle throttle = new Throttle();
+
+    public String getAdminUsername() {
+        return UsernameNormalizer.normalize(adminUsername);
+    }
+
+    public void setAdminUsername(String adminUsername) {
+        this.adminUsername = adminUsername;
+    }
+
+    @AssertTrue(message = "admin-username must contain 3-32 lowercase letters, digits, or underscores")
+    public boolean isAdminUsernameValid() {
+        return UsernameNormalizer.isValid(adminUsername);
+    }
 
     public Jwt getJwt() {
         return jwt;

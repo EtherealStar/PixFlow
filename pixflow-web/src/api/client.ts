@@ -1,5 +1,6 @@
 import { ApiError } from '@/types/api'
 import { refreshAuthSessionOnce } from '@/transport/authRefresh'
+import { invalidateAuthSession } from '@/transport/authInvalidation'
 import { getAccessToken } from '@/transport/authToken'
 import { newTraceId } from '@/utils/id'
 import { normalizeHttpError, readHttpError } from '@/transport/httpError'
@@ -36,6 +37,8 @@ export interface RequestOptions {
   auth?: boolean
   /** 是否允许 access token 过期后刷新并重试一次；默认跟随 auth。 */
   authRefresh?: boolean
+  /** 是否在终态 401 时清理会话；logout 自己负责幂等清理。 */
+  authInvalidation?: boolean
 }
 
 const DEFAULT_TIMEOUT = 30_000
@@ -154,6 +157,9 @@ export async function request<T = unknown>(path: string, opts: RequestOptions = 
         if (await shouldRefreshAndRetry(err, opts, allowAuthRefresh)) {
           return await doFetch(false)
         }
+        if (isTerminalAuthError(err, opts)) {
+          invalidateAuthSession('terminal-error')
+        }
         throw err
       }
       if (res.status === 204) return undefined as T
@@ -192,6 +198,13 @@ export async function request<T = unknown>(path: string, opts: RequestOptions = 
     }
   }
   return await doFetch()
+}
+
+function isTerminalAuthError(err: ApiError, opts: RequestOptions): boolean {
+  return opts.auth !== false
+    && opts.authInvalidation !== false
+    && err.status === 401
+    && err.errorCode !== 'AUTH_TOKEN_EXPIRED'
 }
 
 function toRequestBody(value: unknown): BodyInit {

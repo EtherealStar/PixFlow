@@ -6,9 +6,11 @@ import com.pixflow.infra.auth.context.AuthPrincipal;
 import com.pixflow.infra.auth.crypto.PasswordHasher;
 import com.pixflow.infra.auth.error.AuthErrorCode;
 import com.pixflow.infra.auth.error.AuthException;
+import com.pixflow.infra.auth.identity.AdministratorEligibility;
+import com.pixflow.infra.auth.identity.AdministratorIneligibleException;
+import com.pixflow.infra.auth.identity.UsernameNormalizer;
 import com.pixflow.infra.auth.persistence.UserAccountEntity;
 import com.pixflow.infra.auth.persistence.UserAccountMapper;
-import com.pixflow.infra.auth.persistence.UserAccountStatus;
 import com.pixflow.infra.auth.session.AccessTokenBlacklist;
 import com.pixflow.infra.auth.session.AuthSession;
 import com.pixflow.infra.auth.session.AuthSessionStore;
@@ -22,15 +24,9 @@ import com.pixflow.infra.auth.token.RefreshTokenGenerator;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.List;
-import java.util.Locale;
 import java.util.Optional;
-import java.util.regex.Pattern;
-import org.springframework.dao.DuplicateKeyException;
 
 public class AuthService {
-    private static final Pattern USERNAME_PATTERN = Pattern.compile("^[a-z0-9_]{3,32}$");
-
     private final UserAccountMapper userMapper;
 
     private final PasswordHasher passwordHasher;
@@ -45,6 +41,8 @@ public class AuthService {
 
     private final LoginThrottleService throttleService;
 
+    private final AdministratorEligibility administratorEligibility;
+
     private final AuthProperties properties;
 
     private final Clock clock;
@@ -57,6 +55,7 @@ public class AuthService {
             AuthSessionStore sessionStore,
             AccessTokenBlacklist blacklist,
             LoginThrottleService throttleService,
+            AdministratorEligibility administratorEligibility,
             AuthProperties properties,
             Clock clock) {
         this.userMapper = userMapper;
@@ -66,54 +65,41 @@ public class AuthService {
         this.sessionStore = sessionStore;
         this.blacklist = blacklist;
         this.throttleService = throttleService;
+        this.administratorEligibility = administratorEligibility;
         this.properties = properties;
         this.clock = clock;
-    }
-
-    public AuthTokenResponse register(RegisterRequest request) {
-        if (request == null) {
-            throw new AuthException(AuthErrorCode.AUTH_USERNAME_INVALID, "注册请求不能为空");
-        }
-        String username = normalizeUsername(request.username());
-        validatePassword(request.password());
-        if (findByUsername(username).isPresent()) {
-            throw new AuthException(AuthErrorCode.AUTH_USERNAME_TAKEN, "用户名已被占用");
-        }
-
-        Instant now = clock.instant();
-        UserAccountEntity entity = new UserAccountEntity();
-        entity.setUsername(username);
-        entity.setPasswordHash(passwordHasher.hash(request.password()));
-        entity.setDisplayName(cleanDisplayName(request.displayName(), username));
-        entity.setStatus(UserAccountStatus.ACTIVE.name());
-        entity.setCreatedAt(now);
-        entity.setUpdatedAt(now);
-        entity.setPasswordUpdatedAt(now);
-        try {
-            userMapper.insert(entity);
-        } catch (DuplicateKeyException ex) {
-            throw new AuthException(AuthErrorCode.AUTH_USERNAME_TAKEN, "用户名已被占用");
-        }
-        return issueTokens(entity);
     }
 
     public AuthTokenResponse login(LoginRequest request, String ipAddress) {
         if (request == null) {
             throw new AuthException(AuthErrorCode.AUTH_INVALID_CREDENTIALS, "登录请求不能为空");
         }
-        String username = normalizeUsername(request.username());
-        throttleService.assertAllowed(username, ipAddress);
-        UserAccountEntity entity = findByUsername(username).orElse(null);
-        if (entity == null || !passwordHasher.matches(request.password(), entity.getPasswordHash())) {
-            throttleService.recordFailureAndAssert(username, ipAddress);
+        String username = UsernameNormalizer.normalize(request.username());
+        String throttleUsername = throttleUsername(username);
+        throttleService.assertAllowed(throttleUsername, ipAddress);
+        if (!UsernameNormalizer.isValid(username)) {
+            throttleService.recordFailureAndAssert(throttleUsername, ipAddress);
             throw new AuthException(AuthErrorCode.AUTH_INVALID_CREDENTIALS, "用户名或密码错误");
         }
-        ensureActive(entity);
+        UserAccountEntity entity = findByUsername(username).orElse(null);
+        if (entity == null || !passwordHasher.matches(request.password(), entity.getPasswordHash())) {
+            throttleService.recordFailureAndAssert(throttleUsername, ipAddress);
+            throw new AuthException(AuthErrorCode.AUTH_INVALID_CREDENTIALS, "用户名或密码错误");
+        }
+        AuthPrincipal principal;
+        try {
+            principal = requireEligible(
+                    entity.getId(), AuthErrorCode.AUTH_INVALID_CREDENTIALS, "用户名或密码错误");
+        } catch (AuthException ex) {
+            // Historical Account 与禁用账号仍计入同一登录防护，不向客户端暴露资格差异。
+            throttleService.recordFailureAndAssert(throttleUsername, ipAddress);
+            throw ex;
+        }
         entity.setLastLoginAt(clock.instant());
         entity.setUpdatedAt(clock.instant());
         userMapper.updateById(entity);
-        throttleService.clearUsername(username);
-        return issueTokens(entity);
+        throttleService.clearUsername(throttleUsername);
+        return issueTokens(principal);
     }
 
     public AuthTokenResponse refresh(String refreshTokenValue) {
@@ -126,12 +112,9 @@ public class AuthService {
         if (session.expiresAt().isBefore(clock.instant())) {
             throw new AuthException(AuthErrorCode.AUTH_REFRESH_EXPIRED, "refresh token 已过期");
         }
-        UserAccountEntity entity = userMapper.selectById(session.userId());
-        if (entity == null) {
-            throw new AuthException(AuthErrorCode.AUTH_REFRESH_INVALID, "refresh token 用户不存在");
-        }
-        ensureActive(entity);
-        return issueTokens(entity);
+        AuthPrincipal principal = requireEligible(
+                session.userId(), AuthErrorCode.AUTH_REFRESH_INVALID, "refresh token 校验失败");
+        return issueTokens(principal);
     }
 
     public void logout(String refreshTokenValue, String accessTokenValue) {
@@ -160,28 +143,24 @@ public class AuthService {
         if (blacklist.isRevoked(claims.jwtId())) {
             throw new AuthException(AuthErrorCode.AUTH_TOKEN_REVOKED, "access token 已失效");
         }
-        UserAccountEntity entity = userMapper.selectById(claims.userId());
-        if (entity == null) {
-            throw new AuthException(AuthErrorCode.AUTH_TOKEN_INVALID, "access token 用户不存在");
+        AuthPrincipal principal = requireEligible(
+                claims.userId(), AuthErrorCode.AUTH_TOKEN_INVALID, "access token 校验失败");
+        if (!claims.username().equals(principal.username())) {
+            throw new AuthException(AuthErrorCode.AUTH_TOKEN_INVALID, "access token 校验失败");
         }
-        ensureActive(entity);
-        return toPrincipal(entity);
+        return principal;
     }
 
-    public UserView me(AuthPrincipal principal) {
-        return UserView.from(principal);
-    }
-
-    private AuthTokenResponse issueTokens(UserAccountEntity entity) {
-        IssuedAccessToken accessToken = jwtTokenService.issue(entity.getId(), entity.getUsername());
+    private AuthTokenResponse issueTokens(AuthPrincipal principal) {
+        IssuedAccessToken accessToken = jwtTokenService.issue(principal.userId(), principal.username());
         RefreshToken refreshToken = refreshTokenGenerator.generate();
         Instant now = clock.instant();
         Instant refreshExpiresAt = now.plus(properties.getRefresh().getTtl());
         sessionStore.save(
                 new AuthSession(
                         refreshToken.jwtId(),
-                        entity.getId(),
-                        entity.getUsername(),
+                        principal.userId(),
+                        principal.username(),
                         TokenHashing.sha256(refreshToken.token()),
                         now,
                         refreshExpiresAt),
@@ -189,7 +168,7 @@ public class AuthService {
         return new AuthTokenResponse(
                 accessToken.token(),
                 accessToken.expiresAt(),
-                UserView.from(toPrincipal(entity)),
+                UserView.from(principal),
                 encodeRefreshCookieValue(refreshToken),
                 refreshExpiresAt);
     }
@@ -200,44 +179,19 @@ public class AuthService {
                 .last("limit 1")));
     }
 
-    private AuthPrincipal toPrincipal(UserAccountEntity entity) {
-        return new AuthPrincipal(
-                entity.getId(),
-                entity.getUsername(),
-                entity.getDisplayName(),
-                entity.getStatus(),
-                List.of("ROLE_USER"));
-    }
-
-    private void ensureActive(UserAccountEntity entity) {
-        if (!UserAccountStatus.ACTIVE.name().equals(entity.getStatus())) {
-            throw new AuthException(AuthErrorCode.AUTH_ACCOUNT_DISABLED, "账号已禁用");
+    private AuthPrincipal requireEligible(long userId, AuthErrorCode errorCode, String message) {
+        try {
+            return administratorEligibility.requireEligible(userId);
+        } catch (AdministratorIneligibleException ex) {
+            throw new AuthException(errorCode, message);
         }
     }
 
-    private static String normalizeUsername(String username) {
-        if (username == null) {
-            throw new AuthException(AuthErrorCode.AUTH_USERNAME_INVALID, "用户名不能为空");
+    private static String throttleUsername(String username) {
+        if (username == null || username.isBlank()) {
+            return "invalid";
         }
-        String normalized = username.trim().toLowerCase(Locale.ROOT);
-        if (!USERNAME_PATTERN.matcher(normalized).matches()) {
-            throw new AuthException(AuthErrorCode.AUTH_USERNAME_INVALID, "用户名只能包含 3-32 位小写字母、数字或下划线");
-        }
-        return normalized;
-    }
-
-    private static void validatePassword(String password) {
-        if (password == null || password.length() < 8 || password.length() > 128) {
-            throw new AuthException(AuthErrorCode.AUTH_PASSWORD_INVALID, "密码长度必须为 8-128 位");
-        }
-    }
-
-    private static String cleanDisplayName(String displayName, String fallback) {
-        if (displayName == null || displayName.isBlank()) {
-            return fallback;
-        }
-        String trimmed = displayName.trim();
-        return trimmed.length() > 128 ? trimmed.substring(0, 128) : trimmed;
+        return username.substring(0, Math.min(username.length(), 64));
     }
 
     private static String encodeRefreshCookieValue(RefreshToken refreshToken) {

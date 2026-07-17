@@ -3,6 +3,7 @@ import { createPinia } from 'pinia'
 import App from './App.vue'
 import { router } from './router'
 import { useAuthStore } from './stores/auth'
+import { AUTH_SESSION_INVALIDATED_EVENT } from './runtime/authSession'
 import { installDevConsoleGuard } from './utils/devConsoleGuard'
 import './styles/global.css'
 
@@ -19,6 +20,11 @@ const app = createApp(App)
 const pinia = createPinia()
 app.use(pinia)
 app.use(router)
+
+window.addEventListener(AUTH_SESSION_INVALIDATED_EVENT, () => {
+  // 整页回到登录页，同时释放各业务 composable 中仅存在于内存的请求与排队状态。
+  window.location.replace('/login')
+})
 
 void useAuthStore(pinia).bootstrap()
 

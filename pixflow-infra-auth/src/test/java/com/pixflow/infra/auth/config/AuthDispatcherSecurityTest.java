@@ -1,6 +1,7 @@
 package com.pixflow.infra.auth.config;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -34,6 +35,12 @@ class AuthDispatcherSecurityTest {
     void initialAnonymousRequestRemainsProtected() throws Exception {
         mockMvc.perform(get("/protected"))
                 .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void missingRegisterRouteRemainsNotFoundThroughSecurityChain() throws Exception {
+        mockMvc.perform(post("/api/auth/register"))
+                .andExpect(status().isNotFound());
     }
 
     @Test
@@ -79,8 +86,11 @@ class AuthDispatcherSecurityTest {
         SecurityFilterChain securityFilterChain(
                 org.springframework.security.config.annotation.web.builders.HttpSecurity http,
                 JwtAuthenticationFilter filter,
-                SecurityErrorWriter errorWriter) throws Exception {
-            return new AuthAutoConfiguration().pixflowSecurityFilterChain(http, filter, errorWriter);
+                SecurityErrorWriter errorWriter,
+                org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping handlerMappings)
+                throws Exception {
+            return new AuthAutoConfiguration()
+                    .pixflowSecurityFilterChain(http, filter, errorWriter, handlerMappings);
         }
 
         @Bean

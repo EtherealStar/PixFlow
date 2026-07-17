@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { login, refresh, register } from '@/api/auth'
+import { login, refresh } from '@/api/auth'
 import { setAccessToken } from '@/transport/authToken'
 
 function authResponse(): Response {
@@ -22,13 +22,12 @@ describe('auth api', () => {
     vi.unstubAllGlobals()
   })
 
-  it('does not send stale Authorization to login, register, or refresh', async () => {
+  it('does not send stale Authorization to login or refresh', async () => {
     const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit) => authResponse())
     vi.stubGlobal('fetch', fetchMock)
     setAccessToken('stale-token')
 
     await login({ username: 'alice', password: 'password123' })
-    await register({ username: 'bob', password: 'password123', displayName: 'Bob' })
     await refresh()
 
     const calls = fetchMock.mock.calls.map((call) => {
@@ -37,7 +36,7 @@ describe('auth api', () => {
       return { path, headers: init.headers as Record<string, string>, credentials: init.credentials }
     })
 
-    expect(calls.map((call) => call.path)).toEqual(['/api/auth/login', '/api/auth/register', '/api/auth/refresh'])
+    expect(calls.map((call) => call.path)).toEqual(['/api/auth/login', '/api/auth/refresh'])
     expect(calls.every((call) => call.headers.Authorization === undefined)).toBe(true)
     expect(calls.every((call) => call.credentials === 'same-origin')).toBe(true)
   })

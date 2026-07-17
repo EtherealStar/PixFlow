@@ -2,15 +2,21 @@ import { ref, computed, type ComputedRef, type Ref } from 'vue'
 import * as authApi from '@/api/auth'
 import { getAccessToken, setAccessToken } from '@/transport/authToken'
 import { setAuthRefreshHandler } from '@/transport/authRefresh'
+import {
+  invalidateAuthSession,
+  setAuthInvalidationHandler,
+  type AuthInvalidationReason
+} from '@/transport/authInvalidation'
 import { disposeStompConnection } from '@/transport/ws'
 
 export type AuthSessionPhase = 'anonymous' | 'bootstrapping' | 'authenticated' | 'expired'
+
+export const AUTH_SESSION_INVALIDATED_EVENT = 'pixflow:auth-session-invalidated'
 
 export interface AuthUser {
   userId: number
   username: string
   displayName?: string | null
-  status?: string
 }
 
 export interface AuthSessionState {
@@ -21,7 +27,6 @@ export interface AuthSessionState {
   isAuthenticated: ComputedRef<boolean>
   bootstrap: () => Promise<boolean>
   login: (creds: { username: string; password: string }) => Promise<void>
-  register: (creds: { username: string; password: string; displayName?: string }) => Promise<void>
   refreshOnce: () => Promise<boolean>
   logout: () => Promise<void>
   clear: () => void
@@ -120,11 +125,6 @@ async function login(creds: { username: string; password: string }): Promise<voi
   applyToken(payload)
 }
 
-async function register(creds: { username: string; password: string; displayName?: string }): Promise<void> {
-  const payload = await authApi.register(creds)
-  applyToken(payload)
-}
-
 async function refreshOnce(): Promise<boolean> {
   if (refreshPromise) return refreshPromise
   const generation = sessionGeneration
@@ -138,7 +138,7 @@ async function refreshOnce(): Promise<boolean> {
       return true
     })
     .catch(() => {
-      if (generation === sessionGeneration) clearLocal('expired')
+      if (generation === sessionGeneration) invalidateAuthSession('terminal-error')
       return false
     })
     .finally(() => {
@@ -151,7 +151,7 @@ async function logout(): Promise<void> {
   try {
     await authApi.logout()
   } finally {
-    clearLocal('anonymous')
+    invalidateAuthSession('logout')
   }
 }
 
@@ -176,7 +176,6 @@ export function getAuthSession(): AuthSessionState {
     isAuthenticated,
     bootstrap,
     login,
-    register,
     refreshOnce,
     logout,
     clear,
@@ -189,9 +188,12 @@ function toUser(u: authApi.AuthUser): AuthUser {
   return {
     username: u.username,
     userId: u.userId,
-    displayName: u.displayName ?? null,
-    status: u.status
+    displayName: u.displayName ?? null
   }
 }
 
 setAuthRefreshHandler(refreshOnce)
+setAuthInvalidationHandler((reason: AuthInvalidationReason) => {
+  clearLocal(reason === 'logout' ? 'anonymous' : 'expired')
+  window.dispatchEvent(new CustomEvent(AUTH_SESSION_INVALIDATED_EVENT, { detail: { reason } }))
+})

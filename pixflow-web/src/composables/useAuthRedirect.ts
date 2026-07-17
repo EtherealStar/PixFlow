@@ -12,7 +12,7 @@ export function useAuthRedirect(): {
       await router.push(target)
       return
     }
-    await router.push({ name: 'login', query: { mode: 'register', redirect: target } })
+    await router.push({ name: 'login', query: { redirect: target } })
   }
 
   return { goProtected }

@@ -1,8 +1,7 @@
 import type { ApiError } from '@/types/api'
 
 /**
- * dev 模式 console 守卫：脱敏 confirmationToken。
- * 见 web.md §十四「confirmationToken 脱敏层」。
+ * dev 模式 console 守卫：统一脱敏认证类 token 字段。
  */
 export function redactToken(value: string | undefined): string {
   if (!value) return ''
@@ -49,7 +48,7 @@ export function installDevConsoleGuard(): void {
 }
 
 /**
- * 把 13 种常见错误码映射到 UI 反馈类型（info / warning / error）。
+ * 把常见错误码映射到 UI 反馈类型（info / warning / error）。
  * 见 web.md §二十二 错误处理与 traceId。
  * R1 阶段：返回类型保持不变（info/warning/error 分类），错误码映射逻辑不变。
  * R3 阶段：调用方从 console 改为 AppToast，分类语义保持兼容。
@@ -58,11 +57,9 @@ export function errorToMessage(err: ApiError): { type: 'info' | 'warning' | 'err
   const m = err.message || err.errorCode
   switch (err.errorCode) {
     // 业务 4xx
-    case 'PROPOSAL_CHALLENGE_FAILED':
-    case 'PROPOSAL_CHALLENGE_EXPIRED':
     case 'PROPOSAL_ALREADY_CONFIRMED':
     case 'PROPOSAL_NOT_FOUND':
-    case 'CONFIRMATION_TOKEN_INVALID':
+    case 'PROPOSAL_PAYLOAD_MISMATCH':
     case 'CONVERSATION_ARCHIVED':
     case 'CONVERSATION_NOT_FOUND':
       return { type: 'warning', message: m }

@@ -8,7 +8,6 @@ import com.pixflow.infra.auth.filter.JwtAuthenticationFilter;
 import com.pixflow.infra.auth.service.AuthService;
 import com.pixflow.infra.auth.service.AuthTokenResponse;
 import com.pixflow.infra.auth.service.LoginRequest;
-import com.pixflow.infra.auth.service.RegisterRequest;
 import com.pixflow.infra.auth.service.UserView;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -27,20 +26,12 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/auth")
 public class AuthController {
     private final AuthService authService;
+
     private final AuthProperties properties;
 
     public AuthController(AuthService authService, AuthProperties properties) {
         this.authService = authService;
         this.properties = properties;
-    }
-
-    @PostMapping("/register")
-    public ApiResponse<AuthTokenPayload> register(
-            @Valid @RequestBody RegisterRequest request,
-            HttpServletResponse response) {
-        AuthTokenResponse tokenResponse = authService.register(request);
-        setRefreshCookie(response, tokenResponse);
-        return ApiResponse.ok(AuthTokenPayload.from(tokenResponse));
     }
 
     @PostMapping("/login")
@@ -55,7 +46,9 @@ public class AuthController {
 
     @PostMapping("/refresh")
     public ApiResponse<AuthTokenPayload> refresh(
-            @CookieValue(name = "${pixflow.auth.refresh.cookie-name:PIXFLOW_REFRESH}", required = false) String refreshToken,
+            @CookieValue(
+                    name = "${pixflow.auth.refresh.cookie-name:PIXFLOW_REFRESH}",
+                    required = false) String refreshToken,
             HttpServletResponse response) {
         AuthTokenResponse tokenResponse = authService.refresh(refreshToken);
         setRefreshCookie(response, tokenResponse);
@@ -64,7 +57,9 @@ public class AuthController {
 
     @PostMapping("/logout")
     public ApiResponse<Void> logout(
-            @CookieValue(name = "${pixflow.auth.refresh.cookie-name:PIXFLOW_REFRESH}", required = false) String refreshToken,
+            @CookieValue(
+                    name = "${pixflow.auth.refresh.cookie-name:PIXFLOW_REFRESH}",
+                    required = false) String refreshToken,
             HttpServletRequest request,
             HttpServletResponse response) {
         authService.logout(refreshToken, JwtAuthenticationFilter.extractToken(request));
@@ -74,7 +69,7 @@ public class AuthController {
 
     @GetMapping("/me")
     public ApiResponse<UserView> me(@CurrentUser AuthPrincipal principal) {
-        return ApiResponse.ok(authService.me(principal));
+        return ApiResponse.ok(UserView.from(principal));
     }
 
     private void setRefreshCookie(HttpServletResponse response, AuthTokenResponse tokenResponse) {

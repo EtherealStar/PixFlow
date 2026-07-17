@@ -12,11 +12,9 @@ const make = (over: Partial<ApiErrorInit> = {}): ApiError => new ApiError({
 
 describe('errorToMessage', () => {
   const cases: Array<[string, ApiError, 'info' | 'warning' | 'error']> = [
-    ['PROPOSAL_CHALLENGE_FAILED', make({ status: 400, errorCode: 'PROPOSAL_CHALLENGE_FAILED' }), 'warning'],
-    ['PROPOSAL_CHALLENGE_EXPIRED', make({ status: 410, errorCode: 'PROPOSAL_CHALLENGE_EXPIRED' }), 'warning'],
     ['PROPOSAL_ALREADY_CONFIRMED', make({ status: 409, errorCode: 'PROPOSAL_ALREADY_CONFIRMED' }), 'warning'],
     ['PROPOSAL_NOT_FOUND', make({ status: 404, errorCode: 'PROPOSAL_NOT_FOUND' }), 'warning'],
-    ['CONFIRMATION_TOKEN_INVALID', make({ status: 401, errorCode: 'CONFIRMATION_TOKEN_INVALID' }), 'warning'],
+    ['PROPOSAL_PAYLOAD_MISMATCH', make({ status: 409, errorCode: 'PROPOSAL_PAYLOAD_MISMATCH' }), 'warning'],
     ['CONVERSATION_ARCHIVED', make({ status: 410, errorCode: 'CONVERSATION_ARCHIVED' }), 'warning'],
     ['CONVERSATION_NOT_FOUND', make({ status: 404, errorCode: 'CONVERSATION_NOT_FOUND' }), 'warning'],
     ['CHUNK_HASH_MISMATCH', make({ status: 400, errorCode: 'CHUNK_HASH_MISMATCH' }), 'error'],

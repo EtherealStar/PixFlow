@@ -11,6 +11,7 @@ import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.simp.stomp.StompCommand;
 import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
 import org.springframework.messaging.support.ChannelInterceptor;
+import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.util.StringUtils;
 
 public class AuthWebSocketInterceptor implements ChannelInterceptor {
@@ -26,6 +27,8 @@ public class AuthWebSocketInterceptor implements ChannelInterceptor {
         if (accessor != null && StompCommand.CONNECT.equals(accessor.getCommand())) {
             AuthPrincipal principal = authService.authenticateAccessToken(extractToken(accessor));
             accessor.setUser(new StompAuthPrincipal(principal));
+            // wrap 会创建新的可变 header 视图，必须重建消息才能把认证结果传给后续 STOMP 管线。
+            return MessageBuilder.createMessage(message.getPayload(), accessor.getMessageHeaders());
         }
         return message;
     }

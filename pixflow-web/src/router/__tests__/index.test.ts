@@ -12,7 +12,6 @@ vi.mock('@/api/auth', () => ({
     throw new Error('no refresh session')
   }),
   login: vi.fn(),
-  register: vi.fn(),
   logout: vi.fn()
 }))
 
@@ -24,12 +23,11 @@ describe('router auth guard', () => {
     await router.isReady()
   })
 
-  it('redirects unauthenticated protected routes to register-first login page', async () => {
+  it('redirects unauthenticated protected routes to login page', async () => {
     await router.push('/chat/new')
 
     expect(router.currentRoute.value.name).toBe('login')
     expect(router.currentRoute.value.query).toMatchObject({
-      mode: 'register',
       redirect: '/chat/new'
     })
     expect(authApi.refresh).not.toHaveBeenCalled()
@@ -39,7 +37,7 @@ describe('router auth guard', () => {
   it('does not refresh auth state when visiting the login page', async () => {
     getAuthSession().clear()
 
-    await router.push('/login?mode=login')
+    await router.push('/login')
 
     expect(router.currentRoute.value.name).toBe('login')
     expect(authApi.refresh).not.toHaveBeenCalled()

@@ -18,10 +18,6 @@ export const useAuthStore = defineStore('auth', () => {
     await session.login(creds)
   }
 
-  async function register(creds: { username: string; password: string; displayName?: string }): Promise<void> {
-    await session.register(creds)
-  }
-
   async function bootstrap(): Promise<boolean> {
     return await session.bootstrap()
   }
@@ -54,7 +50,6 @@ export const useAuthStore = defineStore('auth', () => {
     bootstrapping: session.bootstrapping,
     isAuthenticated: session.isAuthenticated,
     login,
-    register,
     bootstrap,
     restore,
     logout,

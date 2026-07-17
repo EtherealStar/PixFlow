@@ -20,6 +20,24 @@ class AuthPropertiesValidationTest {
     }
 
     @Test
+    void rejectsMissingConfiguredAdministrator() {
+        AuthProperties properties = new AuthProperties();
+        properties.getJwt().setSecret("test-secret-with-more-than-32-bytes");
+
+        assertThat(validator.validate(properties))
+                .anyMatch(violation -> violation.getPropertyPath().toString().contains("adminUsername"));
+    }
+
+    @Test
+    void rejectsInvalidConfiguredAdministrator() {
+        AuthProperties properties = validProperties();
+        properties.setAdminUsername("Not Allowed!");
+
+        assertThat(validator.validate(properties))
+                .anyMatch(violation -> violation.getPropertyPath().toString().contains("adminUsernameValid"));
+    }
+
+    @Test
     void rejectsShortJwtSecret() {
         AuthProperties properties = validProperties();
         properties.getJwt().setSecret("short");
@@ -50,6 +68,7 @@ class AuthPropertiesValidationTest {
 
     private static AuthProperties validProperties() {
         AuthProperties properties = new AuthProperties();
+        properties.setAdminUsername("pixflow");
         properties.getJwt().setSecret("test-secret-with-more-than-32-bytes");
         return properties;
     }

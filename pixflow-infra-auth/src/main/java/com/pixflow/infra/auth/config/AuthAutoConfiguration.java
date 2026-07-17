@@ -6,7 +6,10 @@ import com.pixflow.infra.auth.crypto.PasswordHasher;
 import com.pixflow.infra.auth.error.AuthErrorCode;
 import com.pixflow.infra.auth.error.AuthException;
 import com.pixflow.infra.auth.filter.JwtAuthenticationFilter;
+import com.pixflow.infra.auth.filter.RouteAwareAuthenticationEntryPoint;
 import com.pixflow.infra.auth.filter.SecurityErrorWriter;
+import com.pixflow.infra.auth.identity.AdministratorEligibility;
+import com.pixflow.infra.auth.identity.DatabaseAdministratorEligibility;
 import com.pixflow.infra.auth.persistence.UserAccountMapper;
 import com.pixflow.infra.auth.service.AuthService;
 import com.pixflow.infra.auth.session.AccessTokenBlacklist;
@@ -34,10 +37,10 @@ import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
-import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.AccessDeniedHandler;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 
 @AutoConfiguration
 @AutoConfigureAfter(CacheAutoConfiguration.class)
@@ -88,6 +91,13 @@ public class AuthAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
+    public AdministratorEligibility administratorEligibility(
+            UserAccountMapper userMapper, AuthProperties properties) {
+        return new DatabaseAdministratorEligibility(userMapper, properties);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
     public AuthService authService(
             UserAccountMapper userMapper,
             PasswordHasher passwordHasher,
@@ -96,6 +106,7 @@ public class AuthAutoConfiguration {
             AuthSessionStore sessionStore,
             AccessTokenBlacklist blacklist,
             LoginThrottleService throttleService,
+            AdministratorEligibility administratorEligibility,
             AuthProperties properties,
             Clock clock) {
         return new AuthService(
@@ -106,6 +117,7 @@ public class AuthAutoConfiguration {
                 sessionStore,
                 blacklist,
                 throttleService,
+                administratorEligibility,
                 properties,
                 clock);
     }
@@ -139,9 +151,10 @@ public class AuthAutoConfiguration {
     public SecurityFilterChain pixflowSecurityFilterChain(
             HttpSecurity http,
             JwtAuthenticationFilter jwtAuthenticationFilter,
-            SecurityErrorWriter errorWriter) throws Exception {
-        AuthenticationEntryPoint entryPoint = (request, response, authException) ->
-                errorWriter.write(response, new AuthException(AuthErrorCode.AUTH_TOKEN_MISSING, "需要登录后访问"));
+            SecurityErrorWriter errorWriter,
+            RequestMappingHandlerMapping handlerMappings) throws Exception {
+        RouteAwareAuthenticationEntryPoint entryPoint =
+                new RouteAwareAuthenticationEntryPoint(handlerMappings, errorWriter);
         AccessDeniedHandler deniedHandler = (request, response, accessDeniedException) ->
                 errorWriter.write(response, new AuthException(AuthErrorCode.AUTH_ACCESS_DENIED, "无权限访问"));
 
@@ -155,9 +168,9 @@ public class AuthAutoConfiguration {
                 .authorizeHttpRequests(auth -> auth
                         // 初始 REQUEST 已完成身份校验，容器内部二次分派不能再依赖已清理的 SecurityContext。
                         .dispatcherTypeMatchers(DispatcherType.ASYNC, DispatcherType.ERROR).permitAll()
-                        .requestMatchers(HttpMethod.POST, "/api/auth/register").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/auth/login").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/auth/refresh").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/auth/logout").permitAll()
                         .requestMatchers("/actuator/health").permitAll()
                         .requestMatchers("/ws").permitAll()
                         .requestMatchers("/ws/**").permitAll()

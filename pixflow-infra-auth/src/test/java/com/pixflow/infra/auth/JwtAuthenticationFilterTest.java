@@ -13,14 +13,14 @@ class JwtAuthenticationFilterTest {
     @Test
     void skipsPublicAuthPaths() {
         assertThat(filter.shouldSkip(request("POST", "/api/auth/login"))).isTrue();
-        assertThat(filter.shouldSkip(request("POST", "/api/auth/register"))).isTrue();
         assertThat(filter.shouldSkip(request("POST", "/api/auth/refresh"))).isTrue();
+        assertThat(filter.shouldSkip(request("POST", "/api/auth/logout"))).isTrue();
     }
 
     @Test
     void filtersAuthenticatedAuthPaths() {
         assertThat(filter.shouldSkip(request("GET", "/api/auth/me"))).isFalse();
-        assertThat(filter.shouldSkip(request("POST", "/api/auth/logout"))).isFalse();
+        assertThat(filter.shouldSkip(request("POST", "/api/auth/register"))).isFalse();
     }
 
     @Test

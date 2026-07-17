@@ -13,7 +13,7 @@ import { useAuthStore } from '@/stores/auth'
  * 占位路由（Wave 6 范畴）：
  * - /rubrics, /settings
  *
- * 鉴权守卫：未登录访问 /chat / /files / /tasks/:tid 时 redirect → 注册优先的 /login。
+ * 鉴权守卫：未登录访问受保护页面时 redirect → /login。
  * 登录页 meta.standalone = true，App.vue 中全屏渲染不套三栏。
  */
 export const routes: RouteRecordRaw[] = [
@@ -88,5 +88,5 @@ router.beforeEach(async (to) => {
     await auth.bootstrap()
   }
   if (auth.isAuthenticated) return true
-  return { name: 'login', query: { mode: 'register', redirect: to.fullPath } }
+  return { name: 'login', query: { redirect: to.fullPath } }
 })
