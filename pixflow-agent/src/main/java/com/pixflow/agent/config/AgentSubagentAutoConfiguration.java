@@ -20,6 +20,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class AgentSubagentAutoConfiguration {
 
     public static final String SUBAGENT_EXECUTOR_BEAN = "subagentExecutor";
+
     public static final String SESSION_MEMORY_EXECUTOR_BEAN = "sessionMemoryExtractionExecutor";
 
     @Bean(name = SUBAGENT_EXECUTOR_BEAN, destroyMethod = "shutdown")
@@ -50,6 +51,7 @@ public class AgentSubagentAutoConfiguration {
     }
 
     private static final class SubagentThreadFactory implements ThreadFactory {
+
         private final AtomicInteger seq = new AtomicInteger();
 
         @Override
@@ -61,6 +63,7 @@ public class AgentSubagentAutoConfiguration {
     }
 
     private static final class SessionMemoryThreadFactory implements ThreadFactory {
+
         private final AtomicInteger seq = new AtomicInteger();
 
         @Override

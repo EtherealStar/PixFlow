@@ -20,15 +20,16 @@ import java.util.Objects;
 @Component
 public class MemoryRecallPlanner {
 
-    private static final Logger log = LoggerFactory.getLogger(MemoryRecallPlanner.class);
+    private static final Logger LOGGER = LoggerFactory.getLogger(MemoryRecallPlanner.class);
 
     private final MemoryService memoryService;
+
     private final AgentProperties props;
 
     public MemoryRecallPlanner(MemoryService memoryService, AgentProperties props) {
         this.memoryService = Objects.requireNonNull(memoryService, "memoryService");
         this.props = props == null ? new AgentProperties() : props;
-        log.info("MemoryRecallPlanner initialized with module-memory MemoryService");
+        LOGGER.info("MemoryRecallPlanner initialized with module-memory MemoryService");
     }
 
     /**

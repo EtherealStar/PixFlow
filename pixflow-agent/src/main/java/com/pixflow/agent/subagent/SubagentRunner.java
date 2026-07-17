@@ -29,7 +29,7 @@ import java.util.concurrent.ExecutorService;
 @Component
 public class SubagentRunner {
 
-    private static final Logger log = LoggerFactory.getLogger(SubagentRunner.class);
+    private static final Logger LOGGER = LoggerFactory.getLogger(SubagentRunner.class);
 
     private final ExecutorService subagentExecutor;
 
@@ -37,7 +37,7 @@ public class SubagentRunner {
             @Qualifier(AgentSubagentAutoConfiguration.SUBAGENT_EXECUTOR_BEAN)
             ExecutorService subagentExecutor) {
         this.subagentExecutor = subagentExecutor;
-        log.info("SubagentRunner initialized with executor: {}", subagentExecutor.getClass().getSimpleName());
+        LOGGER.info("SubagentRunner initialized with executor: {}", subagentExecutor.getClass().getSimpleName());
     }
 
     /**
@@ -57,17 +57,19 @@ public class SubagentRunner {
      */
     private SubagentResult runSync(SubagentRequest req) {
         try {
-            log.info("SubagentRunner.runSync: type={}, promptLen={}", req.type(), req.prompt().length());
+            LOGGER.info("SubagentRunner.runSync: type={}, promptLen={}", req.type(), req.prompt().length());
             return SubagentResult.error("subagent_runtime_unavailable");
         } catch (Exception e) {
-            log.warn("SubagentRunner.runSync failed", e);
+            LOGGER.warn("SubagentRunner.runSync failed", e);
             return SubagentResult.error(safeMessage(e));
         }
     }
 
     private static String safeMessage(Throwable t) {
         String msg = t.getMessage();
-        if (msg == null) return "Subagent failed: " + t.getClass().getSimpleName();
+        if (msg == null) {
+            return "Subagent failed: " + t.getClass().getSimpleName();
+        }
         // 简单脱敏：截断到 500 字符
         return msg.length() > 500 ? msg.substring(0, 500) + "..." : msg;
     }

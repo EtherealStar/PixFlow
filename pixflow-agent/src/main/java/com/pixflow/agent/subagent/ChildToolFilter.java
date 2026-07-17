@@ -23,6 +23,7 @@ public class ChildToolFilter {
     private static final Set<String> CORE_WRITE_TOOLS = Set.of(
             "submit_image_plan", "submit_imagegen_plan", "plan"
     );
+
     private static final Set<String> PLAN_TOOLS = Set.of("plan", "plan_exit");
 
     /**
@@ -30,7 +31,9 @@ public class ChildToolFilter {
      */
     public List<ToolDescriptor> build(SubagentType type, ToolRegistry parentRegistry,
                                        ToolVisibilityContext parentVisibilityCtx) {
-        if (parentRegistry == null) return List.of();
+        if (parentRegistry == null) {
+            return List.of();
+        }
         List<ToolDescriptor> parentVisible = parentRegistry.visibleDescriptors(parentVisibilityCtx);
         return switch (type) {
             case VISION, EXPLORE -> parentVisible.stream()

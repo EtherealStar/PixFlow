@@ -10,7 +10,6 @@ import com.pixflow.harness.context.sessionmemory.SessionMemoryThreshold;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
 import java.nio.charset.StandardCharsets;
@@ -43,14 +42,20 @@ import java.util.concurrent.atomic.AtomicInteger;
 @Service
 public class SessionMemoryService implements SessionMemoryPort {
 
-    private static final Logger log = LoggerFactory.getLogger(SessionMemoryService.class);
+    private static final Logger LOGGER = LoggerFactory.getLogger(SessionMemoryService.class);
 
     private final SessionMemoryRepository repository;
+
     private final SessionMemoryCache cache;
+
     private final SessionMemoryExtractor extractor;
+
     private final SessionMemoryUpdater updater;
+
     private final AgentProperties props;
+
     private final ExecutorService extractionPool;
+
     private final ConcurrentHashMap<String, AtomicInteger> consecutiveFailures = new ConcurrentHashMap<>();
 
     public SessionMemoryService(SessionMemoryRepository repository,
@@ -66,7 +71,7 @@ public class SessionMemoryService implements SessionMemoryPort {
         this.updater = updater;
         this.props = props;
         this.extractionPool = extractionPool;
-        log.info("SessionMemoryService initialized: threshold tokens={}, turns={}, maxFailures={}",
+        LOGGER.info("SessionMemoryService initialized: threshold tokens={}, turns={}, maxFailures={}",
                 props.getSessionMemory().getThreshold().getTokens(),
                 props.getSessionMemory().getThreshold().getTurns(),
                 props.getSessionMemory().getCircuitBreaker().getMaxConsecutiveFailures());
@@ -114,7 +119,7 @@ public class SessionMemoryService implements SessionMemoryPort {
         } else {
             cache.invalidate(conversationId);
         }
-        log.debug("SessionMemoryService: save result={}, conversationId={}, lastSummarizedSeq={}, contentHash={}",
+        LOGGER.debug("SessionMemoryService: save result={}, conversationId={}, lastSummarizedSeq={}, contentHash={}",
                 result, conversationId, lastSummarizedSeq, content.contentHash());
     }
 
@@ -140,7 +145,7 @@ public class SessionMemoryService implements SessionMemoryPort {
         try {
             extractionPool.submit(() -> doExtraction(conversationId, turnNo));
         } catch (RejectedExecutionException e) {
-            log.warn("SessionMemoryService: extraction rejected for conversationId={}", conversationId, e);
+            LOGGER.warn("SessionMemoryService: extraction rejected for conversationId={}", conversationId, e);
             failureCounter(conversationId).incrementAndGet();
         }
     }
@@ -162,11 +167,13 @@ public class SessionMemoryService implements SessionMemoryPort {
             failureCounter(conversationId).set(0);
         } catch (Exception e) {
             int failures = failureCounter(conversationId).incrementAndGet();
-            log.warn("SessionMemoryService: extraction failed (conversationId={}, consecutive={})",
+            LOGGER.warn("SessionMemoryService: extraction failed (conversationId={}, consecutive={})",
                     conversationId, failures, e);
             // 断路器触发 → 切 fallback
             if (failures >= props.getSessionMemory().getCircuitBreaker().getMaxConsecutiveFailures()) {
-                log.warn("SessionMemoryService: circuit breaker triggered for conversationId={}, switching to FALLBACK_RULE",
+                LOGGER.warn(
+                        "SessionMemoryService: circuit breaker triggered for conversationId={}, "
+                                + "switching to FALLBACK_RULE",
                         conversationId);
                 doFallbackExtraction(conversationId, turnNo);
                 failureCounter(conversationId).set(0);
@@ -198,7 +205,10 @@ public class SessionMemoryService implements SessionMemoryPort {
                 cache.invalidate(conversationId);
             }
         } catch (Exception e) {
-            log.error("SessionMemoryService: fallback extraction also failed for conversationId={}", conversationId, e);
+            LOGGER.error(
+                    "SessionMemoryService: fallback extraction also failed for conversationId={}",
+                    conversationId,
+                    e);
         }
     }
 

@@ -16,5 +16,6 @@ public record PromptSummary(List<SectionDigest> sectionDigests, long totalChars)
     /**
      * 单段摘要。
      */
-    public record SectionDigest(String key, String fingerprint, int bodyChars) {}
+    public record SectionDigest(String key, String fingerprint, int bodyChars) {
+    }
 }

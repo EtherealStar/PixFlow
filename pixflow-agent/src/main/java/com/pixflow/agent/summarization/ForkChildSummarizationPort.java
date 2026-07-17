@@ -7,9 +7,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -25,10 +23,12 @@ import java.util.concurrent.atomic.AtomicInteger;
 @Component
 public class ForkChildSummarizationPort implements SummarizationPort {
 
-    private static final Logger log = LoggerFactory.getLogger(ForkChildSummarizationPort.class);
+    private static final Logger LOGGER = LoggerFactory.getLogger(ForkChildSummarizationPort.class);
 
     private final SubagentRunner subagentRunner;
+
     private final SummaryPromptBuilder promptBuilder;
+
     private final AtomicInteger failureCount = new AtomicInteger(0);
 
     public ForkChildSummarizationPort(SubagentRunner subagentRunner,
@@ -60,7 +60,7 @@ public class ForkChildSummarizationPort implements SummarizationPort {
             return new SummaryResult(result.finalText());
         } catch (Exception e) {
             failureCount.incrementAndGet();
-            log.warn("ForkChildSummarizationPort: summarize failed", e);
+            LOGGER.warn("ForkChildSummarizationPort: summarize failed", e);
             return new SummaryResult("");
         }
     }

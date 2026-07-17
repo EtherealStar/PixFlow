@@ -17,7 +17,8 @@ import org.springframework.stereotype.Component;
 @Component
 public class SessionMemoryUpdater {
 
-    private static final Logger log = LoggerFactory.getLogger(SessionMemoryUpdater.class);
+    private static final Logger LOGGER = LoggerFactory.getLogger(SessionMemoryUpdater.class);
+
     private static final int MAX_ASSISTANT_PREVIEW_CHARS = 500;
 
     /**
@@ -45,7 +46,7 @@ public class SessionMemoryUpdater {
                     : lastAssistantMessage;
             sb.append("- Assistant: ").append(preview).append('\n');
         }
-        log.debug("SessionMemoryUpdater: fallback content size = {} chars", sb.length());
+        LOGGER.debug("SessionMemoryUpdater: fallback content size = {} chars", sb.length());
         return sb.toString();
     }
 }

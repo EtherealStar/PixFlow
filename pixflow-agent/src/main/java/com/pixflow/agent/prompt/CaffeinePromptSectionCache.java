@@ -22,11 +22,14 @@ import java.util.concurrent.atomic.LongAdder;
 @Component
 public final class CaffeinePromptSectionCache implements PromptSectionCache {
 
-    private static final Logger log = LoggerFactory.getLogger(CaffeinePromptSectionCache.class);
+    private static final Logger LOGGER = LoggerFactory.getLogger(CaffeinePromptSectionCache.class);
 
     private final Cache<String, String> cache;
+
     private final LongAdder hits = new LongAdder();
+
     private final LongAdder misses = new LongAdder();
+
     private final boolean enabled;
 
     public CaffeinePromptSectionCache(AgentProperties props) {
@@ -35,7 +38,7 @@ public final class CaffeinePromptSectionCache implements PromptSectionCache {
                 .maximumSize(props.getPrompt().getSectionCache().getMaxEntries())
                 .recordStats()
                 .build();
-        log.info("CaffeinePromptSectionCache initialized: enabled={}, maxEntries={}",
+        LOGGER.info("CaffeinePromptSectionCache initialized: enabled={}, maxEntries={}",
                 enabled, props.getPrompt().getSectionCache().getMaxEntries());
     }
 

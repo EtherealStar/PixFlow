@@ -45,7 +45,9 @@ public final class ToolPromptSection implements SectionRenderer {
                 .toList();
         for (var desc : sorted) {
             String prompt = desc.prompt();
-            if (prompt == null || prompt.isBlank()) continue;
+            if (prompt == null || prompt.isBlank()) {
+                continue;
+            }
             body.append("### ").append(desc.name()).append('\n');
             body.append(prompt).append("\n\n");
             fpSeed.append(desc.name()).append(":").append(prompt).append('\n');

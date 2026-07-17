@@ -44,29 +44,70 @@ public class SessionMemory {
     @TableField("updated_at")
     private Instant updatedAt;
 
-    public SessionMemory() {}
+    public SessionMemory() {
+    }
 
-    public String getConversationId() { return conversationId; }
-    public void setConversationId(String conversationId) { this.conversationId = conversationId; }
+    public String getConversationId() {
+        return conversationId;
+    }
 
-    public String getContent() { return content; }
-    public void setContent(String content) { this.content = content; }
+    public void setConversationId(String conversationId) {
+        this.conversationId = conversationId;
+    }
 
-    public Long getLastSummarizedSeq() { return lastSummarizedSeq; }
-    public void setLastSummarizedSeq(Long lastSummarizedSeq) { this.lastSummarizedSeq = lastSummarizedSeq; }
+    public String getContent() {
+        return content;
+    }
 
-    public Integer getCoveredTurnCount() { return coveredTurnCount; }
-    public void setCoveredTurnCount(Integer coveredTurnCount) { this.coveredTurnCount = coveredTurnCount; }
+    public void setContent(String content) {
+        this.content = content;
+    }
 
-    public String getSource() { return source; }
-    public void setSource(String source) { this.source = source; }
+    public Long getLastSummarizedSeq() {
+        return lastSummarizedSeq;
+    }
 
-    public String getContentHash() { return contentHash; }
-    public void setContentHash(String contentHash) { this.contentHash = contentHash; }
+    public void setLastSummarizedSeq(Long lastSummarizedSeq) {
+        this.lastSummarizedSeq = lastSummarizedSeq;
+    }
 
-    public Instant getCreatedAt() { return createdAt; }
-    public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
+    public Integer getCoveredTurnCount() {
+        return coveredTurnCount;
+    }
 
-    public Instant getUpdatedAt() { return updatedAt; }
-    public void setUpdatedAt(Instant updatedAt) { this.updatedAt = updatedAt; }
+    public void setCoveredTurnCount(Integer coveredTurnCount) {
+        this.coveredTurnCount = coveredTurnCount;
+    }
+
+    public String getSource() {
+        return source;
+    }
+
+    public void setSource(String source) {
+        this.source = source;
+    }
+
+    public String getContentHash() {
+        return contentHash;
+    }
+
+    public void setContentHash(String contentHash) {
+        this.contentHash = contentHash;
+    }
+
+    public Instant getCreatedAt() {
+        return createdAt;
+    }
+
+    public void setCreatedAt(Instant createdAt) {
+        this.createdAt = createdAt;
+    }
+
+    public Instant getUpdatedAt() {
+        return updatedAt;
+    }
+
+    public void setUpdatedAt(Instant updatedAt) {
+        this.updatedAt = updatedAt;
+    }
 }

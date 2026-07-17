@@ -24,6 +24,7 @@ import java.util.concurrent.TimeoutException;
 public class ExploreSubagentTool implements ToolHandler {
 
     private final SubagentRunner subagentRunner;
+
     private final AgentProperties properties;
 
     public ExploreSubagentTool(SubagentRunner subagentRunner, AgentProperties properties) {

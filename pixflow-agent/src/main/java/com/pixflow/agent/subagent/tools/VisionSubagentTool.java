@@ -29,6 +29,7 @@ public class VisionSubagentTool implements ToolHandler {
     private static final String TOOL_NAME = "agent";
 
     private final SubagentRunner subagentRunner;
+
     private final AgentProperties properties;
 
     public VisionSubagentTool(SubagentRunner subagentRunner, AgentProperties properties) {

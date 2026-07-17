@@ -23,15 +23,16 @@ import java.util.List;
 @Component
 public final class DynamicPromptAssembler {
 
-    private static final Logger log = LoggerFactory.getLogger(DynamicPromptAssembler.class);
+    private static final Logger LOGGER = LoggerFactory.getLogger(DynamicPromptAssembler.class);
 
     private final List<SectionRenderer> sections;
+
     private final PromptSectionCache cache;
 
     public DynamicPromptAssembler(List<SectionRenderer> sections, PromptSectionCache cache) {
         this.sections = List.copyOf(sections);
         this.cache = cache;
-        log.info("DynamicPromptAssembler initialized with {} sections", sections.size());
+        LOGGER.info("DynamicPromptAssembler initialized with {} sections", sections.size());
     }
 
     /**

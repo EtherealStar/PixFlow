@@ -31,10 +31,14 @@ import org.springframework.context.annotation.FilterType;
  */
 @AutoConfiguration(after = ContextAutoConfiguration.class)
 @EnableConfigurationProperties(AgentProperties.class)
-@MapperScan(basePackageClasses = {SkillMapper.class, SessionMemoryMapper.class}, annotationClass = Mapper.class)
+@MapperScan(
+        basePackageClasses = {SkillMapper.class, SessionMemoryMapper.class},
+        annotationClass = Mapper.class)
 @ComponentScan(
         basePackages = "com.pixflow.agent",
-        excludeFilters = @ComponentScan.Filter(type = FilterType.ASSIGNABLE_TYPE, classes = AgentAutoConfiguration.class))
+        excludeFilters = @ComponentScan.Filter(
+                type = FilterType.ASSIGNABLE_TYPE,
+                classes = AgentAutoConfiguration.class))
 public class AgentAutoConfiguration {
 
     /**

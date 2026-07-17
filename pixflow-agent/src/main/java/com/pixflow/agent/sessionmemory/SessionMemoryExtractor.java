@@ -19,7 +19,7 @@ import java.util.Optional;
 @Component
 public class SessionMemoryExtractor {
 
-    private static final Logger log = LoggerFactory.getLogger(SessionMemoryExtractor.class);
+    private static final Logger LOGGER = LoggerFactory.getLogger(SessionMemoryExtractor.class);
 
     private final AgentProperties props;
 
@@ -36,7 +36,7 @@ public class SessionMemoryExtractor {
      */
     public Optional<String> extract(String previousContent, String newMessagesJson) {
         if (newMessagesJson == null || newMessagesJson.isBlank()) {
-            log.debug("SessionMemoryExtractor: no new messages, returning previous content");
+            LOGGER.debug("SessionMemoryExtractor: no new messages, returning previous content");
             return Optional.ofNullable(previousContent);
         }
         // 本期实现：保守返回拼接（SubagentRunner 落地后接 fork child）
@@ -47,9 +47,9 @@ public class SessionMemoryExtractor {
         int maxBytes = props.getSessionMemory().getMaxContentBytes();
         if (merged.getBytes(StandardCharsets.UTF_8).length > maxBytes) {
             merged = truncateUtf8(merged, maxBytes);
-            log.warn("SessionMemoryExtractor: content truncated to {} UTF-8 bytes", maxBytes);
+            LOGGER.warn("SessionMemoryExtractor: content truncated to {} UTF-8 bytes", maxBytes);
         }
-        log.debug("SessionMemoryExtractor: merged content size = {} chars, ~{} tokens",
+        LOGGER.debug("SessionMemoryExtractor: merged content size = {} chars, ~{} tokens",
                 merged.length(), estimateTokens(merged));
         return Optional.of(merged);
     }

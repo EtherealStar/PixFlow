@@ -25,7 +25,7 @@ import java.util.Set;
 @Component
 public class TurnStoppedSessionMemoryHook implements HookCallback {
 
-    private static final Logger log = LoggerFactory.getLogger(TurnStoppedSessionMemoryHook.class);
+    private static final Logger LOGGER = LoggerFactory.getLogger(TurnStoppedSessionMemoryHook.class);
 
     private final SessionMemoryService sessionMemoryService;
 
@@ -60,10 +60,10 @@ public class TurnStoppedSessionMemoryHook implements HookCallback {
                     turnStopped.conversationId(),
                     turnStopped.turnNo() == null ? 0 : turnStopped.turnNo()
             );
-            log.debug("TurnStoppedSessionMemoryHook: scheduled extraction for conversationId={}",
+            LOGGER.debug("TurnStoppedSessionMemoryHook: scheduled extraction for conversationId={}",
                     turnStopped.conversationId());
         } catch (Exception e) {
-            log.warn("TurnStoppedSessionMemoryHook: schedule failed for conversationId={}",
+            LOGGER.warn("TurnStoppedSessionMemoryHook: schedule failed for conversationId={}",
                     turnStopped.conversationId(), e);
         }
         return HookResult.noop();

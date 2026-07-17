@@ -22,7 +22,7 @@ import java.util.Set;
 @Component
 public class AssistantMemoryIngestionHook implements HookCallback {
 
-    private static final Logger log = LoggerFactory.getLogger(AssistantMemoryIngestionHook.class);
+    private static final Logger LOGGER = LoggerFactory.getLogger(AssistantMemoryIngestionHook.class);
 
     @Override
     public Set<HookEvent> supportedEvents() {
@@ -46,7 +46,7 @@ public class AssistantMemoryIngestionHook implements HookCallback {
             // child subagent 不触发
             return HookResult.noop();
         }
-        log.debug("AssistantMemoryIngestionHook: triggered for conversationId={}",
+        LOGGER.debug("AssistantMemoryIngestionHook: triggered for conversationId={}",
                 payload.conversationId());
         // 本期：不调 LLM 做分析结论抽取；下迭代接入 module/memory.ingestAsync
         return HookResult.noop();

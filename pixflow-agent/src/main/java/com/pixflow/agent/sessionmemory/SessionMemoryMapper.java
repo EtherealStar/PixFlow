@@ -38,9 +38,15 @@ public interface SessionMemoryMapper extends BaseMapper<SessionMemory> {
             )
             ON DUPLICATE KEY UPDATE
                 content = IF(VALUES(last_summarized_seq) >= last_summarized_seq, VALUES(content), content),
-                content_hash = IF(VALUES(last_summarized_seq) >= last_summarized_seq, VALUES(content_hash), content_hash),
+                content_hash = IF(
+                    VALUES(last_summarized_seq) >= last_summarized_seq, VALUES(content_hash), content_hash
+                ),
                 source = IF(VALUES(last_summarized_seq) >= last_summarized_seq, VALUES(source), source),
-                covered_turn_count = IF(VALUES(last_summarized_seq) >= last_summarized_seq, VALUES(covered_turn_count), covered_turn_count),
+                covered_turn_count = IF(
+                    VALUES(last_summarized_seq) >= last_summarized_seq,
+                    VALUES(covered_turn_count),
+                    covered_turn_count
+                ),
                 updated_at = IF(VALUES(last_summarized_seq) >= last_summarized_seq, VALUES(updated_at), updated_at),
                 last_summarized_seq = GREATEST(last_summarized_seq, VALUES(last_summarized_seq))
             """)

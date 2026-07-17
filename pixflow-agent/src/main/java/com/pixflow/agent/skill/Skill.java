@@ -49,35 +49,86 @@ public class Skill {
     @TableField("updated_at")
     private Instant updatedAt;
 
-    public Skill() {}
+    public Skill() {
+    }
 
-    public String getId() { return id; }
-    public void setId(String id) { this.id = id; }
+    public String getId() {
+        return id;
+    }
 
-    public String getName() { return name; }
-    public void setName(String name) { this.name = name; }
+    public void setId(String id) {
+        this.id = id;
+    }
 
-    public String getDescription() { return description; }
-    public void setDescription(String description) { this.description = description; }
+    public String getName() {
+        return name;
+    }
 
-    public String getWhenToUse() { return whenToUse; }
-    public void setWhenToUse(String whenToUse) { this.whenToUse = whenToUse; }
+    public void setName(String name) {
+        this.name = name;
+    }
 
-    public String getBody() { return body; }
-    public void setBody(String body) { this.body = body; }
+    public String getDescription() {
+        return description;
+    }
 
-    public String getSource() { return source; }
-    public void setSource(String source) { this.source = source; }
+    public void setDescription(String description) {
+        this.description = description;
+    }
 
-    public Integer getVersion() { return version; }
-    public void setVersion(Integer version) { this.version = version; }
+    public String getWhenToUse() {
+        return whenToUse;
+    }
 
-    public String getBodyHash() { return bodyHash; }
-    public void setBodyHash(String bodyHash) { this.bodyHash = bodyHash; }
+    public void setWhenToUse(String whenToUse) {
+        this.whenToUse = whenToUse;
+    }
 
-    public Instant getCreatedAt() { return createdAt; }
-    public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
+    public String getBody() {
+        return body;
+    }
 
-    public Instant getUpdatedAt() { return updatedAt; }
-    public void setUpdatedAt(Instant updatedAt) { this.updatedAt = updatedAt; }
+    public void setBody(String body) {
+        this.body = body;
+    }
+
+    public String getSource() {
+        return source;
+    }
+
+    public void setSource(String source) {
+        this.source = source;
+    }
+
+    public Integer getVersion() {
+        return version;
+    }
+
+    public void setVersion(Integer version) {
+        this.version = version;
+    }
+
+    public String getBodyHash() {
+        return bodyHash;
+    }
+
+    public void setBodyHash(String bodyHash) {
+        this.bodyHash = bodyHash;
+    }
+
+    public Instant getCreatedAt() {
+        return createdAt;
+    }
+
+    public void setCreatedAt(Instant createdAt) {
+        this.createdAt = createdAt;
+    }
+
+    public Instant getUpdatedAt() {
+        return updatedAt;
+    }
+
+    public void setUpdatedAt(Instant updatedAt) {
+        this.updatedAt = updatedAt;
+    }
 }

@@ -18,6 +18,7 @@ import java.nio.charset.StandardCharsets;
 public final class BehaviorRulesSection implements SectionRenderer {
 
     private static final String SECTION_VERSION = "v1";
+
     private static final String BODY;
 
     static {

@@ -36,11 +36,14 @@ import java.util.Map;
 @Component
 public class SkillToolRegistrar {
 
-    private static final Logger log = LoggerFactory.getLogger(SkillToolRegistrar.class);
+    private static final Logger LOGGER = LoggerFactory.getLogger(SkillToolRegistrar.class);
+
     private static final String PREFIX = "skill__";
 
     private final SkillRepository skillRepository;
+
     private final SkillHandler skillHandler;
+
     private final ApplicationContext applicationContext;
 
     public SkillToolRegistrar(SkillRepository skillRepository,
@@ -55,19 +58,19 @@ public class SkillToolRegistrar {
     public void registerAll() {
         ToolRegistry registry = lookupToolRegistry();
         if (registry == null) {
-            log.warn("SkillToolRegistrar: ToolRegistry bean not found - skill tools not registered");
+            LOGGER.warn("SkillToolRegistrar: ToolRegistry bean not found - skill tools not registered");
             return;
         }
         List<Skill> skills = skillRepository.findAllBuiltin();
         if (skills.isEmpty()) {
-            log.info("SkillToolRegistrar: no BUILTIN skills to register");
+            LOGGER.info("SkillToolRegistrar: no BUILTIN skills to register");
             return;
         }
         for (Skill skill : skills) {
             ToolDescriptor descriptor = buildDescriptor(skill);
             registry.registerDynamic(descriptor);
         }
-        log.info("SkillToolRegistrar: registered {} skill tools", skills.size());
+        LOGGER.info("SkillToolRegistrar: registered {} skill tools", skills.size());
     }
 
     private ToolDescriptor buildDescriptor(Skill skill) {

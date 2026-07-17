@@ -67,5 +67,6 @@ public interface SectionRenderer {
             MemoryContext memoryContext,
             SessionMemoryContent sessionMemory,
             List<ToolDescriptor> visibleTools
-    ) {}
+    ) {
+    }
 }

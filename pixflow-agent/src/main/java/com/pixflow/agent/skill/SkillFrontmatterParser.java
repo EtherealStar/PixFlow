@@ -20,6 +20,7 @@ import java.util.regex.Pattern;
 public final class SkillFrontmatterParser {
 
     private static final Pattern NAME_PATTERN = Pattern.compile("^[a-z][a-z0-9_]{1,40}$");
+
     private static final Pattern VERSION_PATTERN = Pattern.compile("^[1-9]\\d*$");
 
     private final AgentProperties props;
@@ -57,7 +58,9 @@ public final class SkillFrontmatterParser {
         int version = -1;
         for (String line : frontmatter.split("\\R")) {
             String trimmed = line.strip();
-            if (trimmed.isEmpty() || trimmed.startsWith("#")) continue;
+            if (trimmed.isEmpty() || trimmed.startsWith("#")) {
+                continue;
+            }
             int colon = trimmed.indexOf(':');
             if (colon < 0) {
                 throw new SkillParseException("frontmatter 行缺少冒号: " + trimmed);
@@ -77,10 +80,18 @@ public final class SkillFrontmatterParser {
                 default -> { /* 未知字段忽略（向前兼容） */ }
             }
         }
-        if (name == null) throw new SkillParseException("frontmatter 缺少 name 字段");
-        if (description == null) throw new SkillParseException("frontmatter 缺少 description 字段");
-        if (whenToUse == null) throw new SkillParseException("frontmatter 缺少 when_to_use 字段");
-        if (version < 0) throw new SkillParseException("frontmatter 缺少 version 字段");
+        if (name == null) {
+            throw new SkillParseException("frontmatter 缺少 name 字段");
+        }
+        if (description == null) {
+            throw new SkillParseException("frontmatter 缺少 description 字段");
+        }
+        if (whenToUse == null) {
+            throw new SkillParseException("frontmatter 缺少 when_to_use 字段");
+        }
+        if (version < 0) {
+            throw new SkillParseException("frontmatter 缺少 version 字段");
+        }
 
         // 校验
         validate(name, description, whenToUse, version, body);
@@ -130,5 +141,6 @@ public final class SkillFrontmatterParser {
     /**
      * 解析产物：frontmatter + body。
      */
-    public record ParsedSkill(SkillFrontmatter frontmatter, String body) {}
+    public record ParsedSkill(SkillFrontmatter frontmatter, String body) {
+    }
 }

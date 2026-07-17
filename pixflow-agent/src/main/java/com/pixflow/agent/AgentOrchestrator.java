@@ -10,7 +10,6 @@ import com.pixflow.agent.memory.MemoryRecallSignal;
 import com.pixflow.agent.planmode.PlanModeController;
 import com.pixflow.agent.planmode.PlanModeState;
 import com.pixflow.agent.prompt.DynamicPromptAssembler;
-import com.pixflow.agent.prompt.PromptSummary;
 import com.pixflow.agent.prompt.SectionRenderer;
 import com.pixflow.agent.sessionmemory.SessionMemoryService;
 import com.pixflow.common.error.PixFlowException;
@@ -91,29 +90,47 @@ import java.util.concurrent.ExecutorService;
 @Component
 public class AgentOrchestrator {
 
-    private static final Logger log = LoggerFactory.getLogger(AgentOrchestrator.class);
+    private static final Logger LOGGER = LoggerFactory.getLogger(AgentOrchestrator.class);
 
     private final MemoryRecallPlanner memoryRecallPlanner;
+
     private final SessionMemoryService sessionMemoryService;
+
     private final DynamicPromptAssembler promptAssembler;
+
     private final ToolRegistry toolRegistry;
+
     private final PlanModeController planModeController;
+
     private final AgentProperties agentProperties;
+
     private final LoopProperties loopProperties;
+
     private final ObjectMapper jsonMapper;
+
     private final PermissionPolicy permissionPolicy;
 
     // 协作 SPI（全部可由 Spring 容器注入；为单例复用）
     private final ChatModelClient chatModelClient;
+
     private final ToolExecutor toolExecutor;
+
     private final HookRegistry hookRegistry;
+
     private final TraceRecorder traceRecorder;
+
     private final ErrorRecorder errorRecorder;
+
     private final PermissionContextFactory permissionContextFactory;
+
     private final TokenEstimator tokenEstimator;
+
     private final ContextBudgetService contextBudgetService;
+
     private final ContextCompactionService contextCompactionService;
+
     private final TranscriptPort transcriptPort;
+
     private final ExecutorService loopToolExecutor;
 
     public AgentOrchestrator(MemoryRecallPlanner memoryRecallPlanner,
@@ -185,7 +202,8 @@ public class AgentOrchestrator {
                                 List<String> recentAssistantMessages) {
         Objects.requireNonNull(state, "state");
         Map<String, Object> metadata = new HashMap<>();
-        metadata.put("recent_assistant_messages", recentAssistantMessages == null ? List.of() : List.copyOf(recentAssistantMessages));
+        metadata.put("recent_assistant_messages",
+                recentAssistantMessages == null ? List.of() : List.copyOf(recentAssistantMessages));
         metadata.put("runtime_scope", state.runtimeScope() == null ? "" : state.runtimeScope().toString());
         MemoryRecallSignal signal = new MemoryRecallSignal(
                 state.conversationId(),
@@ -266,7 +284,9 @@ public class AgentOrchestrator {
         );
         // 4. 渲染 systemPrompt
         String systemPrompt = renderSystemPrompt(ctx);
-        log.info("AgentOrchestrator.prepareTurn: conversationId={}, memoryDegraded={}, memorySections={}, systemPromptLen={}",
+        LOGGER.info(
+                "AgentOrchestrator.prepareTurn: conversationId={}, memoryDegraded={}, "
+                        + "memorySections={}, systemPromptLen={}",
                 conversationId, memoryContext.degraded(), memoryContext.sections().size(), systemPrompt.length());
         return Map.of(
                 "systemPrompt", systemPrompt,
@@ -385,7 +405,7 @@ public class AgentOrchestrator {
                             sink, systemPrompt, toolSchemas, cancellation);
 
             // 8. 收尾：flush 由 AgentLoop 内部触发；返回 finalText 给调用方（作为 turn result）
-            log.info("AgentOrchestrator: conversationId={} turnNo={} finalTextLen={}",
+            LOGGER.info("AgentOrchestrator: conversationId={} turnNo={} finalTextLen={}",
                     conversationId, state.turnNo(),
                     finalText == null ? 0 : finalText.length());
             return finalText == null ? "" : finalText;
@@ -410,7 +430,10 @@ public class AgentOrchestrator {
             try {
                 messageStore.flush();
             } catch (RuntimeException flushError) {
-                log.warn("AgentOrchestrator: message flush failed for conversationId={}", conversationId, flushError);
+                LOGGER.warn(
+                        "AgentOrchestrator: message flush failed for conversationId={}",
+                        conversationId,
+                        flushError);
             }
         }
     }
@@ -468,7 +491,8 @@ public class AgentOrchestrator {
         CONTINUE
     }
 
-    private record TurnRuntime(RuntimeState state, MessageStore messageStore, int targetTurnNo) {}
+    private record TurnRuntime(RuntimeState state, MessageStore messageStore, int targetTurnNo) {
+    }
 
     /**
      * per-call 装配 {@link AgentLoop}：15 依赖全部就绪。

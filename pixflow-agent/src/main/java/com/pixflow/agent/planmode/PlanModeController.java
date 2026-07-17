@@ -22,6 +22,7 @@ import org.springframework.stereotype.Component;
 public class PlanModeController {
 
     private static final String PLAN_MODE_KEY = "planMode";
+
     private static final String LAST_PLAN_DRAFT_KEY = "lastPlanDraft";
 
     private final AgentProperties props;

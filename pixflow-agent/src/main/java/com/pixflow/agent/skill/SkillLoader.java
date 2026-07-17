@@ -34,11 +34,14 @@ import java.util.Set;
 @Component
 public class SkillLoader {
 
-    private static final Logger log = LoggerFactory.getLogger(SkillLoader.class);
+    private static final Logger LOGGER = LoggerFactory.getLogger(SkillLoader.class);
+
     private static final String SKILL_PATTERN = "classpath:skills/*/SKILL.md";
 
     private final SkillRepository repository;
+
     private final SkillFrontmatterParser parser;
+
     private final ResourcePatternResolver resolver = new PathMatchingResourcePatternResolver();
 
     public SkillLoader(SkillRepository repository, SkillFrontmatterParser parser) {
@@ -52,7 +55,7 @@ public class SkillLoader {
         try {
             resources = resolver.getResources(SKILL_PATTERN);
         } catch (Exception e) {
-            log.warn("SkillLoader: failed to scan classpath:skills/", e);
+            LOGGER.warn("SkillLoader: failed to scan classpath:skills/", e);
             return;
         }
         Set<String> seenNames = new HashSet<>();
@@ -69,21 +72,21 @@ public class SkillLoader {
                 seenNames.add(name);
                 upsertSkill(parsed, bodyHash);
             } catch (SkillParseException e) {
-                log.warn("SkillLoader: invalid SKILL.md at {}", path, e);
+                LOGGER.warn("SkillLoader: invalid SKILL.md at {}", path, e);
             } catch (Exception e) {
-                log.warn("SkillLoader: failed to load {}", path, e);
+                LOGGER.warn("SkillLoader: failed to load {}", path, e);
             }
         }
         // 删除启动时未出现的 BUILTIN skill（被移除场景）
         try {
             for (String existingName : repository.findAllBuiltinNames()) {
                 if (!seenNames.contains(existingName)) {
-                    log.info("SkillLoader: removing stale BUILTIN skill '{}'", existingName);
+                    LOGGER.info("SkillLoader: removing stale BUILTIN skill '{}'", existingName);
                     repository.deleteByName(existingName);
                 }
             }
         } catch (Exception e) {
-            log.warn("SkillLoader: stale-skill cleanup failed", e);
+            LOGGER.warn("SkillLoader: stale-skill cleanup failed", e);
         }
     }
 
@@ -99,9 +102,9 @@ public class SkillLoader {
                         existing.setBodyHash(bodyHash);
                         existing.setUpdatedAt(Instant.now());
                         repository.update(existing);
-                        log.info("SkillLoader: updated BUILTIN skill '{}'", name);
+                        LOGGER.info("SkillLoader: updated BUILTIN skill '{}'", name);
                     } else {
-                        log.debug("SkillLoader: BUILTIN skill '{}' unchanged (body_hash match)", name);
+                        LOGGER.debug("SkillLoader: BUILTIN skill '{}' unchanged (body_hash match)", name);
                     }
                 },
                 () -> {
@@ -117,7 +120,7 @@ public class SkillLoader {
                     skill.setCreatedAt(now);
                     skill.setUpdatedAt(now);
                     repository.insert(skill);
-                    log.info("SkillLoader: inserted BUILTIN skill '{}'", name);
+                    LOGGER.info("SkillLoader: inserted BUILTIN skill '{}'", name);
                 }
         );
     }
