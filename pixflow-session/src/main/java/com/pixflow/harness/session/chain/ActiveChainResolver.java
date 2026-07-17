@@ -10,6 +10,7 @@ import java.util.Objects;
 
 public final class ActiveChainResolver {
     private final MessageReadMapper messageReadMapper;
+
     private final CompactionMapper compactionMapper;
 
     public ActiveChainResolver(MessageReadMapper messageReadMapper, CompactionMapper compactionMapper) {

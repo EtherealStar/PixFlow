@@ -12,7 +12,9 @@ import java.util.Objects;
 
 public final class MessageStore {
     private final TranscriptPort transcriptPort;
+
     private final List<Message> messages = new ArrayList<>();
+
     private String conversationId;
 
     public MessageStore() {
@@ -144,7 +146,13 @@ public final class MessageStore {
         }
         List<Message> prepared = batch.stream()
                 .map(message -> message.createdAt() == null
-                        ? new Message(message.id(), message.role(), message.content(), message.toolCallId(), message.metadata(), Instant.now())
+                        ? new Message(
+                                message.id(),
+                                message.role(),
+                                message.content(),
+                                message.toolCallId(),
+                                message.metadata(),
+                                Instant.now())
                         : message)
                 .toList();
         List<Message> persisted = transcriptPort == null

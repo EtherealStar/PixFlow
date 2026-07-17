@@ -27,7 +27,13 @@ public final class ObjectStorageToolResultExternalizer implements ToolResultExte
                 new ByteArrayInputStream(bytes),
                 bytes.length,
                 "text/plain; charset=utf-8");
-        return new ToolResultReference(id, ref.bucket().name(), ref.key(), preview(content, previewChars), bytes.length, false);
+        return new ToolResultReference(
+                id,
+                ref.bucket().name(),
+                ref.key(),
+                preview(content, previewChars),
+                bytes.length,
+                false);
     }
 
     private static String preview(String content, int previewChars) {

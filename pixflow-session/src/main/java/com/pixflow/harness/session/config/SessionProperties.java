@@ -6,9 +6,13 @@ import org.springframework.util.unit.DataSize;
 @ConfigurationProperties(prefix = "pixflow.session")
 public class SessionProperties {
     private WriteMode writeMode = WriteMode.BUFFERED;
+
     private Buffer buffer = new Buffer();
+
     private Load load = new Load();
+
     private Externalize externalize = new Externalize();
+
     private Seq seq = new Seq();
 
     public enum WriteMode {
@@ -58,6 +62,7 @@ public class SessionProperties {
 
     public static class Buffer {
         private int flushMaxMessages = 50;
+
         private DataSize flushMaxBytes = DataSize.ofMegabytes(1);
 
         public int getFlushMaxMessages() {
@@ -91,6 +96,7 @@ public class SessionProperties {
 
     public static class Externalize {
         private DataSize toolResultThreshold = DataSize.ofKilobytes(50);
+
         private int previewChars = 2048;
 
         public DataSize getToolResultThreshold() {

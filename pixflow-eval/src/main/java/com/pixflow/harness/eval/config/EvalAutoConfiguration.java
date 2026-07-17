@@ -19,12 +19,12 @@ import com.pixflow.harness.eval.support.TracePayloadCodec;
 import com.pixflow.infra.storage.ObjectStorage;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
-import org.springframework.boot.autoconfigure.AutoConfiguration;
 
 @AutoConfiguration
 @EnableConfigurationProperties(EvalProperties.class)
@@ -55,7 +55,8 @@ public class EvalAutoConfiguration {
         return new TraceExternalPayloadStorage() {
             @Override
             public com.pixflow.harness.eval.model.TraceExternalPayloadRef put(String payload) {
-                return new com.pixflow.harness.eval.model.TraceExternalPayloadRef("inline-unavailable", payload.length(), null, null, payload, true);
+                return new com.pixflow.harness.eval.model.TraceExternalPayloadRef(
+                        "inline-unavailable", payload.length(), null, null, payload, true);
             }
 
             @Override
@@ -71,7 +72,10 @@ public class EvalAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public TracePayloadCodec tracePayloadCodec(ObjectMapper objectMapper, EvalProperties properties, TraceExternalPayloadStorage storage) {
+    public TracePayloadCodec tracePayloadCodec(
+            ObjectMapper objectMapper,
+            EvalProperties properties,
+            TraceExternalPayloadStorage storage) {
         return new TracePayloadCodec(objectMapper, properties, storage);
     }
 

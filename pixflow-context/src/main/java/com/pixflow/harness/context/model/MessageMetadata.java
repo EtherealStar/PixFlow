@@ -8,20 +8,35 @@ import java.util.Map;
 
 public record MessageMetadata(Map<String, Object> values) {
     public static final String EVENT = "event";
+
     public static final String EVENT_SKILL_INVOCATION = "skill_invocation";
+
     public static final String EVENT_PLAN_MODE_CHANGE = "plan_mode_change";
+
     public static final String TOOL_CALL_IDS = "toolCallIds";
+
     public static final String ASSISTANT_TOOL_CALLS = "assistantToolCalls";
+
     public static final String TOOL_RESULT_EXTERNALIZED = "toolResultExternalized";
+
     public static final String TOOL_RESULT_REF = "toolResultRef";
+
     public static final String MICROCOMPACTED = "microcompacted";
+
     public static final String PLACEHOLDER = "placeholder";
+
     public static final String COMPACT_BOUNDARY = "isCompactBoundary";
+
     public static final String COMPACT_SUMMARY = "isCompactSummary";
+
     public static final String COMPACT_TRIGGER = "compactTrigger";
+
     public static final String ATTACHMENT_TYPE = "attachmentType";
+
     public static final String ATTACHMENT_REF = "attachmentRef";
+
     public static final String ATTACHED_PACKAGE_ID = "attachedPackageId";
+
     public static final String ATTACHMENT_ID = "attachmentId";
 
     public MessageMetadata {

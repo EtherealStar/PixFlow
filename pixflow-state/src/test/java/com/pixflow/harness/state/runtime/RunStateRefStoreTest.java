@@ -5,7 +5,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.pixflow.harness.state.model.RuntimeArtifactRef;
 import com.pixflow.harness.state.model.UnitKey;
 import com.pixflow.harness.state.testsupport.FakeCacheStore;
-import com.pixflow.infra.cache.key.CacheKey;
 import com.pixflow.infra.storage.BucketType;
 import com.pixflow.infra.storage.ObjectLocation;
 import java.time.Duration;
@@ -18,7 +17,7 @@ class RunStateRefStoreTest {
     void storesAndReadsArtifactReference() {
         FakeCacheStore cache = new FakeCacheStore();
         RunStateRefStore store = new DefaultRunStateRefStore(cache);
-        CacheKey key = key();
+        RuntimeRefKey key = key();
         RuntimeArtifactRef ref = new RuntimeArtifactRef(
                 UnitKey.branch("task-1", "image-1", "branch-a"),
                 3,
@@ -30,7 +29,7 @@ class RunStateRefStoreTest {
         assertThat(store.getRef(key, 3)).contains(ref);
         assertThat(cache.lastTtl()).isEqualTo(Duration.ofHours(24));
         assertThat(store.getRef(key, 4)).isEmpty();
-        assertThat(cache.exists(key)).isFalse();
+        assertThat(cache.exists(cacheKey(key))).isFalse();
     }
 
     @Test
@@ -57,7 +56,11 @@ class RunStateRefStoreTest {
         store.deleteRef(key());
     }
 
-    private CacheKey key() {
-        return new CacheKey("test:ref", Duration.ofMinutes(10), "test-ref");
+    private RuntimeRefKey key() {
+        return new RuntimeRefKey("test:ref", Duration.ofMinutes(10), "test-ref");
+    }
+
+    private com.pixflow.infra.cache.key.CacheKey cacheKey(RuntimeRefKey key) {
+        return new com.pixflow.infra.cache.key.CacheKey(key.value(), key.ttl(), key.namespace());
     }
 }

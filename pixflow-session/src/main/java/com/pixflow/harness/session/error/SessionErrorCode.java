@@ -8,6 +8,7 @@ public enum SessionErrorCode implements ErrorCode {
     SESSION_SEQ_ALLOCATION_EXHAUSTED("SESSION_SEQ_ALLOCATION_EXHAUSTED", ErrorCategory.DEPENDENCY);
 
     private final String code;
+
     private final ErrorCategory category;
 
     SessionErrorCode(String code, ErrorCategory category) {

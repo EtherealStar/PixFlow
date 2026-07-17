@@ -10,10 +10,15 @@ import java.util.Map;
 
 public final class DispatchAccumulator {
     private final HookEvent event;
+
     private final HookPayload originalPayload;
+
     private HookPayload currentPayload;
+
     private String blockingReason;
+
     private Map<String, Object> updatedInput = new LinkedHashMap<>();
+
     private Map<String, Object> metadata = new LinkedHashMap<>();
 
     public DispatchAccumulator(HookEvent event, HookPayload payload) {
@@ -28,7 +33,9 @@ public final class DispatchAccumulator {
 
     public void accept(HookResult result) {
         metadata = MetadataMerger.merge(metadata, result.metadata());
-        if (event == HookEvent.PRE_TOOL_USE && currentPayload instanceof ToolUsePayload toolPayload && result.inputRewritten()) {
+        if (event == HookEvent.PRE_TOOL_USE
+                && currentPayload instanceof ToolUsePayload toolPayload
+                && result.inputRewritten()) {
             // updatedInput 是顶层浅 patch；这里不做嵌套合并，避免总线理解具体工具 schema。
             Map<String, Object> patched = new LinkedHashMap<>(toolPayload.toolInput());
             patched.putAll(result.updatedInput());

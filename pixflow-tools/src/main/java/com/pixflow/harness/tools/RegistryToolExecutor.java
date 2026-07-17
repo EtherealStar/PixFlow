@@ -10,7 +10,6 @@ import com.pixflow.harness.hooks.HookResult;
 import com.pixflow.harness.hooks.payload.ToolUsePayload;
 import com.pixflow.harness.permission.PermissionAction;
 import com.pixflow.harness.permission.PermissionDecision;
-import com.pixflow.harness.permission.PermissionSource;
 import com.pixflow.harness.permission.PermissionSubject;
 import com.pixflow.harness.tools.error.ToolErrorFactory;
 import com.pixflow.harness.tools.plan.PlanModeView;
@@ -30,11 +29,17 @@ import java.util.concurrent.Future;
 
 public class RegistryToolExecutor implements ToolExecutor {
     private final ToolRegistry toolRegistry;
+
     private final com.pixflow.harness.permission.PermissionPolicy permissionPolicy;
+
     private final HookRegistry hookRegistry;
+
     private final ToolResultStorage resultStorage;
+
     private final ToolTraceSink traceSink;
+
     private final PlanModeView planModeView;
+
     private final int maxConcurrency;
 
     public RegistryToolExecutor(
@@ -64,7 +69,12 @@ public class RegistryToolExecutor implements ToolExecutor {
             ToolCall call = calls.get(index);
             ToolDescriptor descriptor = toolRegistry.get(call.toolName()).orElse(null);
             if (descriptor == null) {
-                results.add(error(call, "unknown tool", ToolErrorFactory.validation("未知工具: " + call.toolName(), Map.of("toolName", call.toolName()))));
+                results.add(error(
+                        call,
+                        "unknown tool",
+                        ToolErrorFactory.validation(
+                                "未知工具: " + call.toolName(),
+                                Map.of("toolName", call.toolName()))));
                 index++;
                 continue;
             }
@@ -82,7 +92,9 @@ public class RegistryToolExecutor implements ToolExecutor {
                 if (nextDescriptor == null) {
                     break;
                 }
-                ToolCallClassification nextClassification = nextDescriptor.classifier().classify(nextDescriptor, next.arguments());
+                ToolCallClassification nextClassification = nextDescriptor
+                        .classifier()
+                        .classify(nextDescriptor, next.arguments());
                 if (!nextClassification.concurrencySafe()) {
                     break;
                 }
@@ -111,7 +123,10 @@ public class RegistryToolExecutor implements ToolExecutor {
         return results;
     }
 
-    private ToolExecutionResult executeSingle(ToolCall call, ToolDescriptor descriptor, ToolExecutionContext context) {
+    private ToolExecutionResult executeSingle(
+            ToolCall call,
+            ToolDescriptor descriptor,
+            ToolExecutionContext context) {
         long startedAt = Instant.now().toEpochMilli();
         Map<String, Object> args = new LinkedHashMap<>(call.arguments());
         boolean rewritten = false;
@@ -119,25 +134,36 @@ public class RegistryToolExecutor implements ToolExecutor {
             context.cancellation().throwIfCancellationRequested();
             validateArgs(descriptor, args);
             ToolCallClassification classification = descriptor.classifier().classify(descriptor, args);
-            PermissionDecision decision = evaluatePermission(call, descriptor, classification, context.permissionContext());
+            PermissionDecision decision = evaluatePermission(
+                    call, descriptor, classification, context.permissionContext());
             if (decision.action() == PermissionAction.DENY || decision.action() == PermissionAction.CONFIRM_REQUIRED) {
-                ToolExecutionResult result = error(call, "permission denied", ToolErrorFactory.permission(decision.reason(), Map.of("decision", decision.action().name())));
+                ToolExecutionResult result = error(
+                        call,
+                        "permission denied",
+                        ToolErrorFactory.permission(
+                                decision.reason(),
+                                Map.of("decision", decision.action().name())));
                 trace(call, startedAt, result, rewritten, true, decision.source().name());
                 return result;
             }
-            HookResult pre = hookRegistry.dispatch(HookEvent.PRE_TOOL_USE, new ToolUsePayload(
-                    call.conversationId(),
-                    call.turnNo(),
-                    call.traceId(),
-                    call.runtimeScope(),
+            HookResult pre = hookRegistry.dispatch(
                     HookEvent.PRE_TOOL_USE,
-                    call.toolName(),
-                    call.toolCallId(),
-                    args,
-                    decision,
-                    call.metadata()));
+                    new ToolUsePayload(
+                            call.conversationId(),
+                            call.turnNo(),
+                            call.traceId(),
+                            call.runtimeScope(),
+                            HookEvent.PRE_TOOL_USE,
+                            call.toolName(),
+                            call.toolCallId(),
+                            args,
+                            decision,
+                            call.metadata()));
             if (pre.blocked()) {
-                ToolExecutionResult result = error(call, pre.blockingReason(), ToolErrorFactory.validation(pre.blockingReason(), pre.metadata()));
+                ToolExecutionResult result = error(
+                        call,
+                        pre.blockingReason(),
+                        ToolErrorFactory.validation(pre.blockingReason(), pre.metadata()));
                 trace(call, startedAt, result, rewritten, false, "HOOK");
                 return result;
             }
@@ -149,7 +175,12 @@ public class RegistryToolExecutor implements ToolExecutor {
                 classification = descriptor.classifier().classify(descriptor, args);
                 decision = evaluatePermission(call, descriptor, classification, context.permissionContext());
                 if (decision.action() != PermissionAction.ALLOW) {
-                    ToolExecutionResult result = error(call, "permission denied", ToolErrorFactory.permission(decision.reason(), Map.of("decision", decision.action().name())));
+                    ToolExecutionResult result = error(
+                            call,
+                            "permission denied",
+                            ToolErrorFactory.permission(
+                                    decision.reason(),
+                                    Map.of("decision", decision.action().name())));
                     trace(call, startedAt, result, rewritten, true, decision.source().name());
                     return result;
                 }
@@ -247,7 +278,11 @@ public class RegistryToolExecutor implements ToolExecutor {
         metadata.put("max_result_size_chars", policy.maxResultSizeChars());
         metadata.put("stored_ref", storedRef(stored));
         metadata.put("stored_reference", stored);
-        return ToolExecutionResult.success(call.toolCallId(), call.toolName(), stored.preview().isEmpty() ? preview : stored.preview(), metadata);
+        return ToolExecutionResult.success(
+                call.toolCallId(),
+                call.toolName(),
+                stored.preview().isEmpty() ? preview : stored.preview(),
+                metadata);
     }
 
     private static String storedRef(StoredToolResultReference reference) {
@@ -263,7 +298,9 @@ public class RegistryToolExecutor implements ToolExecutor {
         if (required instanceof List<?> list) {
             for (Object key : list) {
                 if (!args.containsKey(String.valueOf(key))) {
-                    throw ToolErrorFactory.validation("缺少必填参数: " + key, Map.of("toolName", descriptor.name(), "missing", key));
+                    throw ToolErrorFactory.validation(
+                            "缺少必填参数: " + key,
+                            Map.of("toolName", descriptor.name(), "missing", key));
                 }
             }
         }
@@ -293,7 +330,13 @@ public class RegistryToolExecutor implements ToolExecutor {
         return ToolExecutionResult.error(call.toolCallId(), call.toolName(), content, payload);
     }
 
-    private void trace(ToolCall call, long startedAt, ToolExecutionResult result, boolean rewritten, boolean resultExternalized, String errorCategory) {
+    private void trace(
+            ToolCall call,
+            long startedAt,
+            ToolExecutionResult result,
+            boolean rewritten,
+            boolean resultExternalized,
+            String errorCategory) {
         traceSink.record(new ToolTraceSink.ToolTraceEvent(
                 call.toolName(),
                 call.toolCallId(),

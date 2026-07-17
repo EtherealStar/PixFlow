@@ -16,7 +16,9 @@ import java.util.Objects;
 
 public class DefaultHookRegistry implements HookRegistry {
     private final Map<HookEvent, List<HookCallback>> callbacksByEvent;
+
     private final HookProperties properties;
+
     private final ErrorNormalizer errorNormalizer;
 
     public DefaultHookRegistry(List<HookCallback> callbacks, HookProperties properties) {
@@ -46,16 +48,20 @@ public class DefaultHookRegistry implements HookRegistry {
                 }
             } catch (Throwable throwable) {
                 if (properties.isFailFastOnCallbackError()) {
-                    throw throwable instanceof RuntimeException runtime ? runtime : new IllegalStateException(throwable);
+                    throw throwable instanceof RuntimeException runtime
+                            ? runtime
+                            : new IllegalStateException(throwable);
                 }
                 // 回调异常只进入 metadata，不改变控制流，避免一个扩展点拖垮整条主链。
                 try {
                     accumulator.appendHookError(toHookError(callback, throwable));
                 } catch (Exception normalizationError) {
-                    accumulator.appendHookError(new HookError(
-                            callback.getClass().getName(),
-                            "INTERNAL",
-                            "Failed to normalize callback error: " + normalizationError.getClass().getSimpleName()));
+                    accumulator.appendHookError(
+                            new HookError(
+                                    callback.getClass().getName(),
+                                    "INTERNAL",
+                                    "Failed to normalize callback error: "
+                                            + normalizationError.getClass().getSimpleName()));
                 }
             }
         }

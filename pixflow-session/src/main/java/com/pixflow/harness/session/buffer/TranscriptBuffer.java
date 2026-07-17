@@ -10,7 +10,9 @@ import java.util.Objects;
 
 public final class TranscriptBuffer {
     private final Map<String, List<Message>> byConversation = new LinkedHashMap<>();
+
     private final int flushMaxMessages;
+
     private final long flushMaxBytes;
 
     public TranscriptBuffer(int flushMaxMessages, long flushMaxBytes) {

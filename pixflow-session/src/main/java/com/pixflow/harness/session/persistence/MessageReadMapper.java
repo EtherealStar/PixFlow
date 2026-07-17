@@ -55,7 +55,11 @@ public interface MessageReadMapper {
             """)
     List<MessageEntity> findByIds(@Param("ids") List<String> ids);
 
-    @Select("SELECT COALESCE(MAX(seq), 0) FROM message WHERE conversation_id = #{conversationId} AND compaction_marker IS NULL")
+    @Select("""
+            SELECT COALESCE(MAX(seq), 0)
+            FROM message
+            WHERE conversation_id = #{conversationId} AND compaction_marker IS NULL
+            """)
     long maxNormalSeq(@Param("conversationId") String conversationId);
 
     @Select("""

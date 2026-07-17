@@ -30,7 +30,8 @@ public class SessionAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     public MessageMapper sessionMessageMapper(ObjectProvider<ObjectMapper> objectMapperProvider) {
-        ObjectMapper objectMapper = objectMapperProvider.getIfAvailable(() -> new ObjectMapper().registerModule(new JavaTimeModule()));
+        ObjectMapper objectMapper = objectMapperProvider.getIfAvailable(
+                () -> new ObjectMapper().registerModule(new JavaTimeModule()));
         return new MessageMapper(objectMapper);
     }
 
@@ -57,7 +58,9 @@ public class SessionAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     @ConditionalOnBean(ToolResultStorage.class)
-    public SessionToolResultExternalizer sessionToolResultExternalizer(ToolResultStorage storage, SessionProperties properties) {
+    public SessionToolResultExternalizer sessionToolResultExternalizer(
+            ToolResultStorage storage,
+            SessionProperties properties) {
         return new SessionToolResultExternalizer(
                 storage,
                 properties.getExternalize().getToolResultThreshold().toBytes(),

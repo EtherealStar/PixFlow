@@ -4,15 +4,25 @@ import java.time.Instant;
 
 public class MessageEntity {
     private String id;
+
     private String conversationId;
+
     private Long seq;
+
     private String role;
+
     private String content;
+
     private String toolCallId;
+
     private String compactionMarker;
+
     private String metadata;
+
     private String attachedPackageId;
+
     private String taskId;
+
     private Instant createdAt;
 
     public String getId() {

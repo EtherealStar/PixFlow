@@ -6,9 +6,13 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties(prefix = "pixflow.eval")
 public class EvalProperties {
     private boolean enabled = true;
+
     private Buffer buffer = new Buffer();
+
     private int columnExternalizeThreshold = 262_144;
+
     private int schemaVersion = 1;
+
     private Retention retention = new Retention();
 
     public boolean isEnabled() {
@@ -53,9 +57,13 @@ public class EvalProperties {
 
     public static class Buffer {
         private int capacity = 10_000;
+
         private int flushBatchSize = 200;
+
         private Duration flushInterval = Duration.ofSeconds(2);
+
         private int flushThreads = 1;
+
         private Duration drainTimeoutOnShutdown = Duration.ofSeconds(10);
 
         public int getCapacity() {
@@ -101,7 +109,9 @@ public class EvalProperties {
 
     public static class Retention {
         private int days = 7;
+
         private String cleanupCron = "0 30 3 * * *";
+
         private int cleanupBatchSize = 1000;
 
         public int getDays() {

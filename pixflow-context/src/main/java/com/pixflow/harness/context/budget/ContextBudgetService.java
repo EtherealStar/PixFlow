@@ -14,10 +14,15 @@ import java.util.Map;
 
 public final class ContextBudgetService {
     private final ContextBudgetConfig config;
+
     private final TokenEstimator tokenEstimator;
+
     private final ToolResultExternalizer externalizer;
 
-    public ContextBudgetService(ContextBudgetConfig config, TokenEstimator tokenEstimator, ToolResultExternalizer externalizer) {
+    public ContextBudgetService(
+            ContextBudgetConfig config,
+            TokenEstimator tokenEstimator,
+            ToolResultExternalizer externalizer) {
         this.config = config == null ? ContextBudgetConfig.defaults() : config;
         this.tokenEstimator = tokenEstimator == null ? new ConservativeTokenEstimator() : tokenEstimator;
         this.externalizer = externalizer;
@@ -41,11 +46,14 @@ public final class ContextBudgetService {
         for (Message message : messages == null ? List.<Message>of() : messages) {
             if (message.role() == MessageRole.TOOL_RESULT
                     && !message.metadata().flag(MessageMetadata.TOOL_RESULT_EXTERNALIZED)
-                    && message.content().getBytes(StandardCharsets.UTF_8).length > config.toolResultExternalizeThresholdBytes()
+                    && message.content().getBytes(StandardCharsets.UTF_8).length
+                            > config.toolResultExternalizeThresholdBytes()
                     && externalizer != null) {
-                ToolResultReference ref = externalizer.externalize(message.toolCallId(), message.content(), config.previewChars());
+                ToolResultReference ref = externalizer.externalize(
+                        message.toolCallId(), message.content(), config.previewChars());
                 refs.add(ref);
-                String visible = "[tool result externalized: " + ref.bucket() + "/" + ref.key() + "]\npreview:\n" + ref.preview();
+                String visible = "[tool result externalized: "
+                        + ref.bucket() + "/" + ref.key() + "]\npreview:\n" + ref.preview();
                 MessageMetadata metadata = message.metadata()
                         .with(MessageMetadata.TOOL_RESULT_EXTERNALIZED, true)
                         .with(MessageMetadata.TOOL_RESULT_REF, Map.of(
@@ -67,14 +75,17 @@ public final class ContextBudgetService {
         java.util.Collections.reverse(reversed);
         List<Message> compactedReversed = new ArrayList<>(reversed.size());
         for (Message message : reversed) {
-            if (message.role() == MessageRole.TOOL_RESULT && !message.metadata().flag(MessageMetadata.TOOL_RESULT_EXTERNALIZED)) {
+            if (message.role() == MessageRole.TOOL_RESULT
+                    && !message.metadata().flag(MessageMetadata.TOOL_RESULT_EXTERNALIZED)) {
                 if (remainingRecentToolResults > 0) {
                     remainingRecentToolResults--;
                     compactedReversed.add(message);
                 } else {
                     // 只降级模型可见投影，不改写 MessageStore 里的活动链。
                     MessageMetadata metadata = message.metadata().with(MessageMetadata.MICROCOMPACTED, true);
-                    compactedReversed.add(message.withContent("[old tool result omitted by microcompact]").withMetadata(metadata));
+                    compactedReversed.add(message
+                            .withContent("[old tool result omitted by microcompact]")
+                            .withMetadata(metadata));
                 }
             } else {
                 compactedReversed.add(message);

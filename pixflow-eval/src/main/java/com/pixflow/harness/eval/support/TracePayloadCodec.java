@@ -17,10 +17,15 @@ public final class TracePayloadCodec {
     private static final String EXTERNAL_MARKER = "__external";
 
     private final ObjectMapper objectMapper;
+
     private final EvalProperties properties;
+
     private final TraceExternalPayloadStorage externalStorage;
 
-    public TracePayloadCodec(ObjectMapper objectMapper, EvalProperties properties, TraceExternalPayloadStorage externalStorage) {
+    public TracePayloadCodec(
+            ObjectMapper objectMapper,
+            EvalProperties properties,
+            TraceExternalPayloadStorage externalStorage) {
         this.objectMapper = objectMapper.copy().registerModule(new JavaTimeModule());
         this.properties = properties;
         this.externalStorage = externalStorage;

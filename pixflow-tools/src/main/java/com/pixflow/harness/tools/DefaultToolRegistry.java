@@ -14,6 +14,7 @@ public class DefaultToolRegistry implements ToolRegistry {
     private static final Pattern TOOL_NAME = Pattern.compile("^[a-z][a-z0-9_]*$");
 
     private final Map<String, ToolDescriptor> descriptors;
+
     private final PermissionPolicy permissionPolicy;
 
     public DefaultToolRegistry(List<ToolDescriptor> descriptors, PermissionPolicy permissionPolicy) {

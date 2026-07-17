@@ -16,16 +16,27 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class BufferedTurnTrace implements TurnTrace {
     private final String conversationId;
+
     private final int turnNo;
+
     private final String traceId;
+
     private final RuntimeScope runtimeScope;
+
     private final TraceIngestBuffer buffer;
+
     private final Instant createdAt;
+
     private final List<TraceInput> inputs = new ArrayList<>();
+
     private final List<TraceToolCall> toolCalls = new ArrayList<>();
+
     private final List<TraceRecall> recalls = new ArrayList<>();
+
     private final List<TracePruneEntry> prunes = new ArrayList<>();
+
     private final List<TraceError> errors = new ArrayList<>();
+
     private final AtomicBoolean completed = new AtomicBoolean();
 
     public BufferedTurnTrace(

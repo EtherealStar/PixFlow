@@ -25,7 +25,11 @@ public final class ObjectStorageTraceExternalPayloadStorage implements TraceExte
         byte[] bytes = safePayload.getBytes(StandardCharsets.UTF_8);
         String sha256 = sha256(bytes);
         String id = "trace-" + sha256.substring(0, 16) + "-" + UUID.randomUUID();
-        ObjectRef ref = objectStorage.put(StorageKeys.toolResult(id), new ByteArrayInputStream(bytes), bytes.length, "application/json");
+        ObjectRef ref = objectStorage.put(
+                StorageKeys.toolResult(id),
+                new ByteArrayInputStream(bytes),
+                bytes.length,
+                "application/json");
         return new TraceExternalPayloadRef(ref.key(), ref.size(), ref.etag(), sha256, preview(safePayload), false);
     }
 

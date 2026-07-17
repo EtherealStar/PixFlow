@@ -25,14 +25,23 @@ import org.springframework.transaction.annotation.Transactional;
 
 public class TranscriptService implements TranscriptPort {
     private final MessageWriteMapper writeMapper;
+
     private final MessageReadMapper readMapper;
+
     private final CompactionMapper compactionMapper;
+
     private final MessageMapper messageMapper;
+
     private final SequenceAllocator sequenceAllocator;
+
     private final TranscriptBuffer buffer;
+
     private final ActiveChainResolver activeChainResolver;
+
     private final SessionToolResultExternalizer externalizer;
+
     private final SessionProperties properties;
+
     private final MeterRegistry meterRegistry;
 
     public TranscriptService(

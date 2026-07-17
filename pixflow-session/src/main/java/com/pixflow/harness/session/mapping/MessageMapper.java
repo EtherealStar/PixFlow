@@ -14,12 +14,16 @@ import java.util.Objects;
 
 public final class MessageMapper {
     public static final String MARKER_BOUNDARY = "BOUNDARY";
+
     public static final String MARKER_SUMMARY = "SUMMARY";
+
     public static final String SEQ = "seq";
+
     public static final String ATTACHED_PACKAGE_ID = "attachedPackageId";
+
     public static final String TASK_ID = "taskId";
 
-    private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {};
+    private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() { };
 
     private final ObjectMapper objectMapper;
 

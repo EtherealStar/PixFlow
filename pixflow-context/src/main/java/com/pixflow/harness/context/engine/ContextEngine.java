@@ -24,10 +24,15 @@ import java.util.List;
  */
 public final class ContextEngine {
     private final MessageStore messageStore;
+
     private final ContextCompactionService compactionService;
+
     private final CurrentModelContext currentModelContext;
 
-    public ContextEngine(MessageStore messageStore, ContextCompactionService compactionService, CurrentModelContext currentModelContext) {
+    public ContextEngine(
+            MessageStore messageStore,
+            ContextCompactionService compactionService,
+            CurrentModelContext currentModelContext) {
         this.messageStore = messageStore;
         this.compactionService = compactionService;
         this.currentModelContext = currentModelContext;

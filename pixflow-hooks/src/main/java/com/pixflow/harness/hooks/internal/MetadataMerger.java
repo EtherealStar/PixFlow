@@ -9,6 +9,7 @@ import java.util.Objects;
 
 public final class MetadataMerger {
     public static final String HOOK_ERRORS_KEY = "hookErrors";
+
     public static final String CALLBACK_HOOK_ERRORS_KEY = "callbackMetadata.hookErrors";
 
     private MetadataMerger() {

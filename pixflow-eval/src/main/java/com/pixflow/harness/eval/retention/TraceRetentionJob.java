@@ -10,6 +10,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 
 public final class TraceRetentionJob {
     private final EvalProperties properties;
+
     private final AgentTraceRepository repository;
 
     public TraceRetentionJob(EvalProperties properties, AgentTraceRepository repository) {
@@ -21,7 +22,8 @@ public final class TraceRetentionJob {
     public void cleanup() {
         Instant cutoff = Instant.now().minus(properties.getRetention().getDays(), ChronoUnit.DAYS);
         while (true) {
-            List<AgentTraceEntity> expired = repository.findExpired(cutoff, properties.getRetention().getCleanupBatchSize());
+            List<AgentTraceEntity> expired = repository.findExpired(
+                    cutoff, properties.getRetention().getCleanupBatchSize());
             if (expired.isEmpty()) {
                 return;
             }

@@ -9,7 +9,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public final class EvalErrorRecorder implements ErrorRecorder {
-    private static final Logger log = LoggerFactory.getLogger(EvalErrorRecorder.class);
+    private static final Logger LOG = LoggerFactory.getLogger(EvalErrorRecorder.class);
 
     private final MeterRegistry meterRegistry;
 
@@ -35,7 +35,7 @@ public final class EvalErrorRecorder implements ErrorRecorder {
                 })
                 .orElse(false);
         if (!attached) {
-            log.warn(
+            LOG.warn(
                     "pixflow error outside turn trace: code={}, category={}, recovery={}, traceId={}, message={}",
                     error.code().code(),
                     error.category().name(),

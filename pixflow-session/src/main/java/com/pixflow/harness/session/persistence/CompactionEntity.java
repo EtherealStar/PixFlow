@@ -4,12 +4,19 @@ import java.time.Instant;
 
 public class CompactionEntity {
     private Long id;
+
     private String conversationId;
+
     private String boundaryMessageId;
+
     private String summaryMessageId;
+
     private Long coveredUpToSeq;
+
     private String compactionTrigger;
+
     private String metadata;
+
     private Instant createdAt;
 
     public Long getId() {

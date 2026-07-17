@@ -10,6 +10,7 @@ import java.util.Optional;
 
 public final class DefaultTraceQuery implements TraceQuery {
     private final AgentTraceRepository repository;
+
     private final TracePayloadCodec codec;
 
     public DefaultTraceQuery(AgentTraceRepository repository, TracePayloadCodec codec) {
@@ -25,12 +26,20 @@ public final class DefaultTraceQuery implements TraceQuery {
     @Override
     public PageResponse<TurnTraceRecord> listByConversation(String conversationId, Pagination page) {
         PageResponse<AgentTraceEntity> response = repository.listByConversation(conversationId, page);
-        return PageResponse.of(response.records().stream().map(codec::toRecord).toList(), response.total(), response.page(), response.size());
+        return PageResponse.of(
+                response.records().stream().map(codec::toRecord).toList(),
+                response.total(),
+                response.page(),
+                response.size());
     }
 
     @Override
     public PageResponse<TurnTraceRecord> query(TraceQueryCriteria criteria, Pagination page) {
         PageResponse<AgentTraceEntity> response = repository.query(criteria, page);
-        return PageResponse.of(response.records().stream().map(codec::toRecord).toList(), response.total(), response.page(), response.size());
+        return PageResponse.of(
+                response.records().stream().map(codec::toRecord).toList(),
+                response.total(),
+                response.page(),
+                response.size());
     }
 }

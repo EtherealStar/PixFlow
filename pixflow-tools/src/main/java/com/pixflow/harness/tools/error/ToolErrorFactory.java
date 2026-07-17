@@ -18,7 +18,14 @@ public final class ToolErrorFactory {
     }
 
     public static PixFlowException tool(String message, Map<String, Object> details) {
-        return new PixFlowException(CommonErrorCode.TOOL_FAILURE, message, null, details, RecoveryHint.SKIP, null, null);
+        return new PixFlowException(
+                CommonErrorCode.TOOL_FAILURE,
+                message,
+                null,
+                details,
+                RecoveryHint.SKIP,
+                null,
+                null);
     }
 
     public static PixFlowException internal(String message, Map<String, Object> details) {

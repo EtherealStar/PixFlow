@@ -15,10 +15,15 @@ public final class SessionToolResultExternalizer {
     public static final String MISSING_EXTERNAL_TOOL_RESULT = "missingExternalToolResult";
 
     private final ToolResultStorage toolResultStorage;
+
     private final long thresholdBytes;
+
     private final int previewChars;
 
-    public SessionToolResultExternalizer(ToolResultStorage toolResultStorage, long thresholdBytes, int previewChars) {
+    public SessionToolResultExternalizer(
+            ToolResultStorage toolResultStorage,
+            long thresholdBytes,
+            int previewChars) {
         this.toolResultStorage = Objects.requireNonNull(toolResultStorage, "toolResultStorage");
         this.thresholdBytes = thresholdBytes;
         this.previewChars = previewChars;
@@ -35,7 +40,8 @@ public final class SessionToolResultExternalizer {
         if (bytes.length <= thresholdBytes) {
             return message;
         }
-        StoredToolResultReference stored = toolResultStorage.write(message.toolCallId(), message.content(), previewChars);
+        StoredToolResultReference stored = toolResultStorage.write(
+                message.toolCallId(), message.content(), previewChars);
         ToolResultReference ref = toContextRef(stored);
         MessageMetadata metadata = message.metadata()
                 .with(MessageMetadata.TOOL_RESULT_EXTERNALIZED, true)
@@ -64,11 +70,23 @@ public final class SessionToolResultExternalizer {
     }
 
     private static ToolResultReference toContextRef(StoredToolResultReference ref) {
-        return new ToolResultReference(ref.id(), ref.bucket(), ref.key(), ref.preview(), ref.originalBytes(), ref.missing());
+        return new ToolResultReference(
+                ref.id(),
+                ref.bucket(),
+                ref.key(),
+                ref.preview(),
+                ref.originalBytes(),
+                ref.missing());
     }
 
     private static StoredToolResultReference toStoredRef(ToolResultReference ref) {
-        return new StoredToolResultReference(ref.id(), ref.bucket(), ref.key(), ref.preview(), ref.originalBytes(), ref.missing());
+        return new StoredToolResultReference(
+                ref.id(),
+                ref.bucket(),
+                ref.key(),
+                ref.preview(),
+                ref.originalBytes(),
+                ref.missing());
     }
 
     @SuppressWarnings("unchecked")

@@ -8,6 +8,7 @@ import java.util.NoSuchElementException;
 
 public final class DefaultTraceReplay implements TraceReplay {
     private final AgentTraceRepository repository;
+
     private final TracePayloadCodec codec;
 
     public DefaultTraceReplay(AgentTraceRepository repository, TracePayloadCodec codec) {
@@ -32,6 +33,10 @@ public final class DefaultTraceReplay implements TraceReplay {
                 recall.json(),
                 prune.json(),
                 error.json(),
-                input.missingExternal() || tools.missingExternal() || recall.missingExternal() || prune.missingExternal() || error.missingExternal());
+                input.missingExternal()
+                        || tools.missingExternal()
+                        || recall.missingExternal()
+                        || prune.missingExternal()
+                        || error.missingExternal());
     }
 }

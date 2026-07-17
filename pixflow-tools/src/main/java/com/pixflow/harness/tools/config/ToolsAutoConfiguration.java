@@ -50,6 +50,13 @@ public class ToolsAutoConfiguration {
             ToolTraceSink traceSink,
             PlanModeView planModeView,
             ToolsProperties properties) {
-        return new RegistryToolExecutor(toolRegistry, permissionPolicy, hookRegistry, resultStorage, traceSink, planModeView, properties);
+        return new RegistryToolExecutor(
+                toolRegistry,
+                permissionPolicy,
+                hookRegistry,
+                resultStorage,
+                traceSink,
+                planModeView,
+                properties);
     }
 }

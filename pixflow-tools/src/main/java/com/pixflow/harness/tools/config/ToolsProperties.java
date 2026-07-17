@@ -5,6 +5,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties(prefix = "pixflow.tools")
 public class ToolsProperties {
     private int maxConcurrency = 8;
+
     private Result result = new Result();
 
     public int getMaxConcurrency() {
@@ -25,7 +26,9 @@ public class ToolsProperties {
 
     public static class Result {
         private int maxSizeChars = 50_000;
+
         private boolean persistWhenExceeded = true;
+
         private int previewChars = 4_000;
 
         public int getMaxSizeChars() {

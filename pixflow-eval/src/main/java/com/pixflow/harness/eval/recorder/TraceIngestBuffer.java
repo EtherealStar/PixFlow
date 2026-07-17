@@ -21,13 +21,21 @@ import java.util.concurrent.atomic.AtomicLong;
 
 public final class TraceIngestBuffer {
     private final BlockingQueue<TraceCommand> queue;
+
     private final EvalProperties properties;
+
     private final TracePayloadCodec codec;
+
     private final AgentTraceRepository repository;
+
     private final Counter droppedCounter;
+
     private final Timer flushTimer;
+
     private final AtomicLong dropped = new AtomicLong();
+
     private final AtomicBoolean running = new AtomicBoolean(true);
+
     private final ExecutorService executor;
 
     public TraceIngestBuffer(
@@ -100,7 +108,9 @@ public final class TraceIngestBuffer {
     private void run() {
         while (running.get()) {
             try {
-                TraceCommand first = queue.poll(properties.getBuffer().getFlushInterval().toMillis(), TimeUnit.MILLISECONDS);
+                TraceCommand first = queue.poll(
+                        properties.getBuffer().getFlushInterval().toMillis(),
+                        TimeUnit.MILLISECONDS);
                 if (first == null) {
                     continue;
                 }

@@ -19,10 +19,15 @@ import java.util.Optional;
 
 public final class ContextCompactionService {
     private final ContextBudgetService budgetService;
+
     private final TokenEstimator tokenEstimator;
+
     private final SummarizationPort summarizationPort;
+
     private final CompactionConfig config;
+
     private int consecutiveFailures;
+
     private int reactiveRetries;
 
     public ContextCompactionService(
@@ -52,7 +57,10 @@ public final class ContextCompactionService {
         return compact(store, CompactionTrigger.MANUAL, focus, metadata);
     }
 
-    public CompactionResult reactiveCompact(MessageStore store, PixFlowException contextLimitError, Map<String, Object> metadata) {
+    public CompactionResult reactiveCompact(
+            MessageStore store,
+            PixFlowException contextLimitError,
+            Map<String, Object> metadata) {
         if (reactiveRetries >= config.maxReactiveRetries()) {
             Map<String, Object> merged = new LinkedHashMap<>(metadata == null ? Map.of() : metadata);
             merged.put("reactiveRetryExceeded", true);
@@ -66,7 +74,11 @@ public final class ContextCompactionService {
         return compact(store, CompactionTrigger.REACTIVE, null, merged);
     }
 
-    private CompactionResult compact(MessageStore store, CompactionTrigger trigger, String focus, Map<String, Object> metadata) {
+    private CompactionResult compact(
+            MessageStore store,
+            CompactionTrigger trigger,
+            String focus,
+            Map<String, Object> metadata) {
         List<Message> original = store.currentMessages();
         int before = tokenEstimator.estimate(original);
         if (summarizationPort == null || consecutiveFailures >= config.maxConsecutiveFailures()) {
@@ -77,7 +89,8 @@ public final class ContextCompactionService {
             List<Message> head = original.subList(0, Math.max(0, original.size() - tail.size()));
             List<String> instructions = summaryInstructions(metadata);
             SummarizationPort.SummaryResult summary = summarizationPort.summarize(
-                    new SummarizationPort.SummarizationRequest(head, trigger, focus, instructions, metadata));
+                    new SummarizationPort.SummarizationRequest(
+                            head, trigger, focus, instructions, metadata));
             List<Message> replacement = buildSummarizedMessages(summary.summary(), tail, trigger);
             store.replaceMessagesForCompaction(replacement, trigger, metadata);
             consecutiveFailures = 0;
@@ -110,7 +123,13 @@ public final class ContextCompactionService {
         MessageMetadata summaryMetadata = MessageMetadata.empty()
                 .with(MessageMetadata.COMPACT_SUMMARY, true)
                 .with(MessageMetadata.COMPACT_TRIGGER, trigger.name());
-        replacement.add(new Message(null, MessageRole.USER, "Conversation summary:\n" + summary, null, summaryMetadata, Instant.now()));
+        replacement.add(new Message(
+                null,
+                MessageRole.USER,
+                "Conversation summary:\n" + summary,
+                null,
+                summaryMetadata,
+                Instant.now()));
         replacement.addAll(tail);
         return List.copyOf(replacement);
     }
@@ -119,7 +138,13 @@ public final class ContextCompactionService {
         MessageMetadata metadata = MessageMetadata.empty()
                 .with(MessageMetadata.COMPACT_BOUNDARY, true)
                 .with(MessageMetadata.COMPACT_TRIGGER, trigger.name());
-        return new Message(null, MessageRole.USER, "[context compacted before this point]", null, metadata, Instant.now());
+        return new Message(
+                null,
+                MessageRole.USER,
+                "[context compacted before this point]",
+                null,
+                metadata,
+                Instant.now());
     }
 
     private List<Message> tail(List<Message> messages) {

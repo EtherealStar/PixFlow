@@ -14,6 +14,7 @@ import java.util.stream.Stream;
 
 public final class InMemoryAgentTraceRepository implements AgentTraceRepository {
     private final Map<Key, AgentTraceEntity> rows = new LinkedHashMap<>();
+
     private final AtomicLong ids = new AtomicLong(1);
 
     @Override
@@ -65,7 +66,8 @@ public final class InMemoryAgentTraceRepository implements AgentTraceRepository 
                 stream = stream.filter(row -> row.runtimeScope() == criteria.runtimeScope());
             }
             if (criteria.toolName() != null) {
-                stream = stream.filter(row -> row.toolCallsJson() != null && row.toolCallsJson().contains(criteria.toolName()));
+                stream = stream.filter(row -> row.toolCallsJson() != null
+                        && row.toolCallsJson().contains(criteria.toolName()));
             }
             if (criteria.hasError() != null) {
                 stream = stream.filter(row -> hasJsonContent(row.errorJson()) == criteria.hasError());
