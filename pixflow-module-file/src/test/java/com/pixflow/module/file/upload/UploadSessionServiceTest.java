@@ -19,6 +19,8 @@ import com.pixflow.module.file.config.FileProperties;
 import com.pixflow.module.file.ingest.ExtractionPublisher;
 import com.pixflow.module.file.pkg.AssetPackageMapper;
 import com.pixflow.module.file.pkg.AssetPackageService;
+import com.pixflow.module.file.pkg.AssetPackage;
+import com.pixflow.module.file.pkg.PackageStatus;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -41,6 +43,7 @@ class UploadSessionServiceTest {
     private InMemoryUploadSessionStore store;
     private MemoryObjectStorage storage;
     private UploadSessionService service;
+    private AssetPackageMapper packageMapper;
 
     @BeforeEach
     void setUp() {
@@ -48,7 +51,7 @@ class UploadSessionServiceTest {
         storage = new MemoryObjectStorage();
         FileProperties properties = new FileProperties();
         properties.getUpload().setChunkSize(DataSize.ofBytes(3));
-        AssetPackageMapper packageMapper = mock(AssetPackageMapper.class);
+        packageMapper = mock(AssetPackageMapper.class);
         when(packageMapper.selectOne(any())).thenReturn(null);
         service = new UploadSessionService(
                 store,
@@ -73,10 +76,29 @@ class UploadSessionServiceTest {
 
         assertThat(accepted.status()).isEqualTo("ACCEPTED");
         assertThat(resumed.mode()).isEqualTo("RESUME");
+        assertThat(resumed.status()).isEqualTo("UPLOADING");
+        assertThat(resumed.packageId()).isNull();
         assertThat(resumed.uploadId()).isEqualTo(initial.uploadId());
         assertThat(resumed.chunkSize()).isEqualTo(3);
         assertThat(resumed.expectedChunks()).isEqualTo(2);
         assertThat(resumed.uploadedChunks()).containsExactly(0);
+    }
+
+    @Test
+    void readyPackageReturnsDedupInsteadOfCreatingOrResumingSession() {
+        AssetPackage ready = new AssetPackage();
+        ready.setId(42L);
+        ready.setStatus(PackageStatus.READY);
+        when(packageMapper.selectOne(any())).thenReturn(ready);
+
+        InitUploadResponse response = initSixBytes();
+
+        assertThat(response.mode()).isEqualTo("DEDUP");
+        assertThat(response.uploadId()).isNull();
+        assertThat(response.packageId()).isEqualTo(42L);
+        assertThat(response.status()).isEqualTo("READY");
+        assertThat(response.uploadedChunks()).isEmpty();
+        assertThat(store.findByFileHash(sha256("abcdef".getBytes()))).isEmpty();
     }
 
     @Test
@@ -88,10 +110,27 @@ class UploadSessionServiceTest {
         PutChunkResponse duplicate = service.putChunk(initial.uploadId(), 0, 3, sha256(chunk), new ByteArrayInputStream(chunk));
 
         assertThat(duplicate.status()).isEqualTo("ALREADY_EXISTS");
+        assertThat(duplicate.uploadedChunks()).containsExactly(0);
         assertThatThrownBy(() -> service.putChunk(initial.uploadId(), 0, 3,
                 sha256("xyz".getBytes()), new ByteArrayInputStream("xyz".getBytes())))
                 .isInstanceOf(PixFlowException.class)
                 .hasMessageContaining("chunk hash mismatch");
+    }
+
+    @Test
+    void chunkPutDistinguishesMissingAndTerminalSessions() {
+        byte[] chunk = "abc".getBytes();
+        assertThatThrownBy(() -> service.putChunk("missing", 0, 3, sha256(chunk), new ByteArrayInputStream(chunk)))
+                .isInstanceOfSatisfying(PixFlowException.class,
+                        ex -> assertThat(ex.code()).isEqualTo(com.pixflow.module.file.error.FileErrorCode.UPLOAD_SESSION_NOT_FOUND));
+
+        InitUploadResponse initial = initSixBytes();
+        UploadSession session = store.findByUploadId(initial.uploadId()).orElseThrow().session();
+        store.save(session.withStatus("CANCELLED", null, Instant.now()));
+
+        assertThatThrownBy(() -> service.putChunk(initial.uploadId(), 0, 3, sha256(chunk), new ByteArrayInputStream(chunk)))
+                .isInstanceOfSatisfying(PixFlowException.class,
+                        ex -> assertThat(ex.code()).isEqualTo(com.pixflow.module.file.error.FileErrorCode.UPLOAD_SESSION_NOT_UPLOADING));
     }
 
     @Test

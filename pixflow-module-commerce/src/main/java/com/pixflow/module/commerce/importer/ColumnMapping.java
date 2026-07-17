@@ -21,14 +21,23 @@ public class ColumnMapping {
             "periodEnd", List.of("period_end", "periodend", "结束日期", "统计结束"));
 
     private final List<String> headers;
+
     private final String skuId;
+
     private final String category;
+
     private final String impressions;
+
     private final String ctr;
+
     private final String addCartRate;
+
     private final String purchaseRate;
+
     private final String periodType;
+
     private final String periodStart;
+
     private final String periodEnd;
 
     public ColumnMapping(List<String> headers, boolean strictHeader) {

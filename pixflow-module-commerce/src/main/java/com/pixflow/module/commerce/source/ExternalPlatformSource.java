@@ -11,7 +11,9 @@ import java.util.concurrent.TimeoutException;
 
 public class ExternalPlatformSource implements CommerceDataSource {
     private final PlatformApiClient client;
+
     private final CommerceProperties properties;
+
     private final Clock clock;
 
     public ExternalPlatformSource(PlatformApiClient client, CommerceProperties properties, Clock clock) {

@@ -16,10 +16,15 @@ import java.util.Map;
 
 public class CommerceImportService {
     private final CommerceDataMapper mapper;
+
     private final List<CommerceFileParser> parsers;
+
     private final CsvCommerceParser csvParser;
+
     private final ExcelCommerceParser excelParser;
+
     private final RowValidator rowValidator;
+
     private final CommerceProperties properties;
 
     public CommerceImportService(
@@ -42,7 +47,10 @@ public class CommerceImportService {
         try {
             bytes = input.readAllBytes();
         } catch (IOException ex) {
-            throw new PixFlowException(CommerceErrorCode.COMMERCE_IMPORT_FILE_CORRUPTED, "failed to read commerce import file", ex);
+            throw new PixFlowException(
+                    CommerceErrorCode.COMMERCE_IMPORT_FILE_CORRUPTED,
+                    "failed to read commerce import file",
+                    ex);
         }
         CommerceFileParser parser = parsers.stream()
                 .filter(candidate -> candidate.supports(filename, null))
@@ -57,7 +65,10 @@ public class CommerceImportService {
         } catch (PixFlowException ex) {
             throw ex;
         } catch (Exception ex) {
-            throw new PixFlowException(CommerceErrorCode.COMMERCE_IMPORT_FILE_CORRUPTED, "failed to parse commerce import file", ex);
+            throw new PixFlowException(
+                    CommerceErrorCode.COMMERCE_IMPORT_FILE_CORRUPTED,
+                    "failed to parse commerce import file",
+                    ex);
         }
     }
 
@@ -85,7 +96,9 @@ public class CommerceImportService {
                 // 类目随数据进入，先做软一致性检查，避免静默污染类目基准。
                 String previous = seenCategories.putIfAbsent(data.getSkuId(), data.getCategory());
                 if (previous != null && !previous.equals(data.getCategory())) {
-                    String message = "sku " + data.getSkuId() + " category conflict: " + previous + " -> " + data.getCategory();
+                    String message = "sku " + data.getSkuId()
+                            + " category conflict: " + previous
+                            + " -> " + data.getCategory();
                     if (options.categoryConflictPolicy() == CategoryConflictPolicy.FAIL) {
                         throw new IllegalArgumentException(message);
                     }
@@ -115,7 +128,9 @@ public class CommerceImportService {
                 options.defaultPeriodType() == null ? PeriodType.DAY : options.defaultPeriodType(),
                 options.defaultPeriodStart(),
                 options.defaultPeriodEnd(),
-                options.categoryConflictPolicy() == null ? properties.getImport().getCategoryConflict() : options.categoryConflictPolicy());
+                options.categoryConflictPolicy() == null
+                        ? properties.getImport().getCategoryConflict()
+                        : options.categoryConflictPolicy());
     }
 
     private List<String> headers(CommerceFileParser parser, byte[] bytes) throws IOException {

@@ -12,18 +12,31 @@ import java.time.LocalDate;
 public class CommerceData {
     @TableId(type = IdType.AUTO)
     private Long id;
+
     private String skuId;
+
     private String category;
+
     private Long impressions;
+
     private BigDecimal ctr;
+
     private BigDecimal addCartRate;
+
     private BigDecimal purchaseRate;
+
     private PeriodType periodType;
+
     private LocalDate periodStart;
+
     private LocalDate periodEnd;
+
     private String source;
+
     private Instant fetchedAt;
+
     private Instant createdAt;
+
     private Instant updatedAt;
 
     public Long getId() {

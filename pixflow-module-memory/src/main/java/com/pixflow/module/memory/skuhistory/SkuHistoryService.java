@@ -5,6 +5,4 @@ import java.util.List;
 
 public interface SkuHistoryService {
     List<MemoryItem> recallBySkuIds(List<String> skuIds, int maxItemsPerSku);
-
-    void appendRubricsScore(SkuHistoryRubricsScoreCommand command);
 }

@@ -116,7 +116,8 @@ public class CommerceAutoConfiguration {
             ObjectMapper objectMapper,
             CommerceProperties properties,
             Clock clock) {
-        return new CommerceImportJobService(mapper, publisher, externalSource, importService, objectMapper, properties, clock);
+        return new CommerceImportJobService(
+                mapper, publisher, externalSource, importService, objectMapper, properties, clock);
     }
 
     @Bean
@@ -129,7 +130,14 @@ public class CommerceAutoConfiguration {
             BenchmarkCalculator benchmarkCalculator,
             CommerceProperties properties,
             Clock clock) {
-        return new CommerceQueryService(mapper, externalSource, importService, freshnessPolicy, benchmarkCalculator, properties, clock);
+        return new CommerceQueryService(
+                mapper,
+                externalSource,
+                importService,
+                freshnessPolicy,
+                benchmarkCalculator,
+                properties,
+                clock);
     }
 
     @Bean
@@ -169,7 +177,11 @@ public class CommerceAutoConfiguration {
     }
 
     @Bean
-    @ConditionalOnBean({ManagedListenerContainerFactory.class, CommerceApiImportConsumer.class, CommerceImportErrorHandler.class})
+    @ConditionalOnBean({
+        ManagedListenerContainerFactory.class,
+        CommerceApiImportConsumer.class,
+        CommerceImportErrorHandler.class
+    })
     public ManagedMessageContainer commerceImportListenerContainer(
             ManagedListenerContainerFactory factory,
             CommerceApiImportConsumer consumer,

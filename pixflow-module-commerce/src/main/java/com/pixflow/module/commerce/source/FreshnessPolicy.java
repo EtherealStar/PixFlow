@@ -11,6 +11,7 @@ import java.util.Set;
 
 public class FreshnessPolicy {
     private final CommerceProperties properties;
+
     private final Clock clock;
 
     public FreshnessPolicy(CommerceProperties properties, Clock clock) {

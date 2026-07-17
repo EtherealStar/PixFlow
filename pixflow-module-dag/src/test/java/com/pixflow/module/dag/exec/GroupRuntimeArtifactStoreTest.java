@@ -11,7 +11,7 @@ import static org.mockito.Mockito.when;
 import com.pixflow.harness.state.model.RuntimeArtifactRef;
 import com.pixflow.harness.state.model.UnitKey;
 import com.pixflow.harness.state.runtime.RunStateRefStore;
-import com.pixflow.infra.cache.key.CacheKey;
+import com.pixflow.harness.state.runtime.RuntimeRefKey;
 import com.pixflow.infra.storage.ObjectLocation;
 import com.pixflow.infra.storage.ObjectStorage;
 import java.time.Duration;
@@ -40,8 +40,8 @@ class GroupRuntimeArtifactStoreTest {
 
         assertThat(computed).hasValue(1);
         verify(storage).put(any(ObjectLocation.class), any(), eq(3L), eq("application/octet-stream"));
-        verify(refs).putRef(any(CacheKey.class), any(RuntimeArtifactRef.class), eq(Duration.ofHours(24)));
-        verify(refs).deleteRef(any(CacheKey.class));
+        verify(refs).putRef(any(RuntimeRefKey.class), any(RuntimeArtifactRef.class), eq(Duration.ofHours(24)));
+        verify(refs).deleteRef(any(RuntimeRefKey.class));
         verify(storage).delete(any(ObjectLocation.class));
     }
 

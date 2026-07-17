@@ -4,7 +4,7 @@ import com.pixflow.harness.state.model.RuntimeArtifactRef;
 import com.pixflow.harness.state.model.UnitKey;
 import com.pixflow.harness.state.model.UnitKeyCodec;
 import com.pixflow.harness.state.runtime.RunStateRefStore;
-import com.pixflow.infra.cache.key.CacheKey;
+import com.pixflow.harness.state.runtime.RuntimeRefKey;
 import com.pixflow.infra.storage.ObjectLocation;
 import com.pixflow.infra.storage.ObjectStorage;
 import com.pixflow.infra.storage.StorageKeys;
@@ -80,10 +80,10 @@ public final class GroupRuntimeArtifactStore {
             ObjectLocation location = StorageKeys.runtimeGroup(
                     unitKey.taskId(), runEpoch, hash, memberId, "prepared.bin");
             String value = "runref:group:" + unitKey.taskId() + ":" + runEpoch + ":" + hash + ":" + memberId;
-            return new Entry(new CacheKey(value, FALLBACK_TTL, "runref:group"), location);
+            return new Entry(new RuntimeRefKey(value, FALLBACK_TTL, "runref:group"), location);
         }
     }
 
-    private record Entry(CacheKey cacheKey, ObjectLocation location) {
+    private record Entry(RuntimeRefKey cacheKey, ObjectLocation location) {
     }
 }

@@ -13,7 +13,6 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -23,11 +22,17 @@ import java.util.stream.Collectors;
 
 public class CommerceQueryService {
     private final CommerceDataMapper mapper;
+
     private final CommerceDataSource externalSource;
+
     private final CommerceImportService importService;
+
     private final FreshnessPolicy freshnessPolicy;
+
     private final BenchmarkCalculator benchmarkCalculator;
+
     private final CommerceProperties properties;
+
     private final Clock clock;
 
     public CommerceQueryService(
@@ -98,7 +103,8 @@ public class CommerceQueryService {
                         query.window().from(),
                         query.window().to(),
                         sources);
-                benchmark = benchmarkCalculator.calculate(metrics, benchmarkRow, properties.getQuery().getBenchmarkMinSample());
+                benchmark = benchmarkCalculator.calculate(
+                        metrics, benchmarkRow, properties.getQuery().getBenchmarkMinSample());
             }
             List<TrendPoint> trend = query.withTrend()
                     ? mapper.trend(skuId, query.periodType(), query.window().from(), query.window().to(), sources)
@@ -111,7 +117,11 @@ public class CommerceQueryService {
                     metrics,
                     benchmark,
                     trend,
-                    new FreshnessInfo(stale, row.fetchedAt(), row.source(), stale ? "stale_or_live_refresh_failed" : null)));
+                    new FreshnessInfo(
+                            stale,
+                            row.fetchedAt(),
+                            row.source(),
+                            stale ? "stale_or_live_refresh_failed" : null)));
         }
         List<String> missing = skuIds.stream().filter(sku -> !bySku.containsKey(sku)).toList();
         return new CommerceQueryResult(perSku, missing, degraded);
@@ -147,7 +157,11 @@ public class CommerceQueryService {
     }
 
     private Metrics metrics(CommerceAggregateRow row) {
-        return new Metrics(row.impressions() == null ? 0L : row.impressions(), row.ctr(), row.addCartRate(), row.purchaseRate());
+        return new Metrics(
+                row.impressions() == null ? 0L : row.impressions(),
+                row.ctr(),
+                row.addCartRate(),
+                row.purchaseRate());
     }
 
     private TrendPoint trend(CommerceData data) {

@@ -25,7 +25,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 /**
- * PipelineUnitExecutor 测试:失败注入、超时、大图防护、资源清理、归一化错误。
+ * PipelineUnitExecutor 测试:失败注入、大图防护、资源清理、归一化错误。
  */
 class PipelineUnitExecutorTest {
 
@@ -130,29 +130,6 @@ class PipelineUnitExecutorTest {
             UnitInput.images(List.of(ImageDescriptor.single("img1", "sku1", "k1"))));
         assertThat(outcome.status()).isEqualTo(UnitOutcome.Status.FAILED);
         assertThat(outcome.error().code()).isEqualTo(DagErrorCode.DAG_SOURCE_BYTES_TOO_LARGE);
-    }
-
-    @Test
-    void execute_returnsFAILED_DAG_UNIT_TIMEOUT_onLongRunningTask() {
-        properties.getExecution().setUnitTimeout(Duration.ofMillis(100));
-        var reader = new PipelineUnitExecutor.SourceReader() {
-            @Override public InputStream openStream(String objectKey) {
-                return new ByteArrayInputStream(new byte[]{1});
-            }
-            @Override public long statSize(String objectKey) { return 10L; }
-        };
-        var bg = (PipelineUnitExecutor.BackgroundRemovalPort) (bytes, options) -> {
-            try { Thread.sleep(1000L); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-            return new byte[]{};
-        };
-        var pipeline = (PipelineUnitExecutor.PixelPipeline) (src, ops, enc) -> new byte[]{};
-        var writer = (PipelineUnitExecutor.ResultWriter) (key, data) -> key;
-        var ex = executor(reader, bg, pipeline, writer);
-        UnitOutcome outcome = ex.execute(simpleBranch(),
-            UnitInput.images(List.of(ImageDescriptor.single("img1", "sku1", "k1"))));
-        assertThat(outcome.status()).isEqualTo(UnitOutcome.Status.FAILED);
-        assertThat(outcome.error().code()).withFailMessage("outcome=%s", outcome)
-                .isEqualTo(DagErrorCode.DAG_UNIT_TIMEOUT);
     }
 
     @Test

@@ -13,7 +13,9 @@ import java.io.InputStream;
 
 public class DefaultCommerceService implements CommerceService {
     private final CommerceImportService importService;
+
     private final CommerceImportJobService jobService;
+
     private final CommerceQueryService queryService;
 
     public DefaultCommerceService(

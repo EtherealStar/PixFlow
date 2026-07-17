@@ -13,8 +13,6 @@ public record CopyContext(
     String description
 ) {
     public CopyContext {
-        skuId = skuId; // 可空
-        productName = productName; // 可空
         keywords = keywords == null ? List.of() : List.copyOf(keywords);
     }
 

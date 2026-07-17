@@ -31,7 +31,10 @@ public class RowValidator {
         BigDecimal purchase = parseRate(row.purchaseRate(), "purchase_rate");
         PeriodType periodType = parsePeriodType(row.periodType(), options.defaultPeriodType());
         LocalDate start = parseDate(row.periodStart(), options.defaultPeriodStart(), "period_start");
-        LocalDate end = parseDate(row.periodEnd(), options.defaultPeriodEnd() == null ? start : options.defaultPeriodEnd(), "period_end");
+        LocalDate end = parseDate(
+                row.periodEnd(),
+                options.defaultPeriodEnd() == null ? start : options.defaultPeriodEnd(),
+                "period_end");
         if (start.isAfter(end)) {
             throw new IllegalArgumentException("period_start must be <= period_end");
         }

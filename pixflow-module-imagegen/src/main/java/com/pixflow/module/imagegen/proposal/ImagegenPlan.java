@@ -35,7 +35,6 @@ public record ImagegenPlan(
         Objects.requireNonNull(params, "params");
         // 强制不可变拷贝,避免上游误改 record 字段污染提案
         sourceImageIds = List.copyOf(sourceImageIds);
-        prompt = prompt;
         params = immutableCopy(params);
         // note/conversationId/packageId 允许 null(各自由调用方决定必填与否)
     }

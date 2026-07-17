@@ -17,13 +17,6 @@ import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.Callable;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 import org.springframework.stereotype.Component;
 
 /**
@@ -38,7 +31,7 @@ import org.springframework.stereotype.Component;
  * </pre>
  *
  * <p>**永不抛出业务异常**;任何异常经归一化后返回 UnitOutcome.FAILED。
- * 单元总超时由 {@link DagProperties.Execution#getUnitTimeout()} 控制。
+ * 调度与超时由 task 外壳负责；DAG 执行器不创建线程池或消息边界。
  * 大图防护在 storage.stat 阶段拦截。
  */
 @Component
@@ -74,13 +67,6 @@ public class PipelineUnitExecutor implements UnitExecutor {
     private final PixelPipeline pixelPipeline;
     private final ResultWriter resultWriter;
     private final TypedImageOpFactory imageOpFactory;
-    private final ExecutorService timeoutExecutor =
-        Executors.newCachedThreadPool(r -> {
-            Thread t = new Thread(r, "dag-pipeline-unit");
-            t.setDaemon(true);
-            return t;
-        });
-
     public PipelineUnitExecutor(DagProperties properties,
                                 ErrorNormalizer normalizer,
                                 SourceReader sourceReader,
@@ -113,26 +99,11 @@ public class PipelineUnitExecutor implements UnitExecutor {
                 new UnitOutcome.DagErrorView(DagErrorCode.DAG_INVALID_STRUCTURE,
                     "缺少输出对象目标", ErrorCategory.VALIDATION));
         }
-        Callable<UnitOutcome> task = () -> doExecute(branch, image, input.outputObjectKey());
-        Future<UnitOutcome> future = timeoutExecutor.submit(task);
         try {
-            return future.get(properties.getExecution().getUnitTimeout().toMillis(),
-                TimeUnit.MILLISECONDS);
-        } catch (TimeoutException e) {
-            future.cancel(true);
-            return UnitOutcome.failed(branch.kind(), branch.branchId(), branch.memberId(),
-                new UnitOutcome.DagErrorView(DagErrorCode.DAG_UNIT_TIMEOUT,
-                    "单元执行超时",
-                    DagErrorCode.DAG_UNIT_TIMEOUT.category()));
-        } catch (ExecutionException e) {
-            PixFlowException pe = normalizer.normalize(e.getCause() == null ? e : e.getCause());
+            return doExecute(branch, image, input.outputObjectKey());
+        } catch (Throwable e) {
+            PixFlowException pe = normalizer.normalize(e);
             return failureFromException(branch, pe);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            return UnitOutcome.failed(branch.kind(), branch.branchId(), branch.memberId(),
-                new UnitOutcome.DagErrorView(DagErrorCode.DAG_UNIT_EXECUTION_FAILED,
-                    "执行被中断",
-                    DagErrorCode.DAG_UNIT_EXECUTION_FAILED.category()));
         }
     }
 

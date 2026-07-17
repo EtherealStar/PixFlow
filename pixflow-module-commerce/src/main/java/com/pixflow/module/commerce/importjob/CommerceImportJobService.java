@@ -20,11 +20,17 @@ import java.time.Instant;
 
 public class CommerceImportJobService {
     private final CommerceImportJobMapper mapper;
+
     private final CommerceApiImportPublisher publisher;
+
     private final CommerceDataSource externalSource;
+
     private final CommerceImportService importService;
+
     private final ObjectMapper objectMapper;
+
     private final CommerceProperties properties;
+
     private final Clock clock;
 
     public CommerceImportJobService(
@@ -60,7 +66,8 @@ public class CommerceImportJobService {
         var result = publisher.publish(job.getId());
         if (!result.confirmed()) {
             job.setStatus(ImportJobStatus.PUBLISH_FAILED);
-            job.setErrorSummary(Sanitizer.sanitizeMessage(result.failure() == null ? "publish failed" : result.failure().reason()));
+            job.setErrorSummary(Sanitizer.sanitizeMessage(
+                    result.failure() == null ? "publish failed" : result.failure().reason()));
             job.setUpdatedAt(Instant.now(clock));
             mapper.updateById(job);
         }
@@ -99,14 +106,19 @@ public class CommerceImportJobService {
             job.setFinishedAt(Instant.now(clock));
             job.setUpdatedAt(job.getFinishedAt());
             mapper.updateById(job);
-            throw new PixFlowException(CommerceErrorCode.COMMERCE_PLATFORM_PULL_FAILED, "commerce platform import failed", ex);
+            throw new PixFlowException(
+                    CommerceErrorCode.COMMERCE_PLATFORM_PULL_FAILED,
+                    "commerce platform import failed",
+                    ex);
         }
     }
 
     private CommerceImportJob load(long jobId) {
         CommerceImportJob job = mapper.selectById(jobId);
         if (job == null) {
-            throw new PixFlowException(CommerceErrorCode.COMMERCE_IMPORT_JOB_NOT_FOUND, "commerce import job not found: " + jobId);
+            throw new PixFlowException(
+                    CommerceErrorCode.COMMERCE_IMPORT_JOB_NOT_FOUND,
+                    "commerce import job not found: " + jobId);
         }
         return job;
     }

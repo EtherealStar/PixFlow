@@ -6,9 +6,13 @@ import java.util.List;
 
 public class ImportReport {
     private int total;
+
     private int succeeded;
+
     private int skipped;
+
     private final List<ImportFailure> failures = new ArrayList<>();
+
     private final List<String> warnings = new ArrayList<>();
 
     public int getTotal() {

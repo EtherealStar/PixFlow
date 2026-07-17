@@ -61,6 +61,22 @@ class DagArchitectureTest {
             .should().dependOnClassesThat().resideInAPackage("com.pixflow.agent..");
 
     @ArchTest
+    static final ArchRule should_not_depend_on_message_broker =
+        noClasses()
+            .that().resideInAPackage("com.pixflow.module.dag..")
+            .should().dependOnClassesThat().resideInAnyPackage(
+                    "com.pixflow.infra.mq..", "org.apache.rocketmq..", "org.springframework.amqp..");
+
+    @ArchTest
+    static final ArchRule should_not_create_worker_threads =
+        noClasses()
+            .that().resideInAPackage("com.pixflow.module.dag..")
+            .should().dependOnClassesThat().haveSimpleName("ExecutorService")
+            .orShould().dependOnClassesThat().haveSimpleName("Executors")
+            .orShould().dependOnClassesThat().haveSimpleName("ThreadPoolExecutor")
+            .orShould().dependOnClassesThat().haveSimpleName("ScheduledExecutorService");
+
+    @ArchTest
     static final ArchRule should_not_depend_on_confirmation_contracts =
         noClasses()
             .that().resideInAPackage("com.pixflow.module.dag..")

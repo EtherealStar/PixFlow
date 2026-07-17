@@ -10,17 +10,29 @@ import java.time.Instant;
 public class CommerceImportJob {
     @TableId(type = IdType.AUTO)
     private Long id;
+
     private String source;
+
     private String platform;
+
     private ImportJobStatus status;
+
     private Integer skuCount;
+
     private Integer succeededCount;
+
     private Integer failedCount;
+
     private String requestJson;
+
     private String reportJson;
+
     private String errorSummary;
+
     private Instant createdAt;
+
     private Instant updatedAt;
+
     private Instant finishedAt;
 
     public Long getId() {

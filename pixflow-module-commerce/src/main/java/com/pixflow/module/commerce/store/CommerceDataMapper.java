@@ -17,8 +17,10 @@ public interface CommerceDataMapper extends BaseMapper<CommerceData> {
               (sku_id, category, impressions, ctr, add_cart_rate, purchase_rate,
                period_type, period_start, period_end, source, fetched_at, created_at, updated_at)
             VALUES
-              (#{row.skuId}, #{row.category}, #{row.impressions}, #{row.ctr}, #{row.addCartRate}, #{row.purchaseRate},
-               #{row.periodType}, #{row.periodStart}, #{row.periodEnd}, #{row.source}, #{row.fetchedAt}, #{row.createdAt}, #{row.updatedAt})
+              (#{row.skuId}, #{row.category}, #{row.impressions}, #{row.ctr},
+               #{row.addCartRate}, #{row.purchaseRate}, #{row.periodType},
+               #{row.periodStart}, #{row.periodEnd}, #{row.source}, #{row.fetchedAt},
+               #{row.createdAt}, #{row.updatedAt})
             ON DUPLICATE KEY UPDATE
               category = VALUES(category),
               impressions = VALUES(impressions),
@@ -37,8 +39,10 @@ public interface CommerceDataMapper extends BaseMapper<CommerceData> {
                    SUBSTRING_INDEX(GROUP_CONCAT(category ORDER BY fetched_at DESC), ',', 1) AS category,
                    SUM(impressions) AS impressions,
                    CASE WHEN SUM(impressions) = 0 THEN 0 ELSE SUM(ctr * impressions) / SUM(impressions) END AS ctr,
-                   CASE WHEN SUM(impressions) = 0 THEN 0 ELSE SUM(add_cart_rate * impressions) / SUM(impressions) END AS addCartRate,
-                   CASE WHEN SUM(impressions) = 0 THEN 0 ELSE SUM(purchase_rate * impressions) / SUM(impressions) END AS purchaseRate,
+                   CASE WHEN SUM(impressions) = 0 THEN 0
+                        ELSE SUM(add_cart_rate * impressions) / SUM(impressions) END AS addCartRate,
+                   CASE WHEN SUM(impressions) = 0 THEN 0
+                        ELSE SUM(purchase_rate * impressions) / SUM(impressions) END AS purchaseRate,
                    MAX(fetched_at) AS fetchedAt,
                    SUBSTRING_INDEX(GROUP_CONCAT(source ORDER BY fetched_at DESC), ',', 1) AS source
             FROM commerce_data
@@ -66,8 +70,10 @@ public interface CommerceDataMapper extends BaseMapper<CommerceData> {
             SELECT category AS category,
                    SUM(impressions) AS impressions,
                    CASE WHEN SUM(impressions) = 0 THEN 0 ELSE SUM(ctr * impressions) / SUM(impressions) END AS ctr,
-                   CASE WHEN SUM(impressions) = 0 THEN 0 ELSE SUM(add_cart_rate * impressions) / SUM(impressions) END AS addCartRate,
-                   CASE WHEN SUM(impressions) = 0 THEN 0 ELSE SUM(purchase_rate * impressions) / SUM(impressions) END AS purchaseRate,
+                   CASE WHEN SUM(impressions) = 0 THEN 0
+                        ELSE SUM(add_cart_rate * impressions) / SUM(impressions) END AS addCartRate,
+                   CASE WHEN SUM(impressions) = 0 THEN 0
+                        ELSE SUM(purchase_rate * impressions) / SUM(impressions) END AS purchaseRate,
                    COUNT(DISTINCT sku_id) AS sampleCount
             FROM commerce_data
             WHERE category = #{category}

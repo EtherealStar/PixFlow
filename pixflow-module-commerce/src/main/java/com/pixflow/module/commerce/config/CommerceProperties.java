@@ -9,7 +9,9 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties(prefix = "pixflow.commerce")
 public class CommerceProperties {
     private final Import importConfig = new Import();
+
     private final Query query = new Query();
+
     private final Source source = new Source();
 
     public Import getImport() {
@@ -26,7 +28,9 @@ public class CommerceProperties {
 
     public static class Import {
         private int batchSize = 500;
+
         private boolean strictHeader = true;
+
         private CategoryConflictPolicy categoryConflict = CategoryConflictPolicy.WARN;
 
         public int getBatchSize() {
@@ -56,8 +60,11 @@ public class CommerceProperties {
 
     public static class Query {
         private int defaultWindowDays = 30;
+
         private int benchmarkMinSample = 5;
+
         private PeriodType defaultPeriodType = PeriodType.DAY;
+
         private CommerceSourceScope defaultSourceScope = CommerceSourceScope.ALL;
 
         public int getDefaultWindowDays() {
@@ -95,10 +102,15 @@ public class CommerceProperties {
 
     public static class Source {
         private boolean liveEnabled;
+
         private Duration freshnessTtl = Duration.ofHours(6);
+
         private String platform = "fake";
+
         private Duration timeout = Duration.ofSeconds(2);
+
         private int maxRetries = 1;
+
         private boolean fallbackToStored = true;
 
         public boolean isLiveEnabled() {
