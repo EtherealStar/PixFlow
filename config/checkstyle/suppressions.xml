@@ -158,8 +158,6 @@
     <suppress files=".*[/\\]pixflow-module-dag[/\\]src[/\\]main[/\\]java[/\\]com[/\\]pixflow[/\\]module[/\\]dag[/\\]ir[/\\]CanonicalDagFactory\.java" checks="UnusedImports" lines="3"/>
     <suppress files=".*[/\\]pixflow-module-dag[/\\]src[/\\]main[/\\]java[/\\]com[/\\]pixflow[/\\]module[/\\]dag[/\\]ir[/\\]CanonicalJson\.java" checks="WhitespaceAround" lines="44"/>
     <suppress files=".*[/\\]pixflow-module-dag[/\\]src[/\\]main[/\\]java[/\\]com[/\\]pixflow[/\\]module[/\\]dag[/\\]ir[/\\]PixelTool\.java" checks="EmptyLineSeparator" lines="30,31"/>
-    <suppress files=".*[/\\]pixflow-module-dag[/\\]src[/\\]main[/\\]java[/\\]com[/\\]pixflow[/\\]module[/\\]dag[/\\]propose[/\\]SubmitImagePlanHandler\.java" checks="EmptyLineSeparator" lines="42"/>
-    <suppress files=".*[/\\]pixflow-module-dag[/\\]src[/\\]main[/\\]java[/\\]com[/\\]pixflow[/\\]module[/\\]dag[/\\]propose[/\\]SubmitImagePlanHandler\.java" checks="UnusedImports" lines="4"/>
     <suppress files=".*[/\\]pixflow-module-dag[/\\]src[/\\]main[/\\]java[/\\]com[/\\]pixflow[/\\]module[/\\]dag[/\\]validate[/\\]DagValidationResult\.java" checks="EmptyLineSeparator" lines="38"/>
     <suppress files=".*[/\\]pixflow-module-dag[/\\]src[/\\]main[/\\]java[/\\]com[/\\]pixflow[/\\]module[/\\]dag[/\\]validate[/\\]DagValidator\.java" checks="EmptyLineSeparator" lines="37,38,39,40,41,42,43,44,45"/>
     <suppress files=".*[/\\]pixflow-module-dag[/\\]src[/\\]main[/\\]java[/\\]com[/\\]pixflow[/\\]module[/\\]dag[/\\]validate[/\\]DagValidator\.java" checks="UnusedImports" lines="4"/>
@@ -179,7 +177,6 @@
     <suppress files=".*[/\\]pixflow-module-imagegen[/\\]src[/\\]main[/\\]java[/\\]com[/\\]pixflow[/\\]module[/\\]imagegen[/\\]exec[/\\]GenerativeUnitSpec\.java" checks="NeedBraces" lines="40"/>
     <suppress files=".*[/\\]pixflow-module-imagegen[/\\]src[/\\]main[/\\]java[/\\]com[/\\]pixflow[/\\]module[/\\]imagegen[/\\]proposal[/\\]ImagegenPlanService\.java" checks="ConstantName" lines="37"/>
     <suppress files=".*[/\\]pixflow-module-imagegen[/\\]src[/\\]main[/\\]java[/\\]com[/\\]pixflow[/\\]module[/\\]imagegen[/\\]proposal[/\\]ImagegenPlanService\.java" checks="EmptyLineSeparator" lines="43,44,45,46,47"/>
-    <suppress files=".*[/\\]pixflow-module-imagegen[/\\]src[/\\]main[/\\]java[/\\]com[/\\]pixflow[/\\]module[/\\]imagegen[/\\]proposal[/\\]ImagegenPlanToolHandler\.java" checks="EmptyLineSeparator" lines="45"/>
     <suppress files=".*[/\\]pixflow-module-imagegen[/\\]src[/\\]main[/\\]java[/\\]com[/\\]pixflow[/\\]module[/\\]imagegen[/\\]proposal[/\\]ImagegenPlanValidator\.java" checks="EmptyLineSeparator" lines="32"/>
     <suppress files=".*[/\\]pixflow-module-memory[/\\]src[/\\]main[/\\]java[/\\]com[/\\]pixflow[/\\]module[/\\]memory[/\\]config[/\\]MemoryAutoConfiguration\.java" checks="LineLength" lines="151,163,241"/>
     <suppress files=".*[/\\]pixflow-module-memory[/\\]src[/\\]main[/\\]java[/\\]com[/\\]pixflow[/\\]module[/\\]memory[/\\]config[/\\]MemoryProperties\.java" checks="EmptyLineSeparator" lines="8,9,25,26,27,28,73,74,75,76,112,113,114,115,160,161,162,163,208,209,210,258,259"/>
