@@ -116,7 +116,7 @@ public enum HookEvent {
     PRE_TOOL_USE,                // 工具执行前（可阻断 / 改写）
     POST_TOOL_USE,               // 工具成功后（观察）
     TOOL_ERROR,                  // 工具出错（观察）
-    ASSISTANT_MESSAGE_COMPLETED, // assistant 消息完成（触发异步记忆抽取）
+    ASSISTANT_MESSAGE_COMPLETED, // assistant 消息完成（仅观察）
     TURN_STOPPED,                // 一轮无 tool call 自然结束（观察）
     TASK_CREATED,                // 异步任务创建（可阻断 → 回滚）
     TASK_COMPLETED,              // 异步任务完成（观察）
@@ -227,16 +227,7 @@ public interface HookRegistry {
 
 ### 5.2 异步副作用由回调自理
 
-需要异步的扩展（典型：`AssistantMessageCompleted` 触发**分析结论记忆抽取**，`design.md §7` mem0 ADD-only 异步写入），由回调内部投递到线程池 / 发布 Spring `ApplicationEvent` 后**立即返回 `noop()`**。总线不感知、不等待这些异步工作。
-
-```mermaid
-flowchart TD
-  Asst["assistant 完成"] --> Disp["HookRegistry.dispatch(ASSISTANT_MESSAGE_COMPLETED)"]
-  Disp --> Cb["MemoryExtractionHook.handle()"]
-  Cb --> Submit["submit 抽取任务到线程池 / 发 ApplicationEvent"]
-  Submit --> Ret["立即返回 noop()"]
-  Cb -.异步.-> Extract["（后台）单次 LLM 抽取 → 双写 MySQL/Qdrant"]
-```
+若未来某个扩展确实需要异步副作用，回调应自行投递到线程池或发布 Spring `ApplicationEvent`，并立即返回 `noop()`；总线不感知也不等待异步工作。当前不注册任何业务记忆写回回调，`ASSISTANT_MESSAGE_COMPLETED` 只保留为观察事件。
 
 ### 5.3 派发流程与短路
 
@@ -283,7 +274,7 @@ public HookResult handle(HookEvent e, HookPayload p) {
 | `PRE_TOOL_USE` | `harness/tools` 执行管线（permission 之后） | **是** | **是** | **DAG 参数异常检测**（`design.md §5.5`）、输入规范化改写 |
 | `POST_TOOL_USE` | `harness/tools`（handler 成功后） | 否 | 否 | 观察工具成功结果、补充 metadata |
 | `TOOL_ERROR` | `harness/tools`（handler 异常） | 否 | 否 | 观察错误分类（payload 带 `resultSummary` 的 category） |
-| `ASSISTANT_MESSAGE_COMPLETED` | `harness/loop` | 否 | 否 | **触发分析结论记忆异步抽取**（mem0 ADD-only） |
+| `ASSISTANT_MESSAGE_COMPLETED` | `harness/loop` | 否 | 否 | 观察 assistant 消息完成；当前不触发业务记忆写回 |
 | `TURN_STOPPED` | `harness/loop`（无 tool call 自然结束） | 否 | 否 | 观察 / 回合收尾审计 |
 | `TASK_CREATED` | `module/task`（任务入库后） | **是** | 否 | 阻断则回滚已创建任务（与参考一致语义） |
 | `TASK_COMPLETED` | `module/task`（任务终态） | 否 | 否 | 观察任务完成；Rubrics 预警**不**在此在线触发（见下） |
@@ -291,7 +282,7 @@ public HookResult handle(HookEvent e, HookPayload p) {
 | `POST_COMPACT` | `harness/context` | 否 | 否 | 观察压缩结果（token 前后、trigger） |
 | `COMPACT_FAILED` | `harness/context` | 否 | 否 | 观察摘要失败/断路回退确定性裁剪 |
 
-**关于 Rubrics 预警**：`design.md §5.5` 拦截点表写「Rubrics 评分低于阈值推送预警」，但 Rubrics 是**离线阶段**（`design.md §十一`）。在线只发 `TASK_COMPLETED`（纯观察）；Rubrics 预警由离线流程消费 eval trace 后另行通知，**不接入在线 hook 链**。本文据此澄清，避免把离线评估误并入在线总线。
+**关于 Rubrics 自动化与预警**：Rubrics 是**离线阶段**（`design.md §十一`）。在线只发 `TASK_COMPLETED`（纯观察）；未验证 template 只允许手动校准 run。只有显式启用的 `VALIDATED/PRODUCTION` template 才能在 Rubrics 自己的离线边界消费完成事件、按策略抽样并产生 criterion 回归预警，**不接入在线 hook 链、不阻断任务终态**。
 
 ---
 
@@ -320,7 +311,7 @@ public HookResult handle(HookEvent e, HookPayload p) {
 
 ### 7.3 metadata 累积
 
-- 一条事件链内逐回调合并。推荐 key 使用命名空间前缀，例如 `dag.validationWarnings`、`memory.ingestScheduled`、`compact.summaryInstructions`，避免跨模块 hook 互相踩键。
+- 一条事件链内逐回调合并。推荐 key 使用命名空间前缀，例如 `dag.validationWarnings`、`compact.summaryInstructions`，避免跨模块 hook 互相踩键。
 - **键冲突策略**：新 key 直接写入；同 key 且旧值与新值相等时保留单值；同 key 且旧值不是列表时收敛为列表 `[old, new]`；同 key 且旧值已是列表时追加新值。dispatcher 不静默覆盖已有值。
 - `hookErrors` 是 dispatcher 保留键，回调不得写入。若 callback 返回的 metadata 含 `hookErrors`，dispatcher 必须忽略该键或把它改写进 `callbackMetadata.hookErrors`，不能让 callback 伪造系统级异常隔离结果。
 
@@ -335,7 +326,7 @@ public HookResult handle(HookEvent e, HookPayload p) {
 `harness/hooks` core 只提供总线和 SPI，不内置业务 hook。首批业务 hook 应放在更高层接线模块中：
 
 - DAG 参数异常检测 hook 放在 `module/dag` 或 `harness/tools` 与 DAG 的接线层，订阅 `PRE_TOOL_USE`，只处理 `submit_image_plan` 的 DAG 提案输入。
-- 分析结论记忆抽取 hook 放在 `agent` 或 memory 接线层，订阅 `ASSISTANT_MESSAGE_COMPLETED`，调用 `MemoryService.ingestAsync` 后立即返回 `noop()`。
+- 当前不注册业务记忆写回 Hook。`ASSISTANT_MESSAGE_COMPLETED` 不触发偏好、SKU 历史或分析结论抽取；Session Memory/compaction 回调仅服务同一会话上下文压缩。
 - 压缩摘要指令 hook 放在 `agent` / `context` 接线层，订阅 `PRE_COMPACT` 并写入 `compact.summaryInstructions` metadata。
 
 这样可以保证 hooks core 不反向依赖业务模块，业务扩展通过 Spring bean 装配进入总线。

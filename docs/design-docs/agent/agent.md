@@ -1,7 +1,7 @@
 # agent —— Agent 决策层装配（Wave 5 决策层编排）
 
 > 本文是 PixFlow 完整重写阶段 `agent` 模块的设计文档，对应 `design.md` 第六章「Agent 决策层」、第十章「子 Agent 设计」、`module-dependency-dag-plan.md` 的 **Wave 5 Agent 决策层**。
-> 范围：手写 think-act-observe 主循环之上的**业务装配层**——动态 Prompt 组装与 section 缓存、Skill 工具化与渐进式披露、自动记忆（用户偏好 / SKU 历史 / 分析结论）的同步召回注入、Session Memory 累积提取、Subagent Runner（`agent` 工具 / destructive compaction 摘要 / Session Memory 提取三处复用）、`SummarizationPort` / `SessionMemoryPort` SPI 实现、Plan 模式控制、Agent Orchestrator 入口、HITL 提案事件接出、与 tools / context / session / hooks / eval / permission / state / loop / memory / commerce / dag / imagegen / vision / conversation / file 的接缝契约。本文不涉及 MVP 既有实现，从新架构需求重新推导。
+> 范围：手写 think-act-observe 主循环之上的**业务装配层**——动态 Prompt 组装与 section 缓存、Skill 工具化与渐进式披露、已有记忆的只读召回、Session Memory 上下文压缩、Subagent Runner、Plan 模式控制、Agent Orchestrator 入口、素材引用注入、Proposal 事件接出，以及与 tools / context / session / hooks / eval / permission / state / loop / memory / commerce / dag / imagegen / vision / conversation / file 的接缝契约。当前产品不把对话结果写回用户偏好、SKU 历史或分析结论。
 > 思路参考 `docs/references/prompt-architecture.md`、`subagent-architecture.md`、`compaction-architecture.md`、`context-architecture.md`、`error-handling-architecture.md`、`core-runtime-architecture.md`（Python/OneCode / TypeScript 生产参考），但**仅借鉴「薄装配 + section cache + subagent fork + Session Memory 累积 + 工具化 skill 披露」的设计理念，存储模型、并发模型、类型契约、压缩策略分层全部以 Java 17 + Spring Boot 3 重新设计**。
 
 ---
@@ -51,6 +51,12 @@
 
 8. **零独立基础设施**。`agent` 不引入新的持久化通道（session memory 走 MySQL + Redis，**复用 `infra/storage` 与 `infra/cache` 的现有抽象**）；不引入新的 LLM 客户端（复用 `infra/ai` 的 `ModelClient`）；不引入新的限流/熔断（复用 `infra/thirdparty` 的 Resilience4j 包装）。**它只把所有已有模块的能力接起来**。
 
+9. **素材引用只认 canonical `referenceKey`**。用户消息中的每个 mention 以 `referenceKey + displayPathSnapshot` 注入上下文；Agent 把同一个 key 原样传给资产检查、DAG 与 IMAGEGEN 工具。Agent 不接收对象存储路径，也不使用并行的 `packageId/imageIds/source_image_ids` 工具契约。
+
+10. **Proposal 是已校验、逐项授权的动作**。提交工具在 Proposal 对用户可见前完成 schema、素材、权限和执行前校验；技术错误作为 tool error 回到同一回合供 Agent 修正。一个回合可以发布多个 Proposal，每个独立确认或拒绝；一个 IMAGEGEN Proposal 只对应一张源图和一张结果，单回合最多 20 个。
+
+11. **当前不做业务记忆写回**。`MemoryService.prepareContext(...)` 仅可读取已有记忆；不得从 assistant 消息或任务结果自动提取并写入用户偏好、SKU 历史或分析结论。Session Memory 仅服务同一会话的上下文压缩，不升级为跨会话业务记忆。
+
 ---
 
 ## 二、与参考实现的本质差异
@@ -65,7 +71,7 @@
 | Session memory | 单文件 `.onecode/sessions/<id>/session-memory.md` + 提取子 Agent + 写文件 | **MySQL `session_memory` 表 + Redis 缓存**（[第七章](#七session-memory-累积提取)）；**阈值不入 transcript** |
 | 记忆召回 | `startRelevantMemoryPrefetch`（回合入口预取）+ 后台 settled 后消费 | **每轮 buildForModel 前同步调用 `MemoryService.prepareContext(...)`** |
 | Subagent 接入 | `services/subagents/` 独立包 + `tools/agent/` 包装 | **`SubagentRunner` 单一类** + **三处复用**（`agent` 工具 / `SummarizationPort` / `SessionMemoryExtractionService`） |
-| Fork 机制 | `subagent_type is None` 触发 fork | **本期不引入 fork 模式**——child runtime 一律 clean（type 必填 vision/explore） |
+| Fork 机制 | `subagent_type is None` 触发 fork | **本期不引入 fork 模式**——child runtime 一律 clean；公开 `agent` 工具只接受 `type=explore`，摘要与 Session Memory 提取使用内部专用类型 |
 | Compaction 摘要 | loop 内联调 subagent_runner fork | `SummarizationPort` SPI 倒置给 agent 层，context 调用，**agent 提供实现**（[第九章](#九summarizationport-实现destructive-compaction-备份路径)） |
 | Memory 类型 | session memory（markdown）+ long-term memory（目录 + 文件） | **三类分离**：session memory（MySQL，per 会话）+ 偏好画像（MySQL，全量）+ 分析结论（MySQL + Qdrant，类目级） |
 | Context collapse / snip / cache edit | query.ts 的全特性 | **不引入**——只用 context 的 cheap pipeline + Session Memory + auto compact 三层 |
@@ -100,7 +106,7 @@ agent/
 │   └── sections/
 │       ├── IdentitySection.java        # 固定
 │       ├── BehaviorRulesSection.java   # 固定
-│       ├── RiskAndSafetySection.java   # 固定（含 HITL 强规则）
+│       ├── RiskAndSafetySection.java   # 固定（含 Proposal 逐项授权规则）
 │       ├── VerificationSection.java    # 固定
 │       ├── PreferenceSection.java      # 用户偏好画像
 │       ├── SessionMemorySection.java   # Session Memory 累积要点
@@ -126,12 +132,11 @@ agent/
 │   └── SessionMemoryContent.java       # Markdown 结构：任务状态 / 已确认决策 / 用户偏好更新 / 待澄清问题
 ├── subagent/
 │   ├── SubagentRunner.java             # 装配 child runtime + 调 continueStream
-│   ├── SubagentRequest.java            # 含 type/prompt/imageIds/parentToolCallId/mode
+│   ├── SubagentRequest.java            # 含 type/prompt/referenceKeys/parentToolCallId/mode
 │   ├── SubagentResult.java             # 含 finalText/usage/error/transition
 │   ├── ChildRuntimeFactory.java        # 构造 child RuntimeState + MessageStore + ToolRegistry + ContextEngine
 │   ├── ChildToolFilter.java            # 工具集裁剪规则
 │   └── tools/
-│       ├── VisionSubagentTool.java     # 实现 agent(type=vision) handler
 │       └── ExploreSubagentTool.java    # 实现 agent(type=explore) handler
 ├── summarization/
 │   ├── ForkChildSummarizationPort.java # 实现 context.SummarizationPort（auto compact 备用路径）
@@ -140,10 +145,9 @@ agent/
 ├── planmode/
 │   ├── PlanModeController.java         # 实现 plan / plan_exit 工具 handler；持有 PlanModeState
 │   ├── PlanModeState.java              # 会话级标志（runtime.metadata 持有）
-│   └── PlanModePrompter.java           # 计划文本呈现（可选：把 plan_exit 结果以 attachment 投影）
+│   └── PlanModePrompter.java           # 计划文本呈现（把 plan_exit 结果投影为 assistant 文本块）
 ├── hooks/
-│   ├── AssistantMemoryIngestionHook.java   # ASSISTANT_MESSAGE_COMPLETED → 触发分析结论异步抽取（轻量触发器）
-│   ├── TurnStoppedSessionMemoryHook.java   # TURN_STOPPED → 触发 Session Memory 异步累积
+│   ├── TurnStoppedSessionMemoryHook.java   # TURN_STOPPED → 触发同会话 Session Memory 压缩
 │   └── PreCompactSummaryHook.java          # PRE_COMPACT → 注入 compact.summaryInstructions
 ├── config/
 │   ├── AgentProperties.java            # 集中所有配置（section cache size / memory recall limits / session memory threshold）
@@ -158,7 +162,7 @@ agent/
 agent ──► harness/{loop, tools, context, hooks, session, eval, state, permission}
 agent ──► module/{memory, vision, imagegen, commerce, dag, conversation, file}
 agent ──► infra/{ai, storage, vector, cache, image, mq, thirdparty}
-agent ──► common + contracts
+agent ──► common
 ```
 
 **关键倒置**：
@@ -166,11 +170,11 @@ agent ──► common + contracts
 - `agent` 实现 `context.SessionMemoryPort`（累积提取）
 - `agent` 实现 `hooks.HookCallback`（多个业务 hook 接线点）
 - `agent` 实现 `tools.ToolHandler`（`agent` 工具、`plan` / `plan_exit` 工具）
-- `agent` 不直接实现 `common.ErrorRecorder`（由 `harness/eval` 实现），不实现 `contracts.ConfirmationTokenStore`（由 `infra/cache` 实现），不实现 `context.TranscriptPort`（由 `harness/session` 实现）
+- `agent` 不直接实现 `common.ErrorRecorder`（由 `harness/eval` 实现），不实现 `context.TranscriptPort`（由 `harness/session` 实现）
 
 **新增依赖边**（需同步回 `module-dependency-dag-plan.md`）：
 - `agent → session`：agent 实现 `context.SessionMemoryPort` SPI 时，session 模型可见性需要（agent 不直接写 `message` 表，但 `SessionMemoryExtractor` 读 message 序列时需要与 session 协同）—— **agent 不直连 MySQL message 表**，经 `context.MessageStore.currentMessages()` 读
-- `agent → hooks`：agent 提供多个 `HookCallback` 实现，订阅 `TURN_STOPPED` / `ASSISTANT_MESSAGE_COMPLETED` / `PRE_COMPACT` 事件
+- `agent → hooks`：agent 提供 `HookCallback` 实现，只为 Session Memory 压缩与 compaction 订阅 `TURN_STOPPED` / `PRE_COMPACT`；不订阅 assistant 完成事件写回业务记忆
 - `agent → tools`：agent 提供 `agent` / `plan` / `plan_exit` 三个工具的 handler + 描述符 bean
 - `agent → memory`：agent 调用 `MemoryService.prepareContext(MemoryContextRequest)` 消费统一 `MemoryContext`
 
@@ -189,12 +193,12 @@ agent ──► common + contracts
 | 1 | `identity` | 固定 | 资源文件 | 否 | section_version |
 | 2 | `behavior_rules` | 固定 | 资源文件 | 是 | section_version |
 | 3 | `engineering_practices` | 固定 | 资源文件 | 是 | section_version |
-| 4 | `risk_and_safety` | 固定（含 HITL 强规则） | 资源文件 | 是 | section_version |
+| 4 | `risk_and_safety` | 固定（含 Proposal 逐项授权规则） | 资源文件 | 是 | section_version |
 | 5 | `verification_and_reporting` | 固定 | 资源文件 | 是 | section_version |
 | 6 | `instruction_memory` | 动态 | `MemoryContext.user_preferences.renderedText` | 是 | section name + tokenEstimate + renderedText + trace |
 | 7 | `session_memory` | 动态 | `SessionMemoryService`（见 [第七章](#七session-memory-累积提取)） | 是 | `lastSummarizedSeq + contentHash` |
 | 8 | `long_term_memory` | 动态 | `MemoryContext.sku_history` + `MemoryContext.analysis_insights` | 是 | renderedText + recallTrace |
-| 9 | `workspace_state` | 动态 | 当前素材包 / 会话上下文 / Plan 模式 | 是 | `(packageId, turnCount, planMode)` |
+| 9 | `workspace_state` | 动态 | 当前消息素材引用 / 会话上下文 / Plan 模式 | 是 | `(referenceKeySetHash, turnCount, planMode)` |
 | 10 | `available_skills` | 动态 | 全部已注册 skill 的 name + description + when_to_use | 是 | `sortedSkillNames + descriptionHash + whenToUseHash` |
 | 11 | `available_tools` | 动态 | `tools.registry.visibleDescriptors(state)`（与 schema 同源） | 是 | `sortedVisibleToolNames + promptHash` |
 | 12+ | `tool_prompt:{name}` | 动态 | 各 `ToolDescriptor.prompt` 字段 | 是 | `toolName + promptVersion` |
@@ -223,7 +227,7 @@ public record PromptSection(
 - 偏好 section：`fingerprint = sha256(全部 user_preference 行 update_at + value)`
 - session memory section：`fingerprint = "{lastSummarizedSeq}.{contentHash}"`，`contentHash = md5(content)`
 - 长期记忆 section：`fingerprint = "{recallPlanId}.{totalTokens}"`，`recallPlanId = UUID`（每次召回计划一次）
-- workspace state section：`fingerprint = "{packageId}.{turnCount}.{planMode}"`
+- workspace state section：`fingerprint = "{sha256(sorted(referenceKeys))}.{turnCount}.{planMode}"`
 - available_skills section：`fingerprint = sha256(sorted(skill.name + skill.description + skill.when_to_use + skill.version))`
 - available_tools section：`fingerprint = sha256(sorted(visibleTool.name + visibleTool.prompt))`
 - tool_prompt:{name}：`fingerprint = "{toolName}.v{promptVersion}"`
@@ -255,9 +259,7 @@ public record PromptRuntimeContext(
     RuntimeState state,                    // 来自 loop（含 conversationId / turnNo / runtimeScope）
     String conversationId,
     Integer turnNo,
-    String packageId,                      // 当前素材包（可空）
-    List<String> attachedSkuIds,           // 当前素材包 SKU 列表（来自 module/file）
-    List<String> mentionedSkuIds,          // 最近 N 轮 assistant 解析出的 SKU 列表
+    List<MessageReference> references,     // 当前用户消息的 canonical key + display snapshot
     List<String> recentAssistantMessageIds,// 最近 N 轮 assistant message id（用于回溯）
     String userMessage,                    // 当次用户输入
     PlanModeState planMode,                // 当前是否 Plan 模式
@@ -501,17 +503,14 @@ new MemoryContextRequest(
     turnNo,
     traceId,
     userPrompt,
-    attachments,
-    packageId,
-    taskId,
-    skuIds,
+    references,
     categoryHints,
     metadata,
     tokenBudget
 )
 ```
 
-其中 `attachments` 是已解析出的 durable 引用和元数据，`skuIds` 来自当前素材包或上游上下文，`metadata` 可带最近 assistant 文本等辅助信号。agent 不再在本模块内解析 SKU、不直接读取 `PreferenceService` / `SkuHistoryService` / `InsightDocMapper`，也不持有 RRF 实现。
+其中 `references` 是已解析的 `referenceKey + displayPathSnapshot`。module-memory 如需 SKU 或包范围，只能通过共享 Asset Reference Resolver 解析这些 key，不能要求 agent 另传并行的 `packageId/skuIds/imageIds` 身份。`metadata` 可带最近 assistant 文本等非身份辅助信号。该调用严格只读；agent 不调用 `PreferenceService` / `SkuHistoryService` / `InsightDocMapper` 写回，也不持有 RRF 实现。
 
 ### 6.2 module-memory 输出
 
@@ -787,7 +786,7 @@ public interface SessionMemoryPort {
 }
 ```
 
-**SPI 倒置**：与 `context.TranscriptPort` ← session、`contracts.ConfirmationTokenStore` ← cache、`common.ErrorRecorder` ← eval 同款手法。
+**SPI 倒置**：与 `context.TranscriptPort` ← session、`common.ErrorRecorder` ← eval 同款手法。
 
 ### 7.8 与 `module/memory` 的边界
 
@@ -817,7 +816,7 @@ public interface SessionMemoryPort {
 ## 八、Subagent Runner（agent 工具 / 摘要 / Session Memory 三处复用）
 
 `SubagentRunner` 是**单一类**，三处复用：
-1. **`agent` 工具**（harness/tools §3.3）：`agent(type=vision)` / `agent(type=explore)`
+1. **`agent` 工具**（harness/tools §3.3）：`agent(type=explore)`
 2. **`SummarizationPort` 实现**（destructive compaction 备用路径，agent 模块实现）
 3. **`SessionMemoryExtractionService`**（Session Memory 累积提取，agent 模块实现）
 
@@ -900,41 +899,17 @@ public SubagentResult run(SubagentRequest req) {
 
 | 调用方 | 默认工具集 | 禁用 |
 |---|---|---|
-| `agent(type=vision)` | core 7 工具 | 禁用 `submit_image_plan` / `submit_imagegen_plan` / `plan`（child 只读 + 看图） |
 | `agent(type=explore)` | core 7 工具 | 禁用 `submit_image_plan` / `submit_imagegen_plan` / `plan`（child 只读 + 探索） |
 | `SummarizationPort`（destructive compaction 摘要） | **无工具** | 全部禁用（只看不调） |
 | `SessionMemoryExtractor`（session memory 提取） | **无工具** | 全部禁用（只看不调） |
 
 **Skill 工具是否在 child 中暴露**：
-- `agent(type=vision/explore)`：**是**——child 可能需要 skill 知识
+- `agent(type=explore)`：**是**——child 可能需要 skill 知识
 - `SummarizationPort` / `SessionMemoryExtractor`：**否**——摘要是「读历史写摘要」，不需要 skill
 
 ### 8.5 `agent` 工具 handler
 
-#### 8.5.1 `agent(type=vision)`
-
-```java
-ToolHandlerOutput handle(ToolInvocation inv) {
-    // arguments: { type: "vision", imageIds: [...], prompt: "..." }
-    SubagentRequest req = SubagentRequest.vision(
-        parentState.conversationId(),
-        inv.toolCallId(),
-        inv.arguments(),
-        currentPackageId
-    );
-    SubagentResult result = subagentRunner.run(req);
-    return new ToolHandlerOutput(
-        result.finalText(),
-        Map.of("subagent_type", "vision", "usage", result.usage(), "tool_result_count", result.toolResultCount())
-    );
-}
-```
-
-**实际能力**：child 调 `module/vision.VisionService.analyze(imageIds, prompt)`（Wave 3 阶段 A 已就绪）→ 输出结构化视觉描述。
-
-**为什么走 subagent runner 而非直接调 vision service**：因为 vision service 本身**就是一次 LLM 调用**——把它包成 subagent runner 让 child 拥有完整的"工具调用 + 工具结果回填"能力，未来 vision service 升级（如需要 child 先 read SKU 上下文）时无需改 agent 工具。
-
-#### 8.5.2 `agent(type=explore)`
+#### 8.5.1 `agent(type=explore)`
 
 ```java
 ToolHandlerOutput handle(ToolInvocation inv) {
@@ -948,7 +923,7 @@ ToolHandlerOutput handle(ToolInvocation inv) {
 }
 ```
 
-**实际能力**：child 跑一个**完整的多轮决策循环**，可用 `search` / `read` / `agent(vision)` 工具，汇总探索结果回主 Agent。
+**实际能力**：child 跑一个**完整的多轮决策循环**，可用 `search` / `read` 与允许的 Skill 工具，汇总探索结果回主 Agent。商品外观事实由主 Agent 直接调用 `get_product_visual_facts` 获取，不通过 explore child 转调。
 
 ### 8.6 ChildTraceRecorder
 
@@ -983,7 +958,7 @@ pixflow:
         keep-alive-seconds: 60
 ```
 
-**为什么独立池**：VLLM 几秒~十几秒，与主循环的毫秒级工具并发**不应抢资源**。
+**为什么独立池**：explore、摘要与 Session Memory 提取都可能运行独立模型循环，与主循环的工具并发**不应抢资源**。VLM 商品分析不使用该线程池，由 vision 模块自行调度。
 
 ### 8.9 Subagent 可观测
 
@@ -1301,7 +1276,8 @@ ToolHandlerOutput handle(ToolInvocation inv) {
 |---|:---:|---|
 | `search` | 是 | 只读探索 |
 | `read` | 是 | 只读 |
-| `agent(vision/explore)` | 是 | 只读 |
+| `get_product_visual_facts` | 是 | 只读；读取或补偿当前商品视觉事实 |
+| `agent(explore)` | 是 | 只读 |
 | `skill__*` | 是 | 只读 |
 | `plan` | **否** | 已在 Plan 模式 |
 | `plan_exit` | **是** | 必须可见，否则退不出 |
@@ -1324,7 +1300,7 @@ ToolHandlerOutput handle(ToolInvocation inv) {
 ```java
 public interface AgentOrchestrator {
     /** 发起新回合（用户消息） */
-    void streamNewTurn(String conversationId, String prompt, List<Attachment> attachments, AgentEventSink sink);
+    void streamNewTurn(String conversationId, String prompt, List<MessageReference> references, AgentEventSink sink);
 
     /** 续接回合（恢复 / 子 Agent fork） */
     void continueTurn(String conversationId, AgentEventSink sink);
@@ -1342,7 +1318,7 @@ streamNewTurn:
   5. 构造 MessageStore（经 SessionMessageStoreFactory rehydrate from session.load）
   6. 构造 ToolExecutionContext（含 PermissionContext / TurnTrace 句柄 / RuntimeScope=MAIN）
   7. 构造 AgentEventSink 适配为 SseEmitter
-  8. 调 AgentLoop.stream(prompt, attachments, sink)
+  8. 调 AgentLoop.stream(prompt, references, sink)
   9. 回合结束释放锁
 ```
 
@@ -1366,7 +1342,6 @@ public class AgentOrchestrator {
 
     // 注入的钩子（agent 自身实现）
     private final HookCallback turnStoppedHook;               // TURN_STOPPED → 触发 session memory
-    private final HookCallback assistantMessageHook;          // ASSISTANT_MESSAGE_COMPLETED → 触发分析结论抽取
     private final HookCallback preCompactHook;                // PRE_COMPACT → 注入 summaryInstructions
 }
 ```
@@ -1414,31 +1389,30 @@ agent 自治码 `AgentErrorCode`（`enum implements ErrorCode`）：
 | `harness/tools` | agent 实现 `agent` 工具 + `plan` / `plan_exit` 工具的 handler 与 `ToolDescriptor` bean；ToolRegistry 自动收集；agent 装配期从 skill 表动态注册 `skill__<name>` |
 | `harness/context` | agent 实现 `context.SummarizationPort`（destructive compaction 摘要）；agent 实现 `context.SessionMemoryPort`（累积提取）；agent 不实现 `context.TranscriptPort`（归 session） |
 | `harness/session` | session 是 `message` 表唯一写者；agent 读 message 序列**经 `context.MessageStore.currentMessages()`**（不直连 MySQL） |
-| `harness/hooks` | agent 实现多个 `HookCallback`（`AssistantMessageCompleted` / `TurnStopped` / `PreCompact`）；订阅 `PRE_TOOL_USE` 不写（让 harness/tools 走标准管线） |
+| `harness/hooks` | agent 仅实现 `TurnStopped` / `PreCompact` 回调服务同会话上下文压缩；不实现 assistant 消息到业务记忆的写回 Hook；`PRE_TOOL_USE` 仍走 harness/tools 标准管线 |
 | `harness/eval` | agent 不写 trace；loop 持有的 `TurnTrace` 句柄由 loop 转投 eval；agent 提供 `PromptSummary` 视图供 trace 抽取 |
 | `harness/state` | agent 不直接消费 state（任务进度查询归 module/task）；Plan 模式标记是会话级，归 `RuntimeState.metadata`，不归 state |
 | `harness/permission` | agent 不评估权限；权限评估在 tools 执行管线（deny-first）；agent 提供 `PlanModeController` 影响 PermissionContext |
-| `module/memory` | agent 调 `MemoryService.prepareContext(MemoryContextRequest)` 消费；module-memory 负责召回规划、混合检索、RRF、衰减、降级和 trace；agent 只注入返回的 `MemoryContext` |
-| `module/vision` | vision service 由 `agent(type=vision)` 工具通过 `SubagentRunner` 间接调（不是直连） |
-| `module/imagegen` | 生图不走 agent——`submit_imagegen_plan` 提案入确认队列，确认后由 `module/conversation` REST 边界触发 |
-| `module/dag` | DAG 提案由 `submit_image_plan` 工具入队；agent 不直连 dag；DAG 异常检测 hook 归 `module/dag` 实现 |
+| `module/memory` | agent 只读调用 `MemoryService.prepareContext(MemoryContextRequest)`；module-memory 负责召回规划、混合检索、RRF、衰减、降级和 trace；当前不允许任何对话结果写回偏好、SKU 历史或分析结论 |
+| `module/vision` | 贡献 `get_product_visual_facts(referenceKey)`；参数可为 PACKAGE/SKU/IMAGE，具体可接受种类由工具 schema 声明。主 Agent 对依赖外观的营销文案和重绘 Prompt 必须先获取对应视觉事实 |
+| `module/imagegen` | `submit_imagegen_plan(referenceKey, prompt, params)` 只接受一个具体 IMAGE key；每次成功调用发布一个独立已校验 Proposal，一张源图对应一个 task 和一张结果；单回合最多 20 个 |
+| `module/dag` | `submit_image_plan(referenceKeys, dag)` 接受 PACKAGE/SKU/IMAGE key 列表并由后端展开、去重、校验；每次成功调用发布一个独立 Proposal；agent 不直连 dag 内部 |
 | `module/commerce` | `search` / `read` 工具的 handler 在 module/commerce；agent 不直连 commerce（只通过工具调用） |
-| `module/conversation` | conversation 调 `AgentOrchestrator.streamNewTurn` 发起回合；提供 SSE/WebSocket 适配 |
-| `module/file` | 当前素材包 SKU 列表由 module/file 提供（agent 调 `PackageService.getSkuIds(packageId)`） |
+| `module/conversation` | conversation 调 `AgentOrchestrator.streamNewTurn` 发起回合；把消息 references 注入 Agent；接收 `proposal_ready` SSE 事件，并为每个 Proposal 提供独立 confirm/reject 边界 |
+| `module/file` | 提供 canonical Asset Reference Resolver 与只读 inspection/search 工具；agent 只传 `referenceKey/referenceKeys`，不调用 `PackageService.getSkuIds(packageId)` 形成第二套身份契约 |
 | `infra/ai` | agent 不直接持有 `ModelClient`——经 `AgentLoop` 注入；subagent runner 复用父的 `ModelClient` |
 | `infra/storage` | skill body 大结果外置经 `ToolResultStorage`（与其它 tool 一致）；session memory content 大时也走外置 |
 | `infra/cache` | agent 经 `SessionMemoryCache` 读 session memory；Redisson 会话级锁防并发回合 |
 | `infra/vector` | agent 不直连 Qdrant——经 `MemoryService.prepareContext(...)` 间接调 |
-| `infra/thirdparty` | subagent 跑 VLLM 调第三方 API 经 Resilience4j 包装（与其它第三方调用一致） |
+| `infra/thirdparty` | Agent 不经此模块调用 VLM；商品视觉调用由 `module/vision -> infra/ai` 的 OpenAI-compatible provider 路径承担 |
 | `common` | agent 自治错误用 `AgentErrorCode`（`enum implements ErrorCode`）；文案经 `common.Sanitizer` 脱敏；订阅 `common.ErrorRecorder` 不写（由 eval 实现） |
-| `contracts` | agent 不签确认令牌（`submit_image_plan` 工具层零令牌；确认令牌归 `permission.ConfirmationTokenService` + `infra/cache`） |
 
 **关键不变量**：
 - agent 不持 LLM 客户端（不直连 `infra/ai` 的 `ModelClient`，经 loop 注入）
 - agent 不写 `message` 表（经 `context.MessageStore.appendXxx` → `TranscriptPort`）
 - agent 不评估权限（让 harness/tools 在执行管线内做）
 - agent 不写 trace（让 loop 经 eval SPI 投）
-- agent 不签确认令牌（让 permission + infra/cache + conversation 处理）
+- agent 不生成 challenge、确认令牌或客户端幂等键；Proposal 的唯一业务幂等身份是后端生成的 `proposalId`
 
 ---
 
@@ -1486,7 +1460,7 @@ pixflow:
         max-size: 16
         queue-capacity: 100
         keep-alive-seconds: 60
-      timeout-seconds: 60                # 单次 subagent 超时（VLLM 几秒~十几秒）
+      timeout-seconds: 60                # 单次 explore/摘要/Session Memory child 超时
       share-skill-tools: true            # child 工具集是否包含 skill__<name>
       share-readonly-tools: true         # child 工具集是否包含 search/read
 
@@ -1508,7 +1482,7 @@ pixflow:
 
 #### 15.1.1 Prompt 装配
 
-- `pixflow.agent.turn{plan_mode, has_pending_plans}` + 耗时：回合健康度
+- `pixflow.agent.turn{plan_mode, proposal_count}` + 耗时：回合健康度；Proposal 计数仅属当前 runtime
 - `pixflow.agent.prompt.section.hit{key}` / `miss{key}`：section cache 命中率
 - `pixflow.agent.prompt.section.size{key}`：各 section 渲染大小分布
 - `pixflow.agent.prompt.assemble.latency`：完整 systemPrompt 渲染耗时
@@ -1585,7 +1559,7 @@ loop 的 `TraceFanout` 在 `recordInput` 时把上述视图一并投递。
 
 - **`MemoryRecallPlanner`**：
   - 同步调用 `MemoryService.prepareContext(...)`
-  - `MemoryContextRequest` 包含 conversationId、turnNo、traceId、userPrompt、attachments、packageId、taskId、skuIds、categoryHints、metadata、tokenBudget
+  - `MemoryContextRequest` 包含 conversationId、turnNo、traceId、userPrompt、references、categoryHints、metadata、tokenBudget
   - 不依赖 `module-memory` 内部 service / mapper / recall 包
 
 - **`PreferenceSection` / `LongTermMemorySection`**：

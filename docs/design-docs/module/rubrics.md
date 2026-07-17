@@ -1,639 +1,419 @@
-# module/rubrics —— Rubrics 离线评估（Wave 6）
+# module/rubrics - Evidence-grounded offline evaluation
 
-> 本文是 PixFlow 完整重写阶段 `module/rubrics` 模块的设计文档，对应 `design.md` 第十一章「Rubrics 评估（离线阶段）」与 `module-dependency-dag-plan.md` 的 **Wave 6**。
-> 范围：消费 `harness/eval` 输出的 trace、`module/task` 的 `process_result` 与本地数据集，离线评估图片质量 / 文案质量 / 决策质量，**评分+解释+可追溯**写回 RAG 记忆层与 `sku_history`，并支持基线对比与回归检测。
-> 本文面向**单机个人 PC**（个人项目），不做灰度发布、不做多租户、不做实时评分服务；评测运行以本地数据集驱动，可手动触发也可定时批量。
-> 配套阅读：`design.md` §11、§13.1（`rubrics_score` 表）、`infra/ai.md`（`ChatModelClient` / `VisionModelClient`）、`infra/storage.md`（读待评图）、`infra/image.md`（元数据与降采样）、`module/memory.md`（评分写回与 `analysis_insight` 强化/抑制）、`harness/eval.md`（trace 数据源）、`harness/hooks.md`（`TaskCompleted` 事件订阅）。
-> 本文不涉及 MVP 既有实现，从生产级需求重新推导，但**收敛到单机可落地的复杂度**。
+> `module/rubrics` is PixFlow's offline evaluation context. It evaluates typed subjects against human-approved, versioned, atomic criteria and records verdicts, evidence, judge agreement, and coverage.
+> It does not participate in the Agent loop, train or post-train a model, publish an opaque 0-100 quality score, or automatically turn model judgments into Agent memory.
+> Domain language is defined in `pixflow-module-rubrics/CONTEXT.md`; the scalar-score decision is recorded in `pixflow-module-rubrics/docs/adr/0001-use-criterion-verdicts-instead-of-quality-scores.md`.
 
----
+## 1. Scope and principles
 
-## 目录
+Rubrics consumes immutable task outputs, copy, task decisions, eval traces, and object-store evidence after normal execution finishes. It answers three separate questions:
 
-- [一、文档定位与设计原则](#一文档定位与设计原则)
-- [二、职责边界与不做什么](#二职责边界与不做什么)
-- [三、模块结构与依赖位置](#三模块结构与依赖位置)
-- [四、核心抽象与数据契约](#四核心抽象与数据契约)
-- [五、RubricTemplate 与版本管理（本地 YAML）](#五rubrictemplate-与版本管理本地-yaml)
-- [六、评分管线：LLM 二元判定 + 程序计分](#六评分管线llm-二元判定--程序计分)
-- [七、规则验证器（确定性维度）](#七规则验证器确定性维度)
-- [八、决策质量精细化拆解](#八决策质量精细化拆解)
-- [九、基线对比与回归检测](#九基线对比与回归检测)
-- [十、评分写回与可追溯链](#十评分写回与可追溯链)
-- [十一、API 表面（运营/PM 自助）](#十一api-表面运营pm-自助)
-- [十二、调度与触发](#十二调度与触发)
-- [十三、可观测、错误与降级](#十三可观测错误与降级)
-- [十四、配置](#十四配置)
-- [十五、对其他模块的契约](#十五对其他模块的契约)
-- [十六、测试策略](#十六测试策略)
-- [十七、对 design.md 的细化](#十七对-designmd-的细化)
-- [十八、暂不考虑](#十八暂不考虑)
-- [十九、Revision Notes](#十九revision-notes)
+- Does this output image satisfy the criteria for an `IMAGE_RESULT`?
+- Does this piece of copy satisfy the criteria for a `COPY_RESULT`?
+- Does this task-level proposal or decision satisfy the criteria for a `TASK_DECISION`?
 
----
+The module follows these invariants:
 
-## 一、文档定位与设计原则
+1. **The template is the production source of truth.** Production evaluation uses a human-approved YAML template identified by `(templateId, version, templateHash)`. A model may draft a candidate template offline, but that candidate cannot evaluate production subjects before review and publication.
+2. **One criterion, one proposition.** Every dimension in a template is an atomic Criterion with one statement, passing anchor, failing anchor, applicability rule, required evidence types, kind, and verifier.
+3. **Judgment and evaluator availability are separate facts.** A Criterion Verdict is `PASS`, `FAIL`, `INCONCLUSIVE`, or `NOT_APPLICABLE`. Missing evidence, parser failure, judge outage, and unresolved judge disagreement are not `FAIL`.
+4. **No scalar quality score.** Every Hard Rule and Principle states one binary pass/fail proposition, while the recorded verdict remains four-state so the evaluator can abstain with `INCONCLUSIVE` or `NOT_APPLICABLE`. Hard Rules form a Quality Gate. Reports may expose the unweighted Principle pass rate as a transparent statistic, but must call it `passRate`, never a quality score.
+5. **Evidence is system-owned.** Rubrics constructs and hashes an Evidence Pack. A model may cite only evidence IDs supplied in that pack; invented or missing references invalidate the rollout.
+6. **LLM reliability is measured, not self-reported.** Model-reported confidence is diagnostic text only and never affects a verdict or pass rate. Repeated judge agreement, judge-human agreement, parser failure, evidence failure, and inconclusive rate are the reliability signals.
+7. **Evaluation is validated before automation.** Experimental criteria are available only in manual calibration runs. Event-driven and scheduled runs require the applicable criteria to be validated or production-ready.
+8. **Evaluation does not become memory.** Findings remain Rubrics facts. This product version has no automatic or human-reviewed path from a finding into `analysis_insight`, SKU history, preferences, or any other Agent memory.
 
-`module/rubrics` 是 PixFlow 最末端的离线评估模块，处于依赖 DAG 的 **Wave 6**。它消费系统已经落库的事实数据（`process_result` / `agent_trace` / `commerce_data` / `asset_copy`）和 MinIO 上的图片，对每一次「任务执行」独立产出结构化评分与解释，再把评分结果写回 `rubrics_score` 与 RAG 记忆层。
+## 2. Subject boundaries
 
-模块专属设计原则（**最重要的方法论决策在第 1 条**）：
+`EvaluationSubject` is a tagged reference, not a polymorphic dump of every available field.
 
-1. **LLM judge 做二元判定，程序做数值聚合**。LLM 不擅长连续数值的精细打分（LLM-as-judge 在 1~100 连续分上的标定一致性差、可重复性低）。rubrics 把每条评分项的 LLM 输出收敛为 **PASS / FAIL（必要时含 LOW/MED/HIGH 三个置信档位）**，所有「百分制分数」「加权总分」「维度均值」「基线 delta」一律由程序按确定性公式计算。这条原则贯穿模板结构、judge prompt、解析器与聚合器。
-2. **完全离线、独立于主循环**。rubrics 不在 Agent 工具层暴露，不参与主回路决策流；通过订阅 `TaskCompleted` Hook 异步被触发，或运营/PM 手动 / 定时触发。
-3. **不破坏可解释性**。每条 PASS/FAIL 都附 judge 的简短理由（1~2 句自然语言）+ 证据引用（图片 MinIO key / trace_id / 数据 id）；程序计算的分数同时给出**可分解的明细**（每条检查项的 PASS/FAIL 与权重），运营可逐项审查。
-4. **LLM judge 与规则验证器并存**。能确定判定的（分辨率、文件大小、α 通道残留等）一律走规则验证器，毫秒级、低成本、可复现；只有开放式维度（构图美感、文案流畅、决策合理性）才送 LLM。两者在同一模板内可任意组合。
-5. **模板与代码解耦，运营/PM 可改**。模板以本地 YAML 文件保存（classpath: `rubrics/templates/*.yaml` + 用户目录 `$PIXFLOW_HOME/rubrics/*.yaml`），系统启动时扫描合并；评分时不修改模板本身，仅按 `(templateId, version)` 引用，避免「改了模板历史评分解释不清」。
-6. **基线对比与回归检测是本地化的事**。基线以「某次评估运行的 ID」为单位存在 MySQL `rubrics_baseline` 表，可被指定、可被替换、可被对比；不做灰度、不做 A/B 实验平台。
-7. **写回 RAG 是单向写入**，不反向干扰主循环。评分写 `sku_history.rubrics_score`；对低分高频模式以人工 / 定时 Job 抽取为 `analysis_insight`（NEUTRAL 类别），由 `module/memory` 自己的衰减生命周期治理，本模块不直接操作向量库。
-8. **单机可落地**。所有组件都在同一进程内，不引入额外中间件；数据集以本地文件 + MySQL 行级 ID 列表承载；并发由 JVM 线程池封顶；评测运行可断点续跑（按 `rubrics_run_item.status` 跳过已完成项）。
+| Subject type | Stable identity | Primary evidence | Explicitly excluded evidence |
+|---|---|---|---|
+| `IMAGE_RESULT` | successful `process_result.id` for an image output | output object, image metadata, relevant source-image references | generated copy and unrelated task history |
+| `COPY_RESULT` | copy artifact identity, or a stable generated-copy identity derived from its owning result | copy text, product facts, requested audience/voice | image aesthetics unless a criterion explicitly requires image-copy alignment |
+| `TASK_DECISION` | `process_task.id` plus the immutable proposal/decision revision | requirements, proposal, DAG snapshot, relevant trace spans, recalled facts | per-image aesthetic judgment |
 
----
+Templates declare exactly one `subjectType`. A run may contain multiple subject types only by creating separate template-bound run partitions. No evaluation row combines image, copy, and decision verdicts into one overall result.
 
-## 二、职责边界与不做什么
+## 3. Template and criterion model
 
-| 关注点 | 归属 | 本文是否覆盖 |
+### 3.1 Template lifecycle
+
+A `RubricTemplate` contains:
+
+- `id`, semantic `version`, canonical `templateHash`, `subjectType`, description;
+- a list of atomic criteria;
+- an evaluator specification naming the locked logical judge role and rollout count;
+- the template lifecycle state: `EXPERIMENTAL`, `VALIDATED`, or `PRODUCTION`.
+
+Classpath templates and `$PIXFLOW_HOME/rubrics/` templates may both be discovered, but a user template cannot silently replace the same `(id, version)` with different bytes. A hash mismatch is a startup error. Publishing changed content requires a new version.
+
+Lifecycle semantics:
+
+| State | Allowed runs | Gate/regression authority |
 |---|---|---|
-| 消费 `process_result` / `agent_trace` / `commerce_data` / `asset_copy` 与 MinIO 图片 | `module/rubrics` | ✅ |
-| LLM judge 调用（文本 + 多模态） | `module/rubrics`（直连 `infra/ai` 的 `ChatModelClient` / `VisionModelClient`） | ✅ |
-| 确定性规则验证器 | `module/rubrics`（内嵌实现，不下放 infra） | ✅ |
-| 评分模板（YAML）+ 模板加载 | `module/rubrics` | ✅ |
-| 基线 / 回归对比 | `module/rubrics` | ✅ |
-| 评分写回 `rubrics_score` 与 `sku_history.rubrics_score` | `module/rubrics` | ✅ |
-| 把低分模式抽取为 `analysis_insight`（NEUTRAL 类别） | `module/rubrics` 触发，`module/memory` 治理 | 部分（仅触发） |
-| `agent_trace` 写入 | `harness/eval` | ❌ 不在本模块 |
-| VLLM 多模态调用封装 | `infra/ai` | ❌ |
-| Agent 主循环接入 | `agent` 层 | ❌（不在 Agent 工具层暴露） |
-| 灰度发布 / A/B 实验 / 多人协作评审平台 | — | ❌（单机不做） |
+| `EXPERIMENTAL` | manual calibration and gold-set runs only | cannot fail a production gate or trigger formal regression |
+| `VALIDATED` | manual runs and explicitly selected production samples | may participate in reports; automation remains opt-in per template |
+| `PRODUCTION` | manual, sampled event-driven, and scheduled runs | may drive Quality Gate and formal regression alerts |
 
-**明确不做**：
-- **不在 Agent 工具层暴露**。`evaluate_*` 类工具不进入 `harness/tools`，避免主循环非确定性扩散。
-- **不做 LLM 直接打分**。所有连续数值都由程序计算。
-- **不做 A/B 实验、多租户、权限分级**。单机个人项目不做。
-- **不做实时评估服务**（不在 Agent 决策回路里同步调用 judge）。
-- **不依赖滞后电商反馈**。design.md §16 仍生效，决策质量评估不等待电商数据回流。
+### 3.2 Atomic criterion
 
----
-
-## 三、模块结构与依赖位置
-
-Maven 模块：`pixflow-module-rubrics`（需加入根 `pom.xml` `<modules>` 与 `dependencyManagement`）。源码包：`com.pixflow.module.rubrics`
-
-```
-module/rubrics/
-├── RubricsService.java                  # 对外门面：runEvaluation(...)/latestScore(...)/regress(...)
-├── run/
-│   ├── EvaluationRunner.java            # 单次评估运行编排（线程池 + 异常隔离）
-│   ├── EvaluationRunContext.java        # 一次运行的上下文（模板版本/数据集范围/触发原因）
-│   ├── EvaluationItem.java              # 单条评分项（=一个 process_result）
-│   ├── ItemEvaluator.java               # 单条编排：对模板每个 dimension 派给 Judge 或 RuleVerifier
-│   └── RubricsRunRepository.java        # MyBatis-Plus：rubrics_run / rubrics_run_item
-├── template/
-│   ├── RubricTemplate.java              # 单模板（domain + dimensions + 规则 + 锚点）
-│   ├── Dimension.java                   # 单维度（key/weight/scale/anchor/prompt 段）
-│   ├── Anchor.java                      # PASS/FAIL 锚点描述
-│   ├── VerifierSpec.java                # 维度是 LLM judge 还是规则（以及规则类名/参数）
-│   ├── TemplateLoader.java              # classpath + $PIXFLOW_HOME 扫描合并，按 id+version 索引
-│   └── TemplateRegistry.java            # 内存只读 registry，按 (id, version) 查询
-├── judge/
-│   ├── LlmJudge.java                    # 通用 LLM judge 调度（文本/多模态）
-│   ├── JudgePromptBuilder.java          # 拼装 role + 维度描述 + 锚点表 + few-shot + 输出 schema
-│   ├── JudgeVerdict.java                # LLM 输出：Verdict(PASS/FAIL, confidence, rationale)
-│   ├── VerdictParser.java               # 防御性 JSON 解析 + 降级到 rawText
-│   ├── FewShotSampler.java              # 从 template.examples 抽样 1~2 条（确定性，按 item id hash）
-│   └── ImageAttachmentBuilder.java      # 从 MinIO key 取字节 → 降采样 → 图片 part（infra/image）
-├── rule/
-│   ├── RuleVerifier.java                # 规则验证器 SPI
-│   ├── RuleCheckInput.java              # 输入（process_result / 图片字节 / 元数据）
-│   ├── RuleCheckResult.java             # 输出 PASS/FAIL + 证据 + 可选数值
-│   ├── ResolutionRuleVerifier.java      # 分辨率合规
-│   ├── FormatRuleVerifier.java          # 输出格式合规（WebP/JPEG/PNG）
-│   ├── FileSizeRuleVerifier.java        # 文件大小约束
-│   ├── AlphaResidueRuleVerifier.java    # α 通道残留像素比例
-│   └── BackgroundColorRuleVerifier.java # 底色 RGB 与白底标准差阈值
-├── score/
-│   ├── ScoreAggregator.java             # 把 dimension 级 PASS/FAIL + 权重聚合成 domain 总分（程序计算）
-│   ├── DimensionScore.java              # 单维度结果：verdict/weight/confidence/rationale/evidence
-│   ├── DomainScore.java                 # 单 domain 总分（0-100，加权聚合）
-│   ├── RubricScore.java                 # 整条评分结果（rubrics_score 表行）
-│   ├── Confidence.java                  # HIGH/MEDIUM/LOW（来自 judge.confidence 或规则置信度）
-│   └── ScoreExplanation.java            # 一句话总结 + 各 dimension rationale 串接
-├── baseline/
-│   ├── BaselineService.java             # CRUD：rubrics_baseline + 选基线/替换基线
-│   ├── RegressionComparator.java        # 与基线逐 dimension 比对，输出 RegressionReport
-│   ├── RegressionReport.java            # per-dimension delta + 退化 Top-K + 整体走向
-│   └── RegressionAlert.java             # 退化 > 阈值 → 写入 rubrics_alert 表（可选）
-├── feedback/
-│   ├── ScoreFeedbackWriter.java         # 写 sku_history.rubrics_score + 触发 memory feedback
-│   ├── MemoryFeedbackTrigger.java       # 低分模式抽取为 analysis_insight(NEUTRAL) 的异步投递
-│   └── EvidenceRef.java                 # 证据引用（IMAGE/TRACE/DATA/DOC）
-├── error/
-│   └── RubricsErrorCode.java            # implements common.ErrorCode
-├── api/
-│   ├── RubricsAdminController.java      # 模板/运行/基线/告警 REST
-│   ├── RubricsReportController.java     # 评分查询 + 回归报告
-│   └── dto/                             # 响应 DTO
-└── config/
-    └── RubricsProperties.java           # @ConfigurationProperties(pixflow.rubrics)
-```
-
-依赖方向：
-
-```
-module/rubrics ──► infra/ai        （ChatModelClient / VisionModelClient）
-module/rubrics ──► infra/storage   （读待评图、读 tool-result 外置）
-module/rubrics ──► infra/image     （降采样 + 元数据）
-module/rubrics ──► harness/eval    （读 agent_trace，按 conversation/turn 查询）
-module/rubrics ──► module/memory   （写 sku_history.rubrics_score + 触发 insight 抽取）
-module/rubrics ──► harness/hooks   （订阅 TaskCompleted 事件）
-module/rubrics ──► common          （错误归一 / Sanitizer / ApiResponse）
-module/rubrics ──► MySQL/MyBatis-Plus（rubrics_score / rubrics_run / rubrics_run_item / rubrics_baseline / rubrics_alert）
-```
-
-**不依赖**：`agent`、`harness/loop`、`harness/tools`、`harness/session`、`harness/context`、`module/dag`、`module/vision`（rubrics 直连 `infra/ai` 的 `VisionModelClient`，不复用 `module/vision`，见 §十七对 `tools→vision` 边修正的同源理由）、`module/imagegen`、`module/commerce`（数据通过 `process_result` 间接触达，不直连）。
-
----
-
-## 四、核心抽象与数据契约
-
-### 4.1 评分维度与判定口径
-
-每个 `Dimension` 的 LLM 输出被强制收口为 `JudgeVerdict`：
-
-```java
-public record JudgeVerdict(
-    Verdict verdict,           // PASS | FAIL（必要时 LOW/MED/HIGH 三档置信用于聚合时降权）
-    Confidence confidence,     // HIGH | MEDIUM | LOW
-    String rationale,          // 1~2 句自然语言理由
-    List<EvidenceRef> evidence // 证据引用（图 MinIO key / trace_id / data_id）
-) {}
-```
-
-程序端聚合公式（**所有分数都在程序里计算**）：
-
-```
-dimensionWeightedScore(0~100) = 
-    verdict == PASS ? (confidence == HIGH ? 100 : confidence == MED ? 80 : 60)
-                    : (confidence == HIGH ? 0   : confidence == MED ? 20 : 40)
-
-domainTotal(0~100) = Σ (dimensionWeightedScore × weight) / Σ weight
-overallScore(0~100) = Σ (domainTotal × domainWeight) / Σ domainWeight
-```
-
-> 关键差异：这是**离散档位 + 程序映射**，不是 LLM 直接给 0~100。LLM 只负责 PASS/FAIL 判定 + 置信档位 + 理由，避免 LLM 在连续数值的标定漂移。
-
-### 4.2 RubricScore（评分结果）
-
-```java
-public record RubricScore(
-    UUID id,
-    Long resultId,                 // 关联 process_result
-    Long taskId,
-    String templateId,
-    String templateVersion,
-    Map<Domain, DomainScore> domainScores,  // IMAGE_QUALITY / COPY_QUALITY / DECISION_QUALITY
-    double overallScore,           // 程序聚合（0-100）
-    ScoreExplanation explanation, // 一句话总结 + 各 dimension rationale 串接
-    UUID runId,                    // 关联一次评估运行（用于回归）
-    Instant createdAt
-) {}
-```
-
-### 4.3 RubricsRun（评估运行实例）
-
-```java
-public record RubricsRun(
-    UUID id,
-    String templateId,
-    String templateVersion,
-    RubricsTrigger trigger,       // SCHEDULED / EVENT_DRIVEN / MANUAL
-    UUID baselineRunId,           // 可选：用于回归对比的基线 run
-    Long[] resultIds,             // 数据集：待评 process_result 列表
-    Status status,                // PENDING / RUNNING / SUCCEEDED / FAILED / PARTIAL
-    Instant startedAt,
-    Instant finishedAt,
-    RunStats stats                // 成功/失败/隔离/平均分/告警计数
-) {}
-
-public record RubricsRunItem(
-    UUID runId,
-    Long resultId,                // 唯一（runId, resultId）
-    Status status,                // PENDING / RUNNING / SUCCEEDED / FAILED / ISOLATED
-    String errorMsg,              // ≤1000 字
-    Instant updatedAt
-) {}
-```
-
-> **断点续跑**：`RubricsRunItem.status=SUCCEEDED` 是天然 checkpoint，重启扫描 `RUNNING` 的 run 把 `PENDING` / `FAILED` 项重新入队。
-
----
-
-## 五、RubricTemplate 与版本管理（本地 YAML）
-
-### 5.1 模板存储
-
-- **内置模板**：`classpath:rubrics/templates/*.yaml`，与代码同版本管理。
-- **用户/PM 自定义模板**：`$PIXFLOW_HOME/rubrics/*.yaml`（环境变量可覆盖，默认 `~/.pixflow/rubrics/`）。
-- **加载时机**：应用启动时扫描合并，同 `id` 时用户目录版本覆盖内置版本。
-- **版本号语义**：模板内显式 `version: 1.2.0`；评分时按 `(templateId, version)` 引用，**模板修改后历史评分仍可解释**（不重算、不改写）。
-
-### 5.2 模板结构（YAML 示例）
+Each existing `dimension` is redefined as one atomic Criterion. The canonical YAML shape is:
 
 ```yaml
-id: image_quality
-version: 1.0.0
-description: 电商主图质量离线评估
-domains:
-  - key: IMAGE_QUALITY
-    weight: 0.6
-    dimensions:
-      - key: bg_cleanliness
-        weight: 0.25
-        verifier: llm                       # LLM judge
-        prompt_role: 你是一名电商图片质量评估员
-        prompt_goal: 判断去背景是否干净（边缘无残留、无明显锯齿）
-        anchors:
-          PASS: 边缘平滑，无可见残留像素或锯齿
-          FAIL: 边缘有明显残留/锯齿/halo
-        few_shots:
-          - verdict: FAIL
-            rationale: 商品右下角边缘可见明显锯齿
-      - key: resolution_compliance
-        weight: 0.15
-        verifier: rule                      # 规则验证器
-        rule_class: ResolutionRuleVerifier
-        params: { minWidth: 800, minHeight: 800 }
-      - key: alpha_residue
-        weight: 0.10
-        verifier: rule
-        rule_class: AlphaResidueRuleVerifier
-        params: { maxResidueRatio: 0.005 }
-      - key: format_compliance
-        weight: 0.10
-        verifier: rule
-        rule_class: FormatRuleVerifier
-        params: { allowed: [WEBP, JPEG, PNG] }
+id: image-result-quality
+version: 2.0.0
+subjectType: IMAGE_RESULT
+lifecycleState: EXPERIMENTAL
+evaluator:
+  role: RUBRICS_JUDGE_VISION
+  rollouts: 3
+criteria:
+  - key: resolution_compliance
+    kind: HARD_RULE
+    statement: The output image is at least 800 by 800 pixels.
+    passAnchor: Both width and height are at least 800 pixels.
+    failAnchor: Width or height is below 800 pixels.
+    evidenceTypes: [IMAGE_METADATA]
+    applicability: OUTPUT_IMAGE_EXISTS
+    verifier:
+      type: RULE
+      ruleClass: ResolutionRuleVerifier
+      params: { minWidth: 800, minHeight: 800 }
+  - key: background_cleanliness
+    kind: PRINCIPLE
+    statement: The product boundary has no clearly visible residue, jagged edge, or halo.
+    passAnchor: The visible boundary is continuous and free of conspicuous residue, jagged pixels, and halo.
+    failAnchor: At least one conspicuous residue region, jagged boundary, or halo is visible.
+    evidenceTypes: [OUTPUT_IMAGE]
+    applicability: OUTPUT_IMAGE_EXISTS
+    verifier: { type: LLM }
 ```
 
-> **判例规则**：模板的所有数值（weight、阈值、allowed）由人或运营/PM 写在 YAML 里；LLM 不知道具体分数，只读 prompt_goal + anchors。
+Template validation fails when:
 
----
+- the statement combines independently judgeable propositions;
+- either anchor is absent or merely restates `good`/`bad`;
+- evidence types or applicability are missing;
+- a Hard Rule has no deterministic verifier where a deterministic check is available;
+- keys are duplicated or content changes without a version change;
+- an LLM criterion lacks a validated judge role and positive rollout count.
 
-## 六、评分管线：LLM 二元判定 + 程序计分
+`weight` is not part of the default v2 criterion contract. If a later use case introduces a weighted pass rate, weights must be human-defined, versioned, and displayed in the report; they still cannot create partial criterion points.
 
-### 6.1 Judge Prompt 结构
+## 4. Verdict and result semantics
 
-每条 LLM judge prompt 由五段拼接，**所有连续数值都从模板参数填入**：
-
-```
-1. role：来自 prompt_role（"你是电商图片质量评估员"）
-2. task：来自 prompt_goal（"判断去背景是否干净"）
-3. anchors：来自 anchors.PASS / anchors.FAIL（两段锚点描述）
-4. few-shot：从 few_shots 抽样 1~2 条，按 item id hash 确定性选取
-5. output schema（强制）：
-   {
-     "verdict": "PASS" | "FAIL",
-     "confidence": "HIGH" | "MEDIUM" | "LOW",
-     "rationale": "1~2 句理由",
-     "evidence": [{"type": "IMAGE", "ref": "<minio key>"}]
-   }
-```
-
-**稳定性保障**：
-- temperature 强制 0；seed 固定；同 item 重跑结果一致（除非模板改了）。
-- 输出 schema 校验失败 → retry 一次（改写 prompt 强化 schema），仍失败 → 记 `VerdictParserException`，单条 `ISOLATED`，不中断批次。
-- 多模态：图片 ≤ 3 张/调用，单张长边降采样到 1024px（infra/image），节省 token 与延迟。
-
-### 6.2 程序聚合（核心）
-
-`ScoreAggregator.aggregate(template, item, dimensionScores)`：
-
-1. 对每条 dimension：
-   - LLM 路径：`dimensionScore = JudgeVerdict → 程序映射（见 §4.1 公式）`
-   - 规则路径：`dimensionScore = RuleCheckResult(PASS/FAIL + 可选 numericMetric) → 程序映射`
-2. domain 总分：`Σ (dimScore × dimWeight) / Σ dimWeight`
-3. overall：`Σ (domainScore × domainWeight) / Σ domainWeight`
-4. 异常维度（confidence=LOW）按 0.5 系数降权（不剔除，让运营看见但拉低分数）
-
-### 6.3 异常隔离
-
-- 单条 item 失败 → `RubricsRunItem.status=ISOLATED`，记 `error_msg`，不中断批次
-- 单条 dimension 失败 → 该 dimension 记 `null`，聚合时分母减 1（不污染总分）
-- 整 run 失败 → `status=FAILED`，但已成功的 `RubricsRunItem` 持久化（断点续跑基础）
-
----
-
-## 七、规则验证器（确定性维度）
-
-`RuleVerifier` SPI：
+### 4.1 Criterion Verdict
 
 ```java
-public interface RuleVerifier {
-    String dimensionKey();                     // 对应 dimension.key
-    RuleCheckResult verify(RuleCheckInput input);
+public enum CriterionVerdict {
+    PASS,
+    FAIL,
+    INCONCLUSIVE,
+    NOT_APPLICABLE
 }
-
-public record RuleCheckInput(
-    Long resultId,
-    Long imageId,                             // 读 MinIO 的 image 引用
-    ProcessResultRow result,                  // process_result 行（含 output_minio_key / generated_copy）
-    AssetImageRow image,                      // asset_image 行
-    Map<String, Object> params                // 来自模板 dimension.params
-) {}
-
-public record RuleCheckResult(
-    Verdict verdict,                          // PASS / FAIL
-    Confidence confidence,                    // 规则验证器始终 HIGH（确定性强）
-    String rationale,                         // 程序生成的简短理由（如 "width=600 < minWidth=800"）
-    List<EvidenceRef> evidence,
-    OptionalDouble numericMetric              // 可选：用于展示，不参与评分
-) {}
 ```
 
-内置实现（见 §三包结构）；`TemplateLoader` 根据 `verifier: rule` + `rule_class` 反射实例化，参数来自 `dimension.params`。
+| Verdict | Meaning | Included in pass rate |
+|---|---|---|
+| `PASS` | available evidence supports the passing anchor | yes, numerator and denominator |
+| `FAIL` | available evidence supports the failing anchor | yes, denominator only |
+| `INCONCLUSIVE` | the criterion applies, but evidence or evaluator reliability is insufficient | no |
+| `NOT_APPLICABLE` | the criterion does not apply to this subject | no |
 
-**扩展边界**：单机项目不引入 Groovy/Script 引擎，运营/PM 不能写自定义规则类，只能：
-- 改 YAML 参数（阈值、allowed 列表）
-- 用 LLM judge 维度替代规则维度
-- 给开发者提 PR 加新的 `RuleVerifier` 子类（合并进代码）
+Parser errors, invalid evidence references, model unavailability, timeout, and unresolved rollout disagreement become `INCONCLUSIVE` with a machine-readable reason. They never become `FAIL` and never receive partial points.
 
----
+### 4.2 Quality Gate, pass rate, and coverage
 
-## 八、决策质量精细化拆解
+The subject result exposes three separate summaries:
 
-依据 design.md §11 与您的方向（决策质量做精细化拆解），本期决策质量维度的 design：
-
-| dimension key | verifier | 说明 | 数据来源 |
-|---|---|---|---|
-| `proposal_data_backed` | llm | Agent 建议是否附数据支撑（看 trace.input_json + LLM 解析建议文本） | agent_trace + DAG 提交时返回的建议 |
-| `hitl_smoothness` | rule | 单任务二次确认次数（越少越好；但 >0 视为合理） | process_task.confirm_count / agent_trace |
-| `coverage_completeness` | rule | 任务计划 SKU 数 vs 实际完成数 | process_task.plan_json vs process_result 计数 |
-| `memory_utilization` | llm | 是否召回到相关历史洞察（看 trace.recall_json 是否非空、与本次 SKU 类目相关） | agent_trace.recall_json |
-| `param_validity` | rule | DAG 参数无明显冗余/冲突（如同一参数被多次设置不同值） | process_task.dag_json |
-| `consistency` | llm | 与历史相似任务的处理一致性（参考最近 N 次同 SKU 类目任务的参数均值/众数） | sku_history + commerce_data |
-
-**说明**：
-- `hitl_smoothness` 计分：**0 次 = 中性（60）**；1~2 次 = PASS（100）；≥3 次 = FAIL（0）。这是**唯一**对中性值做特殊处理的维度。
-- `memory_utilization` 与 `consistency` 走 LLM，但 prompt 中明确告诉模型「只输出 PASS / FAIL + 简短理由」，不输出数字。
-- 决策质量整体 domain 权重默认 0.3（与图片 0.6、文案 0.1 加和为 1.0，可在模板里调）。
-
----
-
-## 九、基线对比与回归检测
-
-### 9.1 基线模型
-
-- 表 `rubrics_baseline`：`(id, name, runId, templateId, templateVersion, createdAt)`，存「某次评估运行」作为基线。
-- 任何历史 run 都可以被「指定为基线」，可被替换。
-- 同时只能有一个 active 基线（按 `templateId` 维度）；保留历史基线只读不删。
-
-### 9.2 回归对比
-
-`RegressionComparator.compare(currentRunId, baselineRunId)`：
-
-1. 选同 `templateId` 的两次 run，提取 `rubrics_score` 维度明细
-2. per-dimension delta：
-   - `delta = current.dimScore - baseline.dimScore`
-   - `degraded = delta < -5`（阈值可配）
-3. 输出 `RegressionReport`：
-   - per-dimension delta 列表
-   - 退化维度 Top-K
-   - domain 总分 delta 与 overall delta
-   - 整体走向：UP / DOWN / STABLE
-
-### 9.3 退化告警（轻量）
-
-- 退化维度数 ≥ 2 或 overall delta < -10 → 写 `rubrics_alert` 表 + 可选通知（站内消息 / WebSocket 推送；不引入第三方通知通道）
-- 告警有 acknowledged 标记，运营/PM 在 Web UI 标记后不再重复弹
-
-> **不做**：A/B 实验、多基线横比、自动选最佳基线。
-
----
-
-## 十、评分写回与可追溯链
-
-### 10.1 三层写回
-
-| 层级 | 目标 | 时机 | 说明 |
-|---|---|---|---|
-| 1 | `rubrics_score` 表 | 单条 item 完成 | 评分事实落库 |
-| 2 | `sku_history.rubrics_score` | 单条 item 完成 | Agent 召回 SKU 历史时可见 |
-| 3 | `analysis_insight(NEUTRAL)` 抽取 | 评分运行完成时（异步） | 低分高频模式 → NEUTRAL 类别分析结论，由 `module/memory` 治理衰减 |
-
-**第 3 层触发条件**（运营可配，默认保守）：
-- 同一 SKU 最近 5 次评分均 < 60 → 抽取为 negative_pattern
-- 同一参数组合（如「白底 + 居中构图」）最近 10 次评分均 > 85 → 强化既有 positive 分析结论
-- 抽取出的 insight 由 `module/memory.InsightIngestService` 接管（`module/rubrics` 只负责触发，不直接写向量库）
-
-### 10.2 可追溯证据
-
-每条 DimensionScore 都带 `EvidenceRef[]`：
-
-```java
-public record EvidenceRef(
-    EvidenceType type,       // IMAGE | TRACE | DATA | DOC
-    String ref,              // MinIO key / trace_id / commerce_data_id / doc_key
-    String excerpt,          // 关键证据片段（≤ 200 字），大结果给引用
-    int[] boundingBox        // 图片维度的可选 [x, y, w, h] 像素框（用于「这里扣分」可视化）
-) {}
+```text
+qualityGate = PASSED | FAILED | UNKNOWN
+passRate    = PASS / (PASS + FAIL) among applicable Principle criteria
+coverage    = (PASS + FAIL) / (PASS + FAIL + INCONCLUSIVE) among applicable criteria
 ```
 
-- 图片维度（如 `bg_cleanliness`）：ref = `process_result.output_minio_key`，boundingBox 由 VLLM 在 verdict 里给（不强求；缺失则不画框）。
-- 数据维度（如 `coverage_completeness`）：ref = `process_task.id`，excerpt = 程序生成的对比文本。
+- `qualityGate=FAILED` when any applicable production Hard Rule is `FAIL`.
+- `qualityGate=UNKNOWN` when no Hard Rule fails but at least one applicable production Hard Rule is `INCONCLUSIVE`.
+- `qualityGate=PASSED` only when every applicable production Hard Rule is `PASS`; `NOT_APPLICABLE` Hard Rules are excluded.
+- `passRate` is optional display data. The canonical report remains the criterion verdict matrix.
+- When no applicable Principle has a `PASS` or `FAIL` verdict, `passRate` is `null`, never zero.
+- Reports always show counts for all four verdicts, rollout agreement, evidence completeness, template/evaluator version, and coverage.
+- The module has no `overallScore`, `imageScore`, `copyScore`, `decisionScore`, `DimensionScore`, or confidence-to-score mapping in the target design.
 
----
+## 5. Evidence Pack
 
-## 十一、API 表面（运营/PM 自助）
+Rubrics constructs an immutable `EvidencePack` before invoking any verifier. Each entry has a stable local ID (`E1`, `E2`, ...), type, source reference, content hash, optional excerpt or metadata, and capture time. Examples include:
 
-| 端点 | 方法 | 用途 |
-|---|---|---|
-| `/api/rubrics/templates` | GET | 列出所有模板（含版本） |
-| `/api/rubrics/templates/{id}/versions` | GET | 模板历史版本 |
-| `/api/rubrics/runs` | POST | 手动触发评估运行（指定 template + 数据集 = resultIds） |
-| `/api/rubrics/runs` | GET | 列出运行历史 |
-| `/api/rubrics/runs/{id}` | GET | 运行详情 + 进度 |
-| `/api/rubrics/runs/{id}/regression` | GET | 与基线的回归报告（需指定 baselineRunId） |
-| `/api/rubrics/scores/by-result/{resultId}` | GET | 按 process_result 查评分明细 |
-| `/api/rubrics/scores/by-sku/{skuId}` | GET | 按 SKU 查评分历史（走 sku_history 反查） |
-| `/api/rubrics/baselines` | GET/POST | 基线 CRUD |
-| `/api/rubrics/alerts` | GET | 评分预警列表 |
+- `OUTPUT_IMAGE`: object location, object version/hash, and the image bytes supplied to a vision judge;
+- `IMAGE_METADATA`: width, height, format, size, alpha metadata;
+- `COPY_TEXT`: exact evaluated text and content hash;
+- `TASK_REQUIREMENT`: the immutable user requirement or confirmed proposal revision;
+- `DAG_SNAPSHOT`: the confirmed DAG and parameter snapshot;
+- `TRACE_SPAN`: selected trace spans relevant to one criterion;
+- `COMMERCE_FACT`: identified product or commerce facts used by the decision.
 
-**不做**：模板可视化编辑（运营改 YAML 文件即可；不做 Web 编辑器）、多人评审流、权限分级。
+Each criterion declares required evidence types. Applicability is evaluated before model invocation:
 
----
+- not applicable -> `NOT_APPLICABLE`;
+- applicable but required evidence missing -> `INCONCLUSIVE(MISSING_EVIDENCE)`;
+- evidence present -> invoke the rule or judge.
 
-## 十二、调度与触发
+LLM output cites Evidence Pack IDs only. The parser rejects unknown IDs, citations to a disallowed evidence type, or a rationale with no citation. The evaluation record stores `evidencePackHash` and the referenced entry metadata so a historical verdict can be replayed or declared non-replayable if the underlying object is unavailable.
 
-| 触发源 | 频率 | 实现 |
-|---|---|---|
-| 手动触发 | — | REST `/api/rubrics/runs` POST |
-| 事件驱动 | 每次 `TaskCompleted` Hook | `RubricsTriggerListener`（订阅 hooks 事件），把 runnable 投递到本地线程池；线程池 size 可配（默认 2） |
-| 定时批量 | 默认每日凌晨 03:00（@Scheduled + ShedLock 单节点防重） | 拉取近 24h `process_result` 跑一遍默认模板；可关 |
+## 6. Verifiers and judge protocol
 
-**断点续跑**：
-- run 启动后逐 item 写 `rubrics_run_item`，`SUCCEEDED` 是天然 checkpoint
-- 进程崩溃 → 重启后扫描 `status=RUNNING` 的 run，把未 `SUCCEEDED` 的 item 重新入队
-- 单 item 失败重试 1 次，仍失败标 `ISOLATED`，不无限重试
+### 6.1 Rule verifier
 
----
+Deterministic checks execute once and return a Criterion Verdict, rationale, evidence IDs, and optional diagnostic measurements. Measurements such as actual width are presentation data and never become partial points.
 
-## 十三、可观测、错误与降级
+A rule failure means the subject fails the criterion. A rule exception, corrupt input, or missing required evidence means `INCONCLUSIVE`.
 
-### 13.1 Micrometer 指标
+### 6.2 LLM judge
 
-| 指标 | 类型 | 标签 |
-|---|---|---|
-| `rubrics.judge.latency` | Timer | `domain`, `dimension`, `verifier_type=llm|rule` |
-| `rubrics.judge.cost` | Counter | `domain`, `model`（token 数） |
-| `rubrics.run.duration` | Timer | `trigger` |
-| `rubrics.run.items` | Counter | `status=SUCCEEDED|FAILED|ISOLATED` |
-| `rubrics.regression.alerts` | Counter | `template_id` |
-| `rubrics.parser.failures` | Counter | `domain` |
+LLM criteria use independent, version-locked roles:
 
-### 13.2 错误归一
+- `RUBRICS_JUDGE_TEXT` for `COPY_RESULT` and text/trace portions of `TASK_DECISION`;
+- `RUBRICS_JUDGE_VISION` for visual `IMAGE_RESULT` criteria.
 
-`RubricsErrorCode implements common.ErrorCode`，域内错误码：
-- `RUBRICS_TEMPLATE_NOT_FOUND`
-- `RUBRICS_JUDGE_TIMEOUT`
-- `RUBRICS_JUDGE_PARSE_FAIL`（重试后仍失败）
-- `RUBRICS_RULE_VERIFIER_INIT_FAIL`（rule_class 不存在/参数错误）
-- `RUBRICS_BASELINE_NOT_FOUND`
-- `RUBRICS_RUN_CANCELLED`
+The producing model and judge role are logically separate. If resolved provider/model identities are equal, the result is marked `selfJudged=true`. The evaluator version captures provider, model, model revision when available, role defaults, request options, prompt hash, parser schema version, and rollout policy.
 
-### 13.3 降级策略
+The prompt contains exactly one criterion, its anchors, the subject view, and the permitted Evidence Pack entries. The required output is:
 
-| 失败 | 降级 |
-|---|---|
-| LLM judge 超时（> 60s） | retry 1 次 → 仍超时记 ISOLATED，不影响其他 item |
-| LLM 输出 schema 校验失败 | retry 1 次（强化 schema 提示）→ 仍失败记 ISOLATED |
-| 规则验证器抛异常 | 该 dimension 标 null（聚合时分母减 1） |
-| 图片读 MinIO 失败 | 该 item 标 ISOLATED，记 error_msg |
-| 模型整体不可用 | run 状态 PARTIAL，已完成的 score 仍落库 |
-
----
-
-## 十四、配置
-
-```yaml
-pixflow:
-  rubrics:
-    enabled: true
-    template-scan:
-      classpath-prefix: "rubrics/templates/"
-      user-home-dir: "${PIXFLOW_HOME:/tmp/pixflow}/rubrics/"
-    scheduler:
-      daily-batch-cron: "0 0 3 * * ?"    # 每日 03:00
-      daily-batch-enabled: true
-    event-trigger:
-      enabled: true                       # 监听 TaskCompleted
-      queue-size: 16
-      worker-threads: 2
-    runner:
-      max-concurrent-items: 8             # 单 run 内并发 item 数
-      item-retry: 1                       # 单 item 失败重试次数
-      judge-timeout-seconds: 60
-      judge-temperature: 0.0
-      vision-max-edge-px: 1024            # 多模态降采样
-    baseline:
-      regression-dimension-threshold: -5  # 维度退化阈值
-      regression-overall-threshold: -10   # overall 退化阈值
-    feedback:
-      negative-pattern-min-runs: 5        # 触发 negative_pattern 抽取的最少连续低分次数
-      negative-pattern-score-cap: 60      # 低于此分视为低分
-      positive-pattern-min-runs: 10       # 触发 positive_pattern 强化的高分连续次数
-      positive-pattern-score-floor: 85
+```json
+{
+  "verdict": "PASS|FAIL|INCONCLUSIVE",
+  "rationale": "short evidence-grounded explanation",
+  "evidenceIds": ["E1"]
+}
 ```
 
----
+Model-reported confidence and numeric score fields are ignored and recorded as schema noise.
 
-## 十五、对其他模块的契约
+### 6.3 Repeated judgment
 
-### 15.1 消费
+The default LLM rollout count is three; a high-risk template may configure five. Each rollout records its raw parsed verdict, rationale, evidence IDs, provider/model identity, prompt hash, latency, token usage, and error when present.
 
-- **`infra/ai`**：`ChatModelClient.chat(prompt)`、`VisionModelClient.chatWithImages(prompt, imageParts)`；温度强制 0，retry 由 `infra/ai` 负责。
-- **`infra/storage`**：`ObjectStorage.getBytes(minioKey)` 读待评图；不写 MinIO。
-- **`infra/image`**：`ImageMetadataReader.read(bytes)` 拿分辨率/格式；多模态前 `ImageDownsampler.downscale(bytes, maxEdgePx)`。
-- **`harness/eval`**：`EvalTraceRepository.findByTaskId(taskId)` 拿 `agent_trace`，按 conversation + turn 顺序读 recall_json / input_json / tool_calls_json。
-- **`module/memory`**：`SkuHistoryRepository.appendScore(skuId, scoreJson)`、`InsightIngestService.ingest(insight)`；仅本模块触发 insight 抽取时调用。
+Aggregation rules:
 
-### 15.2 输出
+- `NOT_APPLICABLE` is determined before LLM invocation and is never voted on.
+- A rollout with parse failure, invalid evidence, or provider failure contributes `INCONCLUSIVE`.
+- A strict majority of all configured rollouts must agree on `PASS` or `FAIL`.
+- Without a strict majority, the final verdict is `INCONCLUSIVE(JUDGE_DISAGREEMENT)`.
+- `agreement = majorityCount / configuredRollouts`; it is reliability metadata, not a score.
 
-- 写 `rubrics_score` 表（design.md §13.1 已定义）
-- 写 `rubrics_run` / `rubrics_run_item` / `rubrics_baseline` / `rubrics_alert` 表（本文新增）
-- 写 `sku_history.rubrics_score`（design.md §13.1 已有字段）
-- 触发 `InsightIngestService.ingest(insight)`（不直连 Qdrant）
+The primary judge performs normal production rollouts. A second judge model is used only for gold-set calibration, unresolved/low-agreement review, and configured audit samples; it does not silently alter normal majority results.
 
-### 15.3 订阅事件
+## 7. Calibration and validation
 
-- `harness/hooks` 的 `TaskCompleted`：从事件 payload 拿到 taskId，自动创建 RubricsRun（默认模板）；可在配置关掉。
+Gold-set validation is a release requirement for a criterion, not an optional test.
 
----
+### 7.1 Dataset construction
 
-## 十六、测试策略
+- Create a versioned Evaluation Dataset by stratified sampling of real Image Results, Copy Results, and Task Decisions.
+- Start with 100-200 subjects across expected categories and failure modes; enlarge when criterion prevalence is too low.
+- Two humans independently label each applicable criterion as `PASS`, `FAIL`, or `NOT_APPLICABLE`; a third adjudication resolves disagreement.
+- Keep a holdout partition that is not used while editing statements, anchors, or examples.
+- Store the label schema version and evidence snapshot/hash used by annotators.
 
-### 16.1 单元测试
+This is evaluator validation, not post-training. Gold labels are not used to fine-tune the judge in this scope.
 
-- `ScoreAggregatorTest`：维度 PASS/FAIL × 权重 × 置信档位 → 确定性数值
-- `JudgeVerdictParserTest`：正常 / 缺字段 / 错类型 / 含 markdown 包裹 / retry 后成功的多种样例
-- `FewShotSamplerTest`：同 item id 抽到固定样本；不同 id 抽样有差异
-- `RuleVerifierTest`：每个内置规则的 PASS / FAIL 边界（含参数边界）
-- `RegressionComparatorTest`：基线退化阈值边界
+### 7.2 Criterion-level acceptance
 
-### 16.2 集成测试
+Report at least:
 
-- `EvaluationRunnerTest`（Testcontainers）：MySQL + MinIO，注入 5 条 mock process_result，跑全模板，断言 rubrics_score 行数 + 维度 PASS/FAIL 计数
-- `BaselineRegressionTest`：跑两次 run（模拟模板或参数不变），断言 regression 报告 STABLE
+- human-human agreement (Cohen's kappa or a documented equivalent);
+- judge-human accuracy and macro-F1 on adjudicated labels;
+- repeated-judge agreement;
+- `INCONCLUSIVE`, parser-failure, invalid-evidence, and missing-evidence rates;
+- results by subject category and easy/hard slice.
 
-### 16.3 测试用固定 Mock
+Initial acceptance targets are:
 
-- LLM judge 用 WireMock stub 固定返回（输入 hash → 输出 verdict JSON）；规则验证器是纯 Java，不需要 mock
-- `FewShotSampler` 用固定种子；`temperature=0` 让重跑结果可复现
+- human-human `kappa >= 0.60`;
+- judge-human macro-F1 `>= 0.75` for Principles;
+- judge-human macro-F1 `>= 0.85` for LLM-evaluated Hard Rules, although deterministic Hard Rules are preferred;
+- no unreviewed regression on the holdout partition.
 
-### 16.4 ArchUnit 守护
+If humans disagree below the threshold, revise or split the criterion before changing the judge. A criterion that misses its judge threshold stays `EXPERIMENTAL` and cannot participate in a production gate or formal regression alert.
 
-- `rubrics` 模块不得被 `agent` / `harness/loop` / `harness/tools` / `harness/session` / `harness/context` / `module/dag` / `module/vision` / `module/imagegen` 引用
-- `rubrics` 内不允许出现 `@Scheduled` 之外的隐藏调度入口（避免主循环被反向触发）
+## 8. Evaluation Dataset and regression
 
----
+An `EvaluationDataset` is an immutable manifest of `(subjectType, subjectId, subjectSnapshotHash)` entries with an ID, version, description, creation time, and optional gold-label set version.
 
-## 十七、对 design.md 的细化
+Formal regression requires:
 
-1. **§11 评分机制细化**：原文「满分 100」「低于阈值预警」需补充本文核心方法论——**LLM judge 输出二元 PASS/FAIL + 置信档位，所有连续分数由程序按权重聚合**。LLM 不直接给 0~100 连续分。
-2. **§11 数据模型细化**：原文 `rubrics_score` 表只有 `image_score / copy_score / decision_score / alert`；本期扩为：
-   ```
-   rubrics_score(
-     id, result_id, task_id, run_id,
-     template_id, template_version,
-     overall_score,                              -- 程序聚合
-     image_score, copy_score, decision_score,    -- 程序聚合
-     dimension_scores_json,                      -- 每条 dimension 的 verdict/weight/confidence/rationale
-     explanation_json,                           -- ScoreExplanation
-     alert_flag,
-     created_at,
-     UNIQUE KEY uk_result (result_id),
-     KEY idx_task (task_id),
-     KEY idx_run (run_id)
-   )
-   ```
-   同时新增 `rubrics_run` / `rubrics_run_item` / `rubrics_baseline` / `rubrics_alert` 四张表。
-3. **§11 反馈闭环细化**：原文「评分写回 RAG」需补充本文三层写回路径（rubrics_score → sku_history → analysis_insight 异步抽取）。
-4. **§13.1 表对齐**：保留 `rubrics_score` 表名但加列；其余新增表加入 §13.1。
-5. **依赖图细化**：补充 `ai → rubrics / storage → rubrics / eval → rubrics / memory → rubrics / hooks → rubrics` 五条依赖边（Wave 6 在模块依赖 DAG 计划中已定位，不破坏既有顺序）。
-6. **不做项对齐 §16**：原文 §16「Rubrics 具体评分细则待数据集确定后单独设计」由本文落地（详见 §五 模板结构、§八 决策质量维度）。
+- the same Evaluation Dataset version;
+- the same subject snapshots, or an explicit report of non-replayable entries;
+- separately identified template and evaluator versions;
+- paired comparison by subject and criterion.
 
----
+The regression report includes:
 
-## 十八、暂不考虑
+- per-criterion PASS rate and paired `PASS -> FAIL` / `FAIL -> PASS` transitions;
+- Hard Rule failure rate and Quality Gate transitions;
+- coverage and `INCONCLUSIVE` rate;
+- rollout agreement and invalid-evidence/parser failure rates;
+- sample counts and confidence intervals or a clear insufficient-sample marker.
 
-- A/B 实验平台、灰度发布、模板可视化编辑器、模板多人协作
-- 自训练 evaluator LLM（如 Prometheus 思路）；本期直接用通用 LLM/VLLM judge
-- 多租户、权限分级、审计日志
-- 实时评估服务（不进入 Agent 工具层，不在主循环同步调用）
-- 评分数据导出为训练集（RLHF/DPO 信号采集）
-- 第三方评分模型集成（如第三方 API 评分）
-- 视频评估（design.md §16 不做）
+An arbitrary historical production run cannot be promoted to a formal baseline. Production runs may support trend monitoring only because their subject mix changes. Template or judge upgrades are evaluated by replaying old and new evaluator versions on the same dataset.
 
----
+## 9. Runs and persistence
 
-## 十九、Revision Notes
+### 9.1 Run lifecycle
 
-2026-07-01 / Kiro: 初版。基于 design.md §11 与 Wave 6 定位，明确单机个人 PC 范围，确立**「LLM 二元判定 + 程序计分」**核心方法论（LLM judge 输出 PASS/FAIL + 置信档位，所有连续分数由程序聚合）；决策质量做精细化拆解（6 个 dimension），引入本地 YAML 模板 + 内置规则验证器 + 基线回归 + 三层评分写回（rubrics_score → sku_history → analysis_insight 抽取）。
+A run binds one template version, evaluator version, subject type, and either an Evaluation Dataset or an explicit manual subject selection. Run items are checkpointed by `(runId, subjectType, subjectId)` and may be resumed without overwriting successful item history.
+
+Recommended statuses:
+
+- run: `PENDING`, `RUNNING`, `SUCCEEDED`, `PARTIAL`, `FAILED`;
+- item: `PENDING`, `RUNNING`, `SUCCEEDED`, `PARTIAL`, `FAILED`.
+
+`PARTIAL` means at least one criterion was `INCONCLUSIVE`; it is not a synonym for low quality. Provider failure is isolated per rollout/criterion/item and does not convert unrelated subjects to failure.
+
+### 9.2 Target tables
+
+The current scalar-oriented schema must migrate toward these facts:
+
+```text
+rubrics_run(
+  id, template_id, template_version, template_hash,
+  evaluator_version, subject_type, dataset_id, dataset_version,
+  trigger_type, status, stats_json, started_at, finished_at, created_at)
+
+rubrics_run_item(
+  run_id, subject_type, subject_id, subject_snapshot_hash,
+  status, quality_gate, pass_rate, coverage,
+  evidence_pack_hash, error_msg, updated_at,
+  UNIQUE(run_id, subject_type, subject_id))
+
+rubrics_evaluation(
+  id, run_id, subject_type, subject_id,
+  template_id, template_version, template_hash, evaluator_version,
+  quality_gate, pass_rate, coverage, verdict_counts_json,
+  evidence_pack_hash, created_at)
+
+rubrics_criterion_result(
+  evaluation_id, criterion_key, criterion_kind, verdict, reason_code,
+  rationale, evidence_refs_json, agreement, rollout_count, created_at,
+  UNIQUE(evaluation_id, criterion_key))
+
+rubrics_judge_rollout(
+  criterion_result_id, rollout_no, verdict, rationale,
+  evidence_refs_json, provider, model, prompt_hash,
+  latency_ms, usage_json, error_code, created_at)
+
+rubrics_dataset(...)
+rubrics_dataset_item(...)
+rubrics_gold_label(...)
+rubrics_alert(...)
+```
+
+`pass_rate` is nullable and never substitutes for the criterion result rows. Historical v1 `rubrics_score` rows remain legacy facts during migration; new v2 evaluations do not populate `overall_score`, `image_score`, `copy_score`, or `decision_score`.
+
+## 10. Triggers and automation gates
+
+Run triggers are constrained by template lifecycle:
+
+- `MANUAL`: allowed for all states and is the only trigger for `EXPERIMENTAL` templates;
+- `EVENT_DRIVEN`: allowed only for templates explicitly enabled after validation; consume `TaskCompleted` asynchronously and sample subjects according to configuration;
+- `SCHEDULED`: allowed only for validated/production templates and versioned datasets or a documented production sampling policy.
+
+Calibration happens before automation. The default configuration disables event-driven and scheduled evaluation until at least one applicable template is validated. Rubrics never blocks the online Agent loop or changes task terminal state.
+
+## 11. Memory boundary
+
+Rubrics owns evaluation facts. `module/memory` owns Agent memory.
+
+No criterion verdict, pass rate, alert, repeated low-pass pattern, or human review result is written to `sku_history.rubrics_score`, `analysis_insight`, preferences, or other Agent memory. Deterministic Hard Rule failures may create Rubrics alerts, but alerts remain inside this context. Rubrics has no dependency on `module/memory`, no Promotion entity, and no memory-write API.
+
+This prevents a judge error from entering memory and later being treated as evidence by another judgment. Reintroducing any write path requires a new explicit product decision and design update.
+
+## 12. Operational surface
+
+The browser product has no Evaluation Center, Rubrics route, Rubrics navigation item, or Rubrics contract in `frontend/api.md`. Calibration, dataset comparison, manual runs, Evidence Pack replay, lifecycle administration, and alerts are backend/offline capabilities invoked through internal services or separately secured operational tooling.
+
+If a future operational API is exposed, it remains outside the end-user frontend contract and must not publish `overallScore`, `imageScore`, `copyScore`, or `decisionScore` for v2 evaluations.
+
+## 13. Observability and failure handling
+
+Metrics include:
+
+- run/item counts and latency by subject type;
+- model calls, latency, tokens, and errors by evaluator version;
+- criterion verdict counts, coverage, inconclusive rate, and agreement;
+- parser and invalid-evidence failures;
+- calibration accuracy/F1 and human agreement by criterion version;
+- event/scheduled runs skipped because a template is not validated.
+
+Logs carry run, subject, template, evaluator, criterion, and trace IDs, but not raw image bytes, full prompts, secrets, or unrestricted trace payloads.
+
+## 14. Test and acceptance strategy
+
+The first implementation slice is `IMAGE_RESULT`, followed by `COPY_RESULT`, then `TASK_DECISION`.
+
+### 14.1 Shared contract tests
+
+- template immutability and hash/version enforcement;
+- atomic criterion validation, anchors, applicability, and evidence types;
+- all four verdict semantics;
+- Quality Gate, pass rate, and coverage without scalar scores;
+- missing evidence and evaluator failure produce `INCONCLUSIVE`;
+- invented evidence IDs invalidate a rollout;
+- three-rollout majority and disagreement behavior;
+- replay identity includes subject, template, evaluator, and evidence hashes;
+- experimental templates cannot run automatically or drive gates;
+- no automatic memory write occurs.
+
+### 14.2 Image Result slice
+
+Start with:
+
+- deterministic Hard Rules: resolution and format;
+- LLM Principles: background cleanliness and product visibility;
+- system-built image Evidence Pack;
+- three independent vision-judge rollouts;
+- manual run/report APIs;
+- a human-labeled image gold set and holdout report.
+
+Only after this slice meets its criterion-level acceptance targets should the same mechanism be extended to Copy Result. Task Decision is last because it depends on the most complex trace, requirement, proposal, DAG, and fact evidence.
+
+## 15. Migration from the current implementation
+
+The repository currently implements the superseded v1 model. Migration work must explicitly remove or replace:
+
+- `Confidence`-to-0/20/40/60/80/100 mapping in `ScoreAggregator`;
+- `DimensionScore`, `DomainScore`, and scalar `RubricScore` semantics;
+- unavailable LLM judge becoming `FAIL + LOW`;
+- one `process_result` being evaluated across image, copy, and decision domains;
+- model-created evidence references without Evidence Pack validation;
+- arbitrary run baselines;
+- automatic `ScoreFeedbackWriter` / `MemoryFeedbackTrigger` behavior;
+- automatic event/scheduled runs for unvalidated criteria;
+- use of `PRIMARY_CHAT` as the Rubrics judge role.
+
+The completed `rubrics-module-implementation-plan.md` remains a historical record of v1 and is not rewritten. A new ExecPlan must be created before implementing this migration.
+
+## 16. Out of scope
+
+- evaluator SFT, GRPO, DPO, RLHF, or any other post-training;
+- probability-margin scoring until the provider-neutral AI contract exposes trustworthy verdict-token probabilities and they are separately calibrated;
+- runtime production rubric generation;
+- a visual rubric editor;
+- A/B experimentation or automatic baseline selection;
+- automatically using delayed commerce outcomes as criterion truth;
+- automatically exporting verdicts as training rewards;
+- real-time scoring inside the Agent loop.
+
+## 17. References and rationale
+
+- RUBRIC-ARROW (`arXiv:2605.29156`) motivates criterion-level judging, concise/non-redundant rubrics, repeated voting, and the distinction between hard Boolean aggregation and probability-derived signals. PixFlow adopts the evaluation structure but not its SFT/GRPO/post-training pipeline.
+- OpenRubrics (`arXiv:2510.07743`) motivates the `Hard Rule` / `Principle` distinction and preference-consistency filtering. PixFlow substitutes human approval and gold-set validation because it does not train a rubric generator.
+- RubricEval (`arXiv:2603.25133`) shows that rubric-level judgment remains difficult even for strong judges, motivating criterion-level gold labels, explicit reasoning, agreement measurement, and lifecycle gating.
+- Auto-Rubric (`arXiv:2510.17314`) motivates verification-driven refinement and compact atomic criteria; generated candidates remain non-authoritative in PixFlow.
+
+## Revision Notes
+
+2026-07-12 / Codex: Replaced the v1 confidence-weighted 0-100 scoring design with typed Evaluation Subjects, atomic Hard Rules and Principles, four-state Criterion Verdicts, system-owned Evidence Packs, repeated judge agreement, mandatory gold-set validation, versioned replayable datasets, and automation lifecycle gates. Post-training remains explicitly out of scope.
+
+2026-07-17 / Codex: Removed the Promotion entity, API, persistence fact, and memory dependency. Rubrics findings and human reviews remain Rubrics-only facts in the current product version.

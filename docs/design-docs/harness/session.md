@@ -35,10 +35,10 @@
 
 `session` 专属设计原则：
 
-1. **唯一写者，纯持久化**。`message` 表的所有写入（用户消息、assistant、tool_result、attachment、压缩边界/摘要）只经 session。session 不做语义召回、不做上下文裁剪、不组装 prompt——这些分别归 `module/memory`、`harness/context`、`agent`。session 的全部价值是「把 context 的内存链可靠、可恢复、可审计地落库，并能反向重建出压缩后的活动链」。
+1. **唯一写者，纯持久化**。`message` 表的所有写入（携带 canonical references metadata 的用户消息、assistant、tool_result、压缩边界/摘要）只经 session。session 不做语义召回、不做上下文裁剪、不组装 prompt——这些分别归 `module/memory`、`harness/context`、`agent`。session 的全部价值是「把 context 的内存链可靠、可恢复、可审计地落库，并能反向重建出压缩后的活动链」。
 2. **MySQL 是事实源，不引 Redis**。`message` 表是会话 transcript 的唯一事实源，同时承载 Rubrics 回放、eval trace、审计。session **本身不依赖 Redis**——活动链的热缓存是 `context.MessageChainCache` SPI 的职责（由 `infra/cache` 实现、context 调用、压缩时失效），与 session 解耦。这保证 session 的定位是「纯 MySQL 写者」，不与缓存层职责重叠（见 [§三](#三三方边界session--context--conversation)）。
 3. **append-only 物理存储，逻辑活动链派生**。`message` 行只增不改（除幂等去重外不 UPDATE 业务字段），全量历史永久保留供审计；压缩「改写活动链」不是删除老行，而是写入新的边界/摘要标记 + 一条压缩纪元记录，由确定性重建逻辑派生出活动链（见 [§七](#七压缩纪元与活动链重建核心)）。
-4. **倒置而非反向依赖**。session 实现 context 定义的 `TranscriptPort`，编译期 `session → context`；context 运行期经注入的 SPI 调 session。这与 `infra/cache` 实现 `contracts.ConfirmationTokenStore`、`module/task` 实现 `state.CheckpointReadPort` 同款手法。
+4. **倒置而非反向依赖**。session 实现 context 定义的 `TranscriptPort`，编译期 `session → context`；context 运行期经注入的 SPI 调 session。这与 `module/task` 实现 `state.CheckpointReadPort` 同类。
 5. **并发外移**。同会话回合串行由**上层**（loop / conversation 的会话级锁）保证；session 不引入复杂同步，只靠 `(conversation_id, seq)` 唯一约束 + 主键幂等兜底。
 6. **多节点无状态**。session 是无状态 service，任意节点都能 `load` 重建活动链（每轮 rehydrate，与 `context.md §七`、`state.md §十二` 同口径）。
 7. **错误归一化遵从 common**。DB / 外置失败在跨出边界时归一化为 `DEPENDENCY` / `STORAGE`；session 自治的业务级失败用 `SessionErrorCode`。
@@ -61,7 +61,7 @@
 | 恢复 | `from_transcript` 全量读 | `load` 按压缩纪元重建活动链（可配条数上限） |
 | 缓存 | 进程内内存即缓存 | **不在 session**；归 context 的 `MessageChainCache`（Redis，可丢可重建） |
 
-**可借鉴的骨架**：内部消息四角色、provider-neutral `tool_result`、大结果外置 + 引用 + 去重、append-only transcript 作恢复事实源、压缩产物为「边界 + 摘要 + tail」。
+**可借鉴的骨架**：provider-neutral `tool_result`、大结果外置 + 引用 + 去重、append-only transcript 作恢复事实源、压缩产物为「边界 + 摘要 + tail」。PixFlow 内部消息只有 USER / ASSISTANT / TOOL_RESULT 三种角色；素材引用是 USER metadata，不是第四种消息。
 **必须重写的内核**：MySQL 事实源 + MyBatis-Plus 落库、压缩后活动链的确定性重建（append seq + 纪元，不用文件追加语义）、turn 缓冲 + 边界 flush、多节点 rehydrate、唯一写者编译/架构守护。
 
 ---
@@ -81,7 +81,7 @@ infra/storage ─┐
 |---|---|---|
 | `harness/context` | 运行期工作内存：消息模型、append-only 内存链、投影、预算、cheap pipeline、摘要式压缩**编排**、ContextSnapshot、fork 继承；定义 `TranscriptPort` / `MessageChainCache` SPI | context **不直连 MySQL**；落库经 `TranscriptPort` 委托 session。压缩的**决策与摘要**在 context（含 LLM 经 `SummarizationPort`），session 只负责把压缩产物**落库 + 重建** |
 | `harness/session` | transcript 持久化（唯一写者）：实现 `TranscriptPort`，append/load/replaceForCompaction，压缩纪元、活动链重建、大结果外置落库、seq 分配 | 本模块 |
-| `module/conversation` | 业务出口：`conversation` 表 CRUD、REST、SSE 流式、附件关联；对 `message` 表**只读查询**（历史展示） | conversation **不写 `message` 表**；用户消息也经 `context → TranscriptPort → session` 落库。conversation 的只读查询看「全量 transcript」（审计/展示），session 的 `load` 给「压缩后活动链」（喂模型） |
+| `module/conversation` | 业务出口：`conversation` 表 CRUD、REST、SSE 流式、canonical Message Reference 规范化；对 `message` 表**只读查询**（历史展示） | conversation **不写 `message` 表**；用户消息也经 `context → TranscriptPort → session` 落库。conversation 的只读查询看「全量 transcript」（审计/展示），session 的 `load` 给「压缩后活动链」（喂模型） |
 
 边界硬约束：
 
@@ -146,7 +146,7 @@ conversation ──► session 间接：conversation 只读 message 表用自己
 
 ### 5.1 与 `design.md §13.1` 的差异（需同步）
 
-`design.md §13.1` 当前 `message` 行字段为：`id, conversation_id, role, content, attached_package_id, task_id, created_at`。但 `context.md §5.2` 的内部 `Message` 模型需要持久化 `toolCallId` 与开放的 `MessageMetadata`（压缩边界/摘要标记、外置引用标记、microcompact/placeholder 标记等），当前表存不下。
+`design.md §13.1` 的 message 以 metadata 保存 structured references 与 context 标记。session 负责把这些开放字段原样持久化，同时把常用压缩索引字段显式提列。
 
 本设计据此扩展 `message` 表，并新增 `message_compaction` 纪元表。**这是对 `design.md §13.1` 的扩展，需回写同步**（见 [Revision Notes](#revision-notes)；本文先以 session 视角定义权威 schema）。
 
@@ -157,12 +157,11 @@ conversation ──► session 间接：conversation 只读 message 表用自己
 | `id` | varchar PK | 消息 id，与 `context.Message.id` 对齐；append-only 幂等去重的主键 |
 | `conversation_id` | varchar, idx | 会话 id |
 | `seq` | bigint | **会话内单调序号**（append 物理顺序）；`(conversation_id, seq)` 唯一约束（见 [§十](#十会话内-seq-分配)） |
-| `role` | enum/varchar | `USER` / `ASSISTANT` / `TOOL_RESULT` / `ATTACHMENT`（与 `context.MessageRole` 对齐） |
+| `role` | enum/varchar | `USER` / `ASSISTANT` / `TOOL_RESULT`（与 `context.MessageRole` 对齐） |
 | `content` | mediumtext | 文本内容；外置后此处为「引用 + preview」 |
 | `tool_call_id` | varchar, null | TOOL_RESULT 配对用；其它角色为 null |
 | `compaction_marker` | enum/varchar, null | `null`（普通消息）/ `BOUNDARY` / `SUMMARY`；活动链重建用（见 [§七](#七压缩纪元与活动链重建核心)） |
-| `metadata` | json, null | 开放扩展位：`isCompactBoundary`/`isCompactSummary`/`compactTrigger`/`toolResultExternalized`/`toolResultRef`/`microcompacted`/`placeholder`/`missingExternalToolResult` 等 context 标记 |
-| `attached_package_id` | varchar, null | 附件素材包关联（沿用 `design.md`） |
+| `metadata` | json, null | USER 消息保存 ordered `references[{referenceKey,displayPathSnapshot}]`；同时保存 context 压缩、外置结果、placeholder 等开放标记 |
 | `task_id` | varchar, null | 关联任务（沿用 `design.md`） |
 | `created_at` | datetime | 落库时间 |
 
@@ -263,7 +262,7 @@ flowchart TD
 
 核心规则两条：
 
-1. **marker 永不进 tail**。压缩边界/摘要行带 `compaction_marker`，tail 查询恒过滤 `compaction_marker IS NULL`，即 tail **只含普通消息**（USER/ASSISTANT/TOOL_RESULT/ATTACHMENT）。历次压缩的旧 marker 永远被新摘要折叠、永不出现在活动链 tail 里。
+1. **marker 永不进 tail**。压缩边界/摘要行带 `compaction_marker`，tail 查询恒过滤 `compaction_marker IS NULL`，即 tail **只含普通消息**（USER/ASSISTANT/TOOL_RESULT）。历次压缩的旧 marker 永远被新摘要折叠、永不出现在活动链 tail 里。
 2. **covered_up_to_seq 只对普通消息取值**。它是「本次摘要折叠的最高普通消息 seq」；活动链 tail = 普通消息中 `seq > covered_up_to_seq` 者。普通消息的 seq 是单调的，最近保留的 tail 必然是最高 seq 的连续后缀，故总存在一个干净的 seq 切点。
 
 ### 7.3 重建算法（`ActiveChainResolver.resolve`）
@@ -425,7 +424,7 @@ pixflow:
 | 对接方 | 契约 |
 |---|---|
 | `harness/context` | session 实现 `TranscriptPort`（`append`/`load`/`replaceForCompaction`），是 `message` 表唯一写者；复用 context 的 `Message`/`MessageRole`/`MessageMetadata`/`ToolResultReference`/`CompactionTrigger` 模型；`load` 返回**压缩后活动链**；缓存（`MessageChainCache`）由 context 持有，session 不感知 |
-| `module/conversation` | conversation **只读** `message` 表做历史展示（全量 transcript 视图），**不写**；用户消息经 `context → TranscriptPort → session` 落库；附件以 `ATTACHMENT` 消息进入，`attached_package_id` 关联素材包 |
+| `module/conversation` | conversation **只读** `message` 表做历史展示；用户消息经 `context → TranscriptPort → session` 落库，canonical references 作为 USER message metadata 保存，不创建附件消息或单一 package 外键 |
 | `infra/storage` | session 经共享 `ToolResultStorage` 外置/去重/回读大结果；不拥有通用存储实现；DAG 已补 `infra/storage → session` 依赖边 |
 | `harness/loop` | loop 在回合边界调 `flush()`；rehydrate 由 context.`buildForModel` 间接触发 session.`load`；trace 由 loop 经 eval SPI 负责，session 不自记 |
 | `common` | DB/storage 异常归一化为 `DEPENDENCY`/`STORAGE`；session 业务失败抛 `SessionErrorCode`；文案经 `Sanitizer` |

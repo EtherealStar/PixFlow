@@ -1,9 +1,9 @@
-# infra/thirdparty —— 非模型第三方集成层（抠图 API + Resilience4j，Wave 1 基础设施）
+# infra/thirdparty —— 非模型第三方集成层（抠图 API + Redis 令牌桶 + Resilience4j，Wave 1 基础设施）
 
 > 本文是 PixFlow 完整重写阶段 `infra/thirdparty` 模块的设计文档，对应 `design.md` 第四章「技术栈选型」（去背景=第三方 API、第三方韧性=Resilience4j）、第九章 §9.3「并发保障」、第十五章风险表，以及 `module-dependency-dag-plan.md` 的 **Wave 1 基础设施**。
-> 范围：对**非模型、非电商平台**的外部 HTTP 服务做供应商无关封装——当前唯一落地集成是**背景去除（抠图）API**（remove.bg / 阿里云智能抠图）；附带单实例韧性治理（Resilience4j）、全局并发封顶、错误源头构造与可观测。
+> 范围：对**非模型、非电商平台**的外部 HTTP 服务做供应商无关封装——当前唯一落地集成是**背景去除（抠图）API**（remove.bg / 阿里云智能抠图）；附带单实例韧性治理（Resilience4j）、Redis 全局加权令牌桶、全局并发封顶、错误源头构造与可观测。
 > 本文不涉及 MVP 既有实现，从新架构需求重新推导，按生产级标准设计。
-> 依赖契约沿用 `common`（错误模型与脱敏）；全局并发经 `infra/cache` 的 `DistributedSemaphore`。
+> 依赖契约沿用 `common`（错误模型与脱敏）；全局并发与出站速率经 `infra/cache` 的 `DistributedSemaphore` + `DistributedTokenBucket`。
 
 ---
 
@@ -14,9 +14,9 @@
 - [三、模块结构与依赖位置](#三模块结构与依赖位置)
 - [四、供应商路由：逻辑能力 → 具体 provider](#四供应商路由逻辑能力--具体-provider)
 - [五、核心抽象](#五核心抽象)
-- [六、调用管线：信号量 → Resilience4j → HTTP → 错误映射](#六调用管线信号量--resilience4j--http--错误映射)
+- [六、调用管线：Retry → 每 attempt 准入 → HTTP → 错误映射](#六调用管线retry--每-attempt-准入--http--错误映射)
 - [七、韧性治理（Resilience4j）](#七韧性治理resilience4j)
-- [八、全局并发封顶（infra/cache 信号量）](#八全局并发封顶infracache-信号量)
+- [八、全局准入（infra/cache 信号量 + 令牌桶）](#八全局准入infracache-信号量--令牌桶)
 - [九、错误归一化与源头构造](#九错误归一化与源头构造)
 - [十、存储无感与图片传输](#十存储无感与图片传输)
 - [十一、配置](#十一配置)
@@ -38,9 +38,9 @@
 
 1. **只封非模型第三方，不做 Agent/业务编排**。本模块提供「调一次外部 HTTP 服务会发生什么」，不做 think-act-observe、不做 DAG 编排、不做结果落库。
 2. **供应商无关**。请求/响应全是 thirdparty 自有的不可变 record，对上不暴露 remove.bg / 阿里云 SDK 的原始类型；换供应商只动配置与实现类，调用方零改动。
-3. **韧性内建，源头带分类**。HTTP 调用一律经 Resilience4j（重试/熔断/舱壁/限速/超时）治理；按 `common.md §10` 混合策略，限流/网络/供应商错误**在源头即构造**带 `category` + `retryAfter` 的 `PixFlowException`，让 Resilience4j 与上层尽早拿到 retryable 信息。
+3. **韧性内建，源头带分类**。HTTP 调用一律经 Resilience4j（重试/熔断/舱壁/超时）与 Redis 令牌桶治理；本地额度不足、供应商限流、网络和供应商错误**在源头即构造**带 `category` + `retryAfter` 的 `PixFlowException`，让 retry 与上层尽早拿到 retryable 信息。
 4. **存储无感**。本模块**不依赖 `infra/storage`**；图片内容（bytes / 预签名 URL）由调用方解析好再传入，结果字节回给调用方落 MinIO（对齐 `ai.md §10`）。
-5. **全局并发靠 cache，单实例治理靠 Resilience4j**。两层互补（`cache.md §10`）：`DistributedSemaphore` 封跨实例全局并发上限，Resilience4j 治理本进程内的重试/熔断/舱壁/限速。
+5. **全局并发与速率靠 cache，故障治理靠 Resilience4j**。`DistributedSemaphore` 封跨实例在途数，`DistributedTokenBucket` 封跨实例出站速率/相对成本，Resilience4j 只保留重试/熔断/舱壁/超时，不再维护单 JVM RateLimiter。
 6. **与 ai 的重试各管一段**。本模块的 Resilience4j 只管**非模型**第三方（抠图）；模型调用级重试归 `infra/ai` 的 `ModelRetryRunner`；任务级重投归 `module/task` 的 MQ。三者不同模块、不同对象（`ai.md §7.3`）。
 
 ---
@@ -77,8 +77,9 @@ infra/thirdparty/
 │       ├── AliyunMattingClient.java     # 阿里云智能抠图：同步 RPC / 异步任务轮询封在同步接口后
 │       └── AliyunMarketBackgroundRemovalProvider.java # 阿里云市场去背景：submit/query POST JSON + nonce
 ├── resilience/
-│   ├── ResilienceRegistry.java          # 每 provider 一套 Retry/CircuitBreaker/Bulkhead/RateLimiter/TimeLimiter
-│   └── ThirdPartyCallTemplate.java      # 信号量 acquire → Resilience4j 装饰 → 执行 → 错误映射
+│   ├── ResilienceRegistry.java          # 每 provider 一套 Retry/CircuitBreaker/Bulkhead/TimeLimiter
+│   ├── OutboundQuotaPolicy.java         # provider/api → bucket policy + attempt cost
+│   └── ThirdPartyCallTemplate.java      # 每 attempt：bulkhead → semaphore → token bucket → HTTP
 ├── error/
 │   ├── ThirdPartyErrorCode.java         # enum implements common.ErrorCode
 │   └── ThirdPartyErrorMapper.java       # HTTP 状态/异常 → 带 category+retryAfter 的 PixFlowException
@@ -93,7 +94,7 @@ infra/thirdparty/
 
 ```
 infra/thirdparty ──► common（ErrorCode / PixFlowException / Sanitizer）
-infra/thirdparty ──► infra/cache（DistributedSemaphore：sem:thirdparty:{api}）
+infra/thirdparty ──► infra/cache（DistributedSemaphore + DistributedTokenBucket）
 infra/thirdparty ──► Resilience4j + HTTP client（传输与韧性实现）
 module/dag ──► infra/thirdparty（执行引擎在 remove_bg 节点调 BackgroundRemovalClient，结果喂给 infra/image）
 ```
@@ -172,29 +173,38 @@ public record ThirdPartyUsage(Integer creditsCharged, Map<String,Object> raw) {}
 
 ---
 
-## 六、调用管线：信号量 → Resilience4j → HTTP → 错误映射
+## 六、调用管线：Retry → 每 attempt 准入 → HTTP → 错误映射
 
-每次第三方调用走统一管线（`ThirdPartyCallTemplate`），顺序对齐 `cache.md §10`：
+每次第三方调用走统一管线（`ThirdPartyCallTemplate`）。`Retry` 是最外层调用控制；**信号量和令牌桶必须在 attempt 内部**，保证每次真实 provider 尝试都重新准入，退避期间不占许可：
 
 ```
-acquire DistributedSemaphore(sem:thirdparty:{api})  // try-with-resources，全局并发封顶
-  → Resilience4j 装饰执行：Retry( CircuitBreaker( RateLimiter( Bulkhead( TimeLimiter( httpCall )))))
-  → 成功：映射为 BackgroundRemovalResult
-  → 失败：ThirdPartyErrorMapper 源头构造 PixFlowException(category + retryAfter)
-  → 释放许可（自动）
+Retry(
+  CircuitBreaker(
+    Bulkhead(
+      attempt:
+        acquire DistributedSemaphore(sem:thirdparty:{provider}:{api})
+        tryConsume DistributedTokenBucket(bucket:thirdparty:{provider}:{api}, costPerAttempt)
+        TimeLimiter(httpCall)
+        release semaphore
+    )
+  )
+)
+→ 成功：映射为 BackgroundRemovalResult
+→ 失败：ThirdPartyErrorMapper 源头构造 PixFlowException(category + retryAfter)
 ```
 
 ```mermaid
 flowchart LR
-  Caller["module/dag 执行引擎: remove_bg 节点"] --> Tmpl["ThirdPartyCallTemplate"]
-  Tmpl --> Sem["DistributedSemaphore.acquire\n(sem:thirdparty:{api})"]
-  Sem --> R4j["Resilience4j 装饰\nRetry/CB/RateLimiter/Bulkhead/TimeLimiter"]
-  R4j --> HTTP["provider HTTP 调用\n(RestClient / SDK)"]
+  Caller["module/dag 执行引擎: remove_bg 节点"] --> Retry["Resilience4j Retry"]
+  Retry --> CB["CircuitBreaker + Bulkhead"]
+  CB --> Sem["DistributedSemaphore\n每 attempt 获取/释放"]
+  Sem --> Bucket["Redis Token Bucket\n每 attempt 加权消费"]
+  Bucket --> HTTP["provider HTTP 调用\n(TimeLimiter / transport timeout)"]
   HTTP -->|2xx| Ok["BackgroundRemovalResult"]
   HTTP -->|异常/非2xx| Map["ThirdPartyErrorMapper\n→ PixFlowException(category+retryAfter)"]
 ```
 
-**信号量叠放顺序决策（方案 A）**：全局信号量在**最外层**，跨整个含重试的调用持有。代价是重试退避期间仍占一个全局许可；考虑到抠图低频、重试有限且退避短，简单优先，与 `cache.md §10` 描述一致。更精确的「每 attempt 各自 acquire/release（退避时不占许可）」记为后续优化（见 [§十六](#十六暂不考虑)）。
+准入顺序固定为 `Bulkhead → DistributedSemaphore → DistributedTokenBucket → HTTP`。令牌桶不等待；额度不足立即返回 `retryAfter`，随后释放已获取的 semaphore/bulkhead permit。将令牌消费放在 semaphore 之后，可避免本次 attempt 因并发许可获取失败而白白扣费。进入 HTTP 后即使网络失败也视为一次真实 attempt，令牌不返还。
 
 ---
 
@@ -207,29 +217,32 @@ flowchart LR
 | `Retry` | 仅对 retryable（NETWORK/PROVIDER/RATE_LIMIT）退避重试；供应商给 `Retry-After` 时优先采用 | maxAttempts=3，指数退避 base 500ms / cap 8s |
 | `CircuitBreaker` | 失败率超阈值熔断，快速失败保护下游与自身 | failureRateThreshold=50%，滑窗 20，开断 30s |
 | `Bulkhead` | 进程内并发隔离，防单一第三方耗尽线程 | maxConcurrent 与全局信号量许可对齐或略小 |
-| `RateLimiter` | 单实例出站速率限制，配合 provider 的配额 | 按 provider 配额配置 |
 | `TimeLimiter` | 单次调用超时，避免长挂 | 30s |
 
 要点：
 
-- **重试判定只看 `category`/`retryable`**（来自 `ThirdPartyErrorMapper`），不在重试逻辑里 `instanceof` 具体异常（对齐 `error-handling-architecture.md` 重试下沉理念）。
+- **重试判定只看 `category`/`retryable`**（来自 `ThirdPartyErrorMapper`），不在重试逻辑里 `instanceof` 具体异常（对齐 `error-handling-architecture.md` 重试下沉理念）。本地桶拒绝与 provider 429 都是 `RATE_LIMIT/RETRY`，但错误码和来源必须区分。
 - **不可重试错误**（鉴权 401/403、图片非法 4xx）直接终态上抛，不浪费重试与熔断额度。
 - **熔断打开**时调用快速失败，映射为 `category=PROVIDER`（`recovery=SKIP`），交上层 `FailureIsolator` 把该支路隔离（design §9.4），不拖垮整批。
-- 与全局信号量分工明确：信号量管「集群级在途总数」，Resilience4j 管「本进程治理」（`cache.md §10`）。
+- CircuitBreaker 的失败率只统计真实网络/超时/5xx；本地桶拒绝、信号量拒绝和 provider 429 不计为可用性故障，避免因正常配额耗尽错误开断。
+- 与 cache 分工明确：信号量管「集群级在途总数」，令牌桶管「集群级出站速率/相对成本」，Resilience4j 管「retry/circuit/bulkhead/timeout」。
 
 ---
 
-## 八、全局并发封顶（infra/cache 信号量）
+## 八、全局准入（infra/cache 信号量 + 令牌桶）
 
-第三方 API（抠图）成本与配额敏感，需跨实例封顶总并发。本模块**直接依赖 `infra/cache`** 的 `DistributedSemaphore`（`design.md §9.3`、`cache.md §10/§13` 已点名 thirdparty 为其消费者）：
+第三方 API（抠图）成本与配额敏感，需同时封顶跨实例在途数与出站速率。本模块直接依赖 `infra/cache` 的两个通用原语：
 
 - 调用前 `DistributedSemaphore.acquire(key, permits, waitTime)` 拿全局许可（`Permit` 为 `AutoCloseable`，try-with-resources 自动释放）。
-- 键由 thirdparty 持有的 `CacheNamespace` 构造为 `sem:thirdparty:{api}`（`api` 如 `bg-removal`）；cache 只执行不懂业务含义（`cache.md §二`）。
+- 信号量键由 thirdparty 构造为 `sem:thirdparty:{provider}:{api}`；获取失败按依赖错误上抛。
+- 令牌桶键为 `bucket:thirdparty:{provider}:{api}`。每个 attempt 调 `tryConsume(policy, costPerAttempt)`；拒绝时映射为 `THIRDPARTY_LOCAL_RATE_LIMITED`，保留 decision 的 `retryAfter`。
+- Redis/Lua 故障映射为 `THIRDPARTY_QUOTA_UNAVAILABLE`（DEPENDENCY/RETRY），**fail-closed**，不得退化为本机桶或直接放行。
+- policy 与 cost 归 `pixflow.thirdparty.*` 配置；cache 不理解 provider/api。V1 抠图默认每次 attempt 消费 1 个权重令牌。
 - 许可总数与该 API 的全局并发上限对齐，由 cache 侧 `pixflow.cache.semaphore.{api}.permits` 配置（`cache.md §十二`）。
 - Redisson 实现选 `RPermitExpirableSemaphore`（许可带租约，持有者崩溃自动回收，`cache.md §4.5`），避免许可永久泄漏。
 - 获取许可失败按 `cache.md §八`「信号量上抛」——映射为 `DEPENDENCY`/RETRY 由上层决策，不静默放行（放行会冲垮第三方）。
 
-> 与 `infra/ai §9` 的差异：ai 为「只依赖 common」而用 `GlobalConcurrencyLimiter` SPI 倒置；thirdparty 的依赖 DAG 已授权直连 cache，且 cache.md 已点名，故直连更简单，不再复制 SPI。二者在「全局并发都落到 cache 的 `DistributedSemaphore`」这一事实上是一致的，仅接入手法不同。
+> 与 `infra/ai §9` 的差异：thirdparty 的依赖 DAG 已授权直连 cache，因此直接消费两个原语；ai 通过自有 SPI 在组合根接 Redis adapter，避免 ai 反向依赖 cache。两条路径最终共享同一个 Redis token-bucket 实现。
 
 ---
 
@@ -242,6 +255,8 @@ flowchart LR
 | 供应商情形 | ThirdPartyErrorCode | category | recovery | retryAfter |
 |---|---|---|---|---|
 | 429 / 限流 / 配额超限 | `THIRDPARTY_RATE_LIMITED` | RATE_LIMIT | RETRY | 解析 `Retry-After` |
+| Redis 本地策略桶额度不足 | `THIRDPARTY_LOCAL_RATE_LIMITED` | RATE_LIMIT | RETRY | 使用 token-bucket decision |
+| Redis/Lua 令牌桶不可用 | `THIRDPARTY_QUOTA_UNAVAILABLE` | DEPENDENCY | RETRY | 使用基础依赖退避 |
 | 连接失败 / 读超时 | `THIRDPARTY_NETWORK_ERROR` | NETWORK | RETRY | - |
 | 5xx / 非法响应体 | `THIRDPARTY_PROVIDER_ERROR` | PROVIDER | RETRY | - |
 | 熔断器打开（快速失败） | `THIRDPARTY_CIRCUIT_OPEN` | PROVIDER | SKIP | - |
@@ -300,17 +315,25 @@ pixflow:
           status-path: /api/v1/bg-remove/query
           timeout: 30s
           interval: 1s
-    resilience:                           # 单实例 Resilience4j（本模块）
+    resilience:                           # Resilience4j：不再包含 RateLimiter
       max-attempts: 3
       base-delay: 500ms
       max-delay: 8s
       bulkhead-max-concurrent: 8
       timeout: 30s
-    # 全局并发许可总数不在此处，而在 pixflow.cache.semaphore.bg-removal.permits（cache.md §十二）
+    outbound-quota:                       # provider attempt 级 Redis 令牌桶策略
+      removebg:
+        bg-removal:
+          capacity: 20
+          refill-tokens: 10
+          refill-period: 1s
+          idle-ttl: 10m
+          cost-per-attempt: 1
+    # 全局并发许可总数仍在 pixflow.cache.semaphore.*；令牌桶 policy 归本模块
 ```
 
 - 凭证（api-key / AK / SK）经 `Sanitizer` 遮蔽，不入日志、不入 trace。
-- 全局并发许可数归属 `infra/cache` 配置，本模块只引用 `api` 名（`bg-removal`）拿信号量，避免两处配同一并发上限。
+- 全局并发许可数归属 `infra/cache` 配置；令牌桶 capacity/refill/cost 是 provider 策略，归 thirdparty 配置。两者不是同一个上限，不得复用字段。
 
 ---
 
@@ -321,6 +344,7 @@ pixflow:
   - `pixflow.thirdparty.retry{provider, api}` 重试次数。
   - `pixflow.thirdparty.circuit{provider, state}` 熔断器状态。
   - `pixflow.thirdparty.semaphore{api}` 在途许可 gauge（与 `cache.md §11.2` 的 `pixflow.cache.semaphore` 一致，二者可对照）。
+  - `pixflow.thirdparty.quota{provider, api, result=allowed|rejected|error}` 令牌桶决策；不使用 taskId/imageId/userId 等高基数 tag。
   - `pixflow.thirdparty.credits{provider}`（如供应商回传）观测成本水位。
 - **不放高基数 tag**（如 taskId/imageId）；按 provider/api 聚合。
 - 失败原因日志经 `Sanitizer` 脱敏后落 error 日志；指标 tag 不含凭证或高基数值。
@@ -333,7 +357,7 @@ pixflow:
 | 模块 | 契约 |
 |---|---|
 | `common` | thirdparty 源头构造带 `category`+`retryAfter` 的 `PixFlowException`；`ThirdPartyErrorCode implements ErrorCode`；文案经 `Sanitizer` |
-| `infra/cache` | 用 `DistributedSemaphore`（`sem:thirdparty:{api}`）封全局并发；许可总数由 cache 侧配置；获取失败上抛 |
+| `infra/cache` | 直接消费 `DistributedSemaphore` 与 `DistributedTokenBucket`；信号量获取和桶故障 fail-closed，正常额度不足保留 `retryAfter` |
 | `module/dag` | **唯一直接消费方**：执行引擎在 `remove_bg` 节点调 `BackgroundRemovalClient.remove`，传入从 MinIO 取出的源图字节，拿回结果字节喂给 `infra/image`（decode→setBackground→…）或落桶 |
 | `infra/image` | **无依赖关系**：`remove_bg` 是第三方 HTTP 调用、非本地栅格运算，image 不碰 thirdparty；二者经 dag 间接协作（`image.md §二`/§契约表） |
 | `infra/ai` | **无依赖关系**：抠图非模型调用，ai 与 thirdparty 各管一段（`ai.md §7.3`） |
@@ -359,6 +383,8 @@ pixflow:
 - **能力接口契约**：以 MockWebServer / WireMock 桩 provider HTTP，验证 `RemoveBgClient` / `AliyunMattingClient` / `AliyunMarketBackgroundRemovalProvider` 的请求投影（multipart / 编码 / submit-query POST JSON + nonce）与响应映射为 `BackgroundRemovalResult`。
 - **路由**：`RoutingBackgroundRemovalClient` 按配置选对 provider；切配置切实现。
 - **韧性**：注入瞬时失败断言 `Retry` 重试后成功；持续失败断言 `CircuitBreaker` 打开后快速失败；`TimeLimiter` 超时触发；`Retry-After` 优先于退避公式。
+- **每 attempt 准入**：两次 provider attempt 必须消费两次令牌、分别获取/释放 semaphore；退避期间 semaphore 在途数为 0；本地桶拒绝不执行 HTTP 且不计入 CircuitBreaker 失败率。
+- **配额错误**：额度不足保留 `retryAfter` 并可被 Retry 消费；Redis 故障 fail-closed；provider 429 与本地桶拒绝使用不同 errorCode。
 - **错误映射**：429/5xx/超时/鉴权/4xx 非法 → 对应 `ThirdPartyErrorCode` + category + recovery + retryAfter；熔断打开 → `THIRDPARTY_CIRCUIT_OPEN`(SKIP)。
 - **全局并发**：注入 fake/真实（Testcontainers Redis）`DistributedSemaphore` 断言取/释许可、许可耗尽时等待/上抛；许可在 try-with-resources 后释放。
 - **脱敏**：含 api-key / AK-SK 的异常与日志样本经 `Sanitizer` 后无凭证泄露。
@@ -370,8 +396,12 @@ pixflow:
 ## 十六、暂不考虑
 
 - **抠图结果去重缓存**：DAG 支路幂等 + `process_result` checkpoint 已覆盖重跑（design §9.4），无需在 thirdparty 缓存结果；待出现明确成本瓶颈再评估。
-- **信号量「每 attempt 各自 acquire/release」**：本期方案 A（信号量最外层、跨重试持有）；退避占许可的精确化优化后续再做（见 [§六](#六调用管线信号量--resilience4j--http--错误映射)）。
+- **用户级 HTTP 入站防滥用 / 每日费用预算 / 供应商账单对账**：这里限制的是 provider attempt。没有 owner/tenant 上下文时不得伪造“按用户限流”能力。
 - **本地抠图模型**：design 明确去背景用第三方 API、无本地模型；不做本地推理回退。
 - **纯文生图 / 模型类第三方**：归 `infra/ai`，不进本模块。
 - **电商平台数据 API**：归 `module/commerce`，不进本模块。
 - **多 provider 智能路由 / 成本路由 / 自动降级换供应商**：本期 provider 由静态配置选定，不做运行时智能调度。
+
+## Revision Notes
+
+2026-07-11 / Codex: 删除目标设计中的 resilience4j 单 JVM RateLimiter，改由 `infra/cache` Redis Lua 加权令牌桶承担集群级出站速率/相对成本。固定 `Retry -> CircuitBreaker -> Bulkhead -> 每 attempt(semaphore -> token bucket -> HTTP)` 顺序，区分本地桶拒绝、provider 429 与 Redis 故障，并明确每个 retry attempt 都重新消费、退避期间不持有 semaphore。

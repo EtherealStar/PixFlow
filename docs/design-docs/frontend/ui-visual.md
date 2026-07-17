@@ -1,47 +1,30 @@
-# 前端 UI 与视觉系统设计
+# Frontend UI and Visual Design
 
-## 定位
+PixFlow uses a restrained light operational interface built from project tokens and accessible headless primitives. Visual treatment supports repeated work: compact headings, stable controls, clear status, and dense but readable lists.
 
-UI 视觉模块承载 PixFlow Web 的浅色主题、design token、自绘 UI 原子、radix-vue headless 包装和 SVG 图标系统。所有页面和业务组件都应通过本视觉层构建，不直接恢复旧视觉库。
+## Layout
 
-## 关键实现
+Desktop uses the three-area shell. Tablet and phone behavior follows `product.md`; fixed side widths must never squeeze main content below its usable minimum. Boards, toolbars, icon buttons, counters, and gallery cells use stable responsive dimensions so status changes do not shift layout.
 
-- Tailwind token：`pixflow-web/tailwind.config.ts`
-- 全局样式：`src/styles/global.css`、`src/styles/tokens.css`
-- UI 原子：`src/components/ui/`
-- 布局组件：`src/components/layout/`
-- 图标：`src/components/icons/`
-- 类型：`src/types/ui.ts`
+The Composer remains visible above the visual viewport and safe area. Queue rows, Proposal cards, Activity details, and gallery actions wrap or become single-column on narrow screens.
 
-## 视觉原则
+## Components
 
-1. 只支持浅色主题，不引入 dark mode 或 `prefers-color-scheme` 分支。
-2. 背景三层递进：`bg-page`、`bg-sunken`、`bg-panel`。
-3. 暖灰基调，主色只用于主操作、进度条和选中态。
-4. 阴影使用暖灰透明阴影，不使用纯黑阴影。
-5. 圆角只使用 `sm/md/lg/xl` 四档。
-6. 产品界面只使用 SVG 图标，禁止 emoji。
+Use icons for familiar commands, tooltips for unfamiliar icon-only actions, segmented controls for view modes, tabs only for peer views, and confirmation dialogs only for irreversible deletion. Cards are reserved for repeated items, Proposal records, and Activity records; page sections are not nested cards.
 
-## UI 原子
+Mention tokens have a distinct atomic style, keyboard selection, visible focus, and one-step removal. Disabled Proposal actions explain that the Agent turn is still completing.
 
-| 类别 | 组件 |
-|---|---|
-| 表单 | `AppButton`、`AppInput`、`AppTextarea`、`AppSelect`、`AppSwitch`、`AppCheckbox` |
-| 容器 | `AppCard`、`AppBadge`、`AppAvatar`、`AppProgressBar`、`AppSegmented`、`AppEmptyState`、`AppSkeleton` |
-| 浮层 | `AppDialog`、`AppDropdownMenu`、`AppPopover`、`AppTooltip`、`AppToastProvider` |
-| 导航/结构 | `AppTabs`、`AppTabsTrigger`、`AppTabsPanel`、`AppAccordion`、`AppAccordionItem`、`AppScrollArea` |
-| 全局 | `TraceIdFloat` |
+## Status language
 
-radix-vue 只提供行为、可访问性和浮层原语；视觉样式由 App 组件自己负责。
+Status labels use the canonical product terms in `product.md`. Raw enum values, tool names, storage keys, reference keys, stack traces, and trace IDs are not normal interface text. Failed operations may show a copyable error number.
 
-## 图标系统
+## Accessibility
 
-`src/components/icons/` 提供 lucide 风格自绘 SVG，统一 24x24、stroke 1.75、`currentColor`。业务组件应从本目录导入图标；只有确实缺少图标时才按需使用 `lucide-vue-next` 作为底座补充。
+All functions are keyboard reachable. Drawers and dialogs trap and restore focus. Live progress uses restrained ARIA live regions; streaming token deltas do not announce every fragment. Color is never the only status signal.
 
-## 约束
+## Invariants
 
-1. 新组件优先落在 `components/ui/`，业务组合落在 `components/{chat,files,tasks,upload}/`。
-2. 不在业务组件中硬编码 hex 颜色；使用 Tailwind token 类。
-3. 不引入新视觉库来解决单个组件问题。
-4. 不在产品界面使用 emoji 文本或 emoji 字体。
-5. 修改 token 后必须检查 `web.md` §五的不变量和现有页面可读性。
+1. Only light theme is supported unless a later design explicitly adds another theme.
+2. Product UI uses the existing icon system or installed Lucide icons, never emoji.
+3. Business components use design tokens rather than hard-coded colors.
+4. Text and controls must not overlap at desktop, tablet, or mobile widths.

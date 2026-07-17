@@ -25,12 +25,21 @@ This ExecPlan is a living document. The sections `Progress`, `Surprises & Discov
 - [x] (2026-07-12) Milestone 2：实现 JVM 全局 Pixel Budget、无隐式全帧复制的 Raster 生命周期和 probe-before-decode 流水线。全局预算、受控 probe/decode、compose/resize 上界、显式 raster ownership、中间资源释放、跨 worker pool 共享和 encode 异常释放均已实现并通过定向测试。
 - [x] (2026-07-12) Milestone 3：完成 Canonical DAG → Typed Execution Plan → Typed Branch 的唯一执行链。worker/conversation 只从 canonical JSON 重建计划，watermark/background 使用显式 typed binding，生产适配真实 storage/thirdparty/image pipeline；旧 raw-node 类型、dispatcher、mapper 与 stub 已删除。普通图片任务同时冻结 `WorkUnitSelection` 并预建 PENDING 结果行。
 - [x] (2026-07-13) Milestone 4：完成 epoch-aware Runtime Reference 与只认 MySQL SUCCESS 的恢复读模型。Runtime Reference 强制同 epoch 命中、错 epoch 主动删 ref、24 小时 TTL 兜底；task adapter 仅投影显式 `unit_key` 的 SUCCESS，覆盖 BRANCH/GROUP/GENERATIVE，并正确区分 task 不存在与空 checkpoint。
-- [ ] (2026-07-13) Milestone 5：LockGuard、Execution Epoch claim、epoch heartbeat、completion queue、owner-thread fenced result/terminal commit、stale heartbeat 重投和生成式 selection/PENDING 投影已落地；真实 Redis/MySQL 故障注入因当前 Docker engine 不可用尚未执行，里程碑保持未完成。
-- [ ] Milestone 6：实现严格终态派生、Derived Retry Task、结构化 failure 与 retry-failed API。
-- [ ] Milestone 7：对齐生成式图片路径和前端任务体验。
-- [ ] Milestone 8：完成真实依赖故障注入、架构守护、旧代码清除和全仓验证。
+- [x] (2026-07-13) Milestone 5：LockGuard、Execution Epoch claim、epoch heartbeat、completion queue、owner-thread fenced result/terminal commit、stale heartbeat 重投和生成式 selection/PENDING 投影已落地；真实 Redis/MySQL/MinIO 故障注入已执行并通过。
+- [x] (2026-07-13) Milestone 6：完成严格终态聚合、Derived Retry Task、结构化 final failure 与 retry-failed API。派生事务锁定来源终态，只复制 FAILED 冻结 selection 并预建 PENDING 行；API 返回 taskId/retryOfTaskId/selectedUnitCount/status，查询合同暴露 retryOfTaskId 与脱敏 failure。
+- [x] (2026-07-13) Milestone 7：生成式图片继续使用 epoch-aware `StorageKeys.generatedUnit`；前端完成真实详情/结果加载、取消 conversationId、派生失败重试、来源历史只读、结构化失败展示和路由复用时 WS 重绑。前端当前工作树 112 项测试、typecheck、build 通过；按用户要求跳过浏览器检查。
+- [x] (2026-07-13) Milestone 8：完成 task/DAG/image/state 架构守护、旧生产路径清理扫描、task 自动配置 fail-fast、DAG 线程池边界清理和真实故障注入；Redis 14+2+1+1 项、MinIO 2+1 项、MySQL fencing/孤儿对象 2 项全部实际执行且零跳过。触达 reactor 与全仓回归均已运行；全仓仍被既有 context/eval 测试阻断，具体失败已记录。
 
 ## Surprises & Discoveries
+
+- Observation: `ExecutionFencingIntegrationTest` 原先用全量 `@EnableAutoConfiguration` 启动纯 mapper 测试，先后被 imagegen/tools 的无关必需 bean 阻断；将测试装配收窄到 DataSource、SQL init 与 MyBatis-Plus 后，测试进入真实 MySQL fencing SQL，并暴露测试完成记录漏填非空 `attempt_count`。
+  Evidence: 补齐测试夹具后，MySQL 8.4 Testcontainer 用例验证旧 epoch heartbeat/FAILED 写入均为 0 行、SUCCESS 不可被更高 epoch 覆盖；`mvn -pl pixflow-module-task -am -Pwindows-docker-npipe test` 最终 16 模块 reactor 全部通过，task 22 项零失败。
+
+- Observation: Milestone 8 的完整依赖测试首次触发 DAG ArchUnit，发现 `GroupRuntimeArtifactStore` 因 `RunStateRefStore` 暴露 infra-cache `CacheKey` 而形成直接依赖，和“DAG 只经 state facade 使用 runtime ref”的设计冲突。
+  Evidence: state 新增自有 `RuntimeRefKey`，默认适配器内部映射 `CacheKey`；DAG 9 项定向测试（含 7 条 ArchUnit）及最终 task 依赖 reactor 全测通过，生产源码对 `com.pixflow.infra.cache` 的 DAG 依赖不再命中。
+
+- Observation: task/app 触达 reactor 全测在到达 task 前被 `pixflow-context` 的两个既有断言失败阻断。
+  Evidence: `ContextBudgetServiceTest.externalizesLargeToolResultAndMicrocompactsOldResults` 未观察到预期压缩结果；`ContextProjectorTest.backsUpWindowStartToKeepToolPair` 只得到 USER，缺 ASSISTANT/TOOL_RESULT。两项均不依赖 task API。
 
 - Observation: Milestone 1 的 PENDING 结果预建依赖完整 `WorkUnitSelection`，但该 selection 的唯一合法生产者 `Typed Execution Plan + task planning` 安排在 Milestone 3；当前 `CreateTaskCommand` 只有 payload、expectedCount 和 hash，确认边界没有成员快照或稳定 unit identity。
   Evidence: `CreateTaskCommand` 无 selection 字段，`CreateTaskServiceImpl` 固定写入 `[]`；本计划 Milestone 3 才要求创建 planning 组件并生成完整 selection。为避免引入随后删除的临时 JSON 格式，先实施独立的 Milestone 2 切片，Milestone 3 建立 planning 后立即回补 Milestone 1 的预建行。
@@ -122,8 +131,17 @@ This ExecPlan is a living document. The sections `Progress`, `Surprises & Discov
 - Observation: SUCCESS fenced commit 若只信任 capability 返回的 key，可能公开错误 epoch 或尚不存在的对象；同时在 MinIO I/O 期间持有父 task 行锁会扩大数据库临界区。
   Evidence: `WorkUnitResultRepository` 现在先校验 key 的 task/unit hash/epoch 前缀和 `ObjectStorage.exists`，随后在事务内 `lockRunningEpoch(... FOR UPDATE)` 再执行条件更新。
 
-- Observation: 当前环境无法连接 Docker engine，真实 Redis/MySQL 故障注入不能执行，Testcontainers 用例会明确 SKIPPED。
-  Evidence: `docker info` 超时；`ExecutionFencingIntegrationTest` 启动时 Testcontainers 报 `Could not find a valid Docker environment`，1 项 skipped。测试源码已覆盖 MySQL 高 epoch fencing/SUCCESS 不可覆盖，cache 集成测试已增加重复 owner 与 Redis 不可用 fail-closed，但不能把 skipped 记为通过。
+- Observation: Milestone 5 初次执行时 Docker engine 曾暂时不可用，真实 Redis/MySQL 故障注入被延后；本轮 Docker 恢复后已补跑。
+  Evidence: 初次 `docker info` 超时；本轮 `docker info` 成功连接 Docker Desktop，Redis/MySQL/MinIO Testcontainers 用例均报告 `Skipped: 0` 并通过。
+
+- Observation: Milestone 8 的专项故障注入暴露出“对象已写入但 fenced DB 提交失败”必须由 MySQL 事实源隔离，不能从 MinIO 反向恢复结果。
+  Evidence: `OrphanedResultObjectIntegrationTest` 使用真实 MySQL 8.4 + MinIO，旧 epoch 对象存在但 `WorkUnitResultRepository.commit` 返回 `FENCED`，PENDING 行仍无 output key，conversation image 查询为空。
+
+- Observation: DAG 执行器原先自建 cached thread pool 实现单元超时，违反 DAG 不拥有线程池的边界。
+  Evidence: `PipelineUnitExecutor` 已改为同步执行并由 task 调度外壳负责并发/超时；新增 ArchUnit 规则禁止 DAG 依赖 ExecutorService/Executors/ThreadPoolExecutor，DAG 9 条架构规则与执行器 6 项测试通过。
+
+- Observation: TaskAutoConfiguration 原先以 `@ConditionalOnBean` 静默跳过核心 bean，缺少 Redis/MQ/storage/执行器时可能启动成功但不消费任务。
+  Evidence: 删除 task 核心 bean 的 `@ConditionalOnBean`，新增 `TaskAutoConfigurationTest` 验证空上下文启动失败和所有 task bean 不得使用该条件；缺少 ObjectMapper 时实际收到 UnsatisfiedDependencyException。
 
 ## Decision Log
 
@@ -163,7 +181,25 @@ This ExecPlan is a living document. The sections `Progress`, `Surprises & Discov
   Rationale: 只有 image 知道解码尺寸和目标画布上界。线程池并发与栅格内存占用不是同一个资源维度。
   Date/Author: 2026-07-12 / Codex
 
+- Decision: `RunStateRefStore` 使用 state 自有 `RuntimeRefKey`，由 `DefaultRunStateRefStore` 在适配器内部转换为 infra-cache `CacheKey`。
+  Rationale: 若 facade 直接暴露 `CacheKey`，DAG 即使只调用 state 也会形成对 infra-cache 的编译依赖，违反既有 DAG ArchUnit 与 state facade 边界。
+  Date/Author: 2026-07-13 / Codex
+
+- Decision: DAG 执行器不再创建单元超时线程池；同步执行由 task 的 Work Unit scheduler 负责并发与超时边界。
+  Rationale: DAG 是无状态确定性执行器，线程池会把调度生命周期、取消和资源归属泄漏到 DAG，并违反 Milestone 8 的反向依赖守护。
+  Date/Author: 2026-07-13 / Codex
+
+- Decision: TaskAutoConfiguration 的核心执行链采用必需构造依赖，不使用 `@ConditionalOnBean` 静默降级；`@ConditionalOnMissingBean` 仍允许测试显式替换具体实现。
+  Rationale: 缺少锁、消息、持久化或能力适配器时启动即失败，比启动后丢任务更安全，也符合生产配置错误 fail-fast 约束。
+  Date/Author: 2026-07-13 / Codex
+
 ## Outcomes & Retrospective
+
+Milestone 6 已交付终态与显式失败重试的公开闭环。`TaskCommandService.retryFailed` 委托独立 `RetryFailedTaskService`，后者以来源 taskId 范围化 Idempotency-Key，在事务内 `FOR UPDATE` 锁定 PARTIAL/FAILED 来源，按 FAILED `unit_key` 过滤冻结 selection，创建带 `retry_of_task_id` 的 PENDING 派生任务及结果投影；来源任务、结果与对象不写回。提交后 `PendingTaskEnqueuer` claim QUEUED 再发布 MQ，发布失败条件回落 PENDING，定时扫描显式重试。状态/结果查询分别增加 `retryOfTaskId` 和结构化 final failure；failure 生产端携带 owning-boundary node/tool/attempt，并在持久化前与查询时双重脱敏。四态聚合及 epoch update 0 行不发完成事件由定向测试覆盖。
+
+Milestone 7 已完成生成式路径与前端任务体验闭环。生成式输出保持 `taskId + unitKeyHash + runEpoch` 寻址；详情页从 API 加载状态和结果，PARTIAL/FAILED 的失败项重试创建并跳转 derived task，来源任务维持终态，取消请求携带 conversationId，WS 路由复用和 `occurredAt` 合同保持一致。审查后修正 `ResultPreview` 成功结果、失败列表与空态的互斥条件。前端当前工作树 112 项测试、typecheck、build 通过；用户明确跳过浏览器检查，未把该项计作失败。
+
+Milestone 8 已完成。Task 自动配置在缺失生产依赖时 fail-fast；DAG 通过 ArchUnit 禁止 task/file/cache/agent/MQ 和 worker thread pool 依赖，image/state 继续保持 storage/workflow 与客户端反向边界；旧类型、旧 StorageKeys、`forceUnlock` 和 capability worker 越界写入扫描无生产命中。真实 Redis 断连 fail-closed、锁键丢失后的旧 owner 拒绝、MySQL 高 epoch fencing、MinIO 孤儿对象不可见均有 Testcontainers 用例，所有新增用例实际执行且零跳过。触达模块 reactor 全测通过；全仓 `mvn test` 仍会在既有 `pixflow-context` / `pixflow-eval` 测试处停止，未把这些与执行域无关的失败归因于本里程碑。
 
 Milestone 1 已完成领域身份、数据库目标基线、state checkpoint/runtime reference 类型和对象存储路径的主体切换。可观察证据为 storage 15、state 17、imagegen 83、task 8 项测试通过，且相关模块主源码 reactor 编译成功。旧 `CompletedUnits`、旧 `ArtifactRef` 和旧 StorageKeys 生产路径已删除；生成式输出现在按 task、Work Unit hash 和 execution epoch 寻址。
 
@@ -486,9 +522,9 @@ Derived Retry Task 创建事务失败时不发布 MQ；重试同一 Idempotency-
     }
 
     public interface RunStateRefStore {
-        void putRef(CacheKey key, RuntimeArtifactRef ref, Duration ttl);
-        Optional<RuntimeArtifactRef> getRef(CacheKey key, long expectedRunEpoch);
-        void deleteRef(CacheKey key);
+        void putRef(RuntimeRefKey key, RuntimeArtifactRef ref, Duration ttl);
+        Optional<RuntimeArtifactRef> getRef(RuntimeRefKey key, long expectedRunEpoch);
+        void deleteRef(RuntimeRefKey key);
     }
 
 在 `pixflow-infra-cache` 中直接替换锁 callback：
@@ -541,6 +577,12 @@ Derived Retry Task 创建事务失败时不发布 MQ；重试同一 Idempotency-
 依赖方向保持：image 只依赖 common；storage/cache 是通用 infra；state 依赖 cache/storage 并定义只读 SPI；dag 依赖 image/thirdparty/ai/storage/state；task 依赖 dag/imagegen/state/cache/mq/storage 并实现 state SPI；conversation 只在确认边界调用 task/dag public API；app 承载 REST；web 只消费 API/WS。不得新增 image -> dag/task、state -> task persistence、dag -> task 或 Rubrics -> task persistence 依赖。
 
 ## Revision Notes
+
+2026-07-13 / Codex: 完成 Milestone 8。新增 Redis 断网/失锁和 MySQL+MinIO 孤儿对象真实故障注入；task 自动配置移除核心 `@ConditionalOnBean` 并增加 fail-fast 守护；DAG 删除自建超时线程池并增加 MQ/线程池 ArchUnit，image 增加 workflow/storage 反向依赖扫描。新增测试在 Docker 下全部实际执行且零跳过；全仓验证的既有 context/eval 阻断保留为明确残余风险。
+
+2026-07-13 / Codex: 完成 Milestone 7 并推进 Milestone 8。按用户要求跳过浏览器检查；前端当前工作树 112 项测试、typecheck、build 已通过，审查后修正 `ResultPreview` 在已有成功结果时仍渲染空态的问题。收窄 `ExecutionFencingIntegrationTest` 到持久化基础自动配置并补齐 attempt fixture，真实 MySQL 8.4 fencing 测试通过；新增 state 自有 `RuntimeRefKey`，清除 DAG 对 infra-cache `CacheKey` 的直接依赖，并将 retry 服务归位 `internal/retry`。DAG 9 项定向测试、task 依赖 reactor（task 22 项）全部通过，同轮 Redis 14、Redisson lock 2、MinIO 2 项真实集成测试零跳过；旧路径扫描零异常命中，`git diff --check` 通过。专项故障注入和既有 context/eval 阻断后的全仓验证仍待完成。
+
+2026-07-13 / Codex: 完成 Milestone 6。新增 derived retry 响应合同、独立 `RetryFailedTaskService` 与来源行锁，统一 `TASK_NO_FAILED_UNITS`，只复制来源 FAILED 冻结 Work Unit；`PendingTaskEnqueuer` 在提交后入队，MQ 失败回落 PENDING 并由扫描器重试。状态查询增加 `retryOfTaskId`，结果查询增加结构化 final failure，补齐 owning-boundary node/tool/attempt 和 details 双重脱敏。相关创建、入队、查询、终态、结果持久化共 9 项定向测试通过，task/app reactor 编译通过；完整触达测试与 MySQL integration 的独立阻断已记录在 Surprises，留待 Milestone 8 清理测试装配后复验。
 
 2026-07-13 / Codex: 开始 Milestone 5。`LockTemplate.tryRunWithLock` 改为只读 `LockGuard` callback，task 在持锁 owner 线程 claim 单调 `run_epoch` 并启动 epoch heartbeat；capability worker 只返回 sealed `WorkUnitCompletion`，owner 通过 completion queue 逐项校验 guard、epoch 对象和父 task 行锁后 fenced 更新预建结果行，再发布进度。恢复扫描只查询 stale heartbeat 并重投；SUCCESS 与同 epoch attempt 均不可覆盖。补齐生成式 Work Unit selection/PENDING 投影、fenced terminal update 与四态纯聚合。task 定向 17 项、file 锁契约相关 6 项通过；MySQL/Redis Testcontainers 因 Docker engine 不可用未实际执行，Milestone 5 保持进行中。
 

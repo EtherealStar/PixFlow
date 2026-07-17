@@ -35,7 +35,7 @@
 1. **归一化优先**。任何异常一旦跨出其产生边界，就被归一化为统一的**错误模型**（`PixFlowException` 承载）。下游消费者只读模型，绝不回头 `instanceof` 原始异常。
 2. **分类驱动行为**。重试 / 跳过 / 终止 / 压缩等跨切行为只依赖标准化的 `ErrorCategory` 与 `RecoveryHint`，不依赖具体业务码或底层库类型。
 3. **多出口平权**。HTTP 响应只是众多错误出口之一。Tool error、流式 error 帧、MQ 投递判定与 HTTP 渲染地位平等，共享同一归一化模型。
-4. **安全边界不靠文案**。`PERMISSION` 类错误（权限层硬 deny、确认令牌）天然不可重试、不可被降级，渲染时不暴露内部细节。
+4. **安全边界不靠文案**。`PERMISSION` 类错误（管理员资格、资源所有权、Proposal 权限硬校验）天然不可重试、不可被降级，渲染时不暴露内部细节。
 5. **内外分离 + 脱敏**。对外只给 `safeMessage` + `traceId` + 结构化 `details`；内部原文与堆栈进错误日志/trace，落盘前必经脱敏。
 6. **码分散、契约统一**。错误码按模块自治（接口化），`common` 只定义契约与通用码，避免单一巨枚举成为并行开发瓶颈。
 
@@ -126,7 +126,7 @@ common/
 | `VALIDATION` | TERMINATE | 400 | - | 参数、DAG 结构/schema 校验失败 |
 | `BUSINESS_RULE` | TERMINATE | 409 | - | 状态不符、素材包被任务引用、组张数不符 |
 | `NOT_FOUND` | TERMINATE | 404 | - | 对话/素材包/任务/结果不存在 |
-| `PERMISSION` | TERMINATE | 403 | - | 权限层硬 deny、确认令牌缺失/失效 |
+| `PERMISSION` | TERMINATE | 403 | - | 权限层硬 deny、管理员资格或资源权限失败 |
 | `RATE_LIMIT` | RETRY | 429 | 有 | 第三方抠图/生图/LLM 限流 |
 | `NETWORK` | RETRY | 504 | - | 连接失败、超时 |
 | `PROVIDER` | RETRY | 502 | - | 供应商 5xx、模型返回非法 |

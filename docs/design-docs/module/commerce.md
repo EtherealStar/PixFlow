@@ -268,7 +268,7 @@ flowchart TD
 |---|---|
 | `search` | 按 `asset_copy.product_name` / `description` / `sku_id` 做候选 SKU 检索，返回候选列表，不返回电商指标 |
 | `read` | 默认精读单 SKU 的文案与基础信息；当 `include=["data"]` 时调用 `CommerceService.query(CommerceQuery)` 读取指标、类目基准、偏离、趋势和新鲜度 |
-| 权限 | 两者均为只读工具，默认 `ALLOW`，不需确认令牌 |
+| 权限 | 两者均为只读工具，但仍经过管理员资格与 runtime-scope permission 校验 |
 | 失败 | 外部 API 失败不抛给 agent；`read(include=["data"])` 返回库存数据 + stale，或 missingSkus |
 | 结果预算 | 批量大时受 Tool Registry「结果预算」约束；超阈值由 harness/tools 外置 MinIO（commerce 不感知） |
 
@@ -348,7 +348,7 @@ pixflow:
 | 模块 | 契约 |
 |---|---|
 | `common` | 抛 `PixFlowException`（导入 VALIDATION / 依赖 DEPENDENCY）；`CommerceErrorCode implements ErrorCode`；文案经 `Sanitizer` |
-| `harness/tools` / `agent` | 注册 `search` / `read` 动作；`read(include=["data"])` → `CommerceService.query`；默认 ALLOW，无需确认令牌 |
+| `harness/tools` / `agent` | 注册 `search` / `read` 动作；`read(include=["data"])` → `CommerceService.query`；按只读 subject 走 deny-first permission |
 | `module/file` | 可在素材包上传后触发电商数据导入（调 `CommerceService.importData`）；commerce 不反向依赖 file |
 | `module/memory` | `sku_history.metrics_before/after` 的指标语义来自 commerce 的 `Metrics`（数据语义对齐，无代码依赖） |
 | `module/rubrics` | 决策质量评估读 commerce 指标做前后对比（数据语义对齐，无代码依赖） |

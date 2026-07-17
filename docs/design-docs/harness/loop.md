@@ -94,7 +94,7 @@ loop 是 `design.md §5.1` 明确要求的「**手写的显式循环，不依赖
 | 动态 Prompt 组装 + section 缓存 | `agent`（Wave 5） | 作为 `buildForModel(state, systemPrompt, toolSchemas)` 的 `systemPrompt` 入参传入 |
 | 可见工具集 `visibleDescriptors` → tool schema | `agent`（Wave 5） | 作为 `toolSchemas` 入参传入 |
 | `SummarizationPort`（fork 子 Agent 摘要） | `agent`（Wave 5） | context 经 SPI 倒置调用，与 loop 无关 |
-| 子 Agent runner 装配（vision/explore） | `agent`（Wave 5） | loop 只暴露 `continueStream` 引擎入口（见 [十二](#十二子-agent-fork-继续入口)） |
+| 子 Agent runner 装配（explore） | `agent`（Wave 5） | loop 只暴露 `continueStream` 引擎入口（见 [十二](#十二子-agent-fork-继续入口)）；商品视觉事实走普通工具，不建 child runtime |
 | 自动记忆召回与注入 | `agent` / `module/memory`（Wave 5） | 在 prompt 组装前完成，注入 memory section，非 loop 职责 |
 | HITL 确认流（确认 REST 边界） | `module/conversation` + `permission` | 带外触发，不是 loop 工具 |
 
@@ -181,7 +181,7 @@ agent ──► loop（Wave 5 装配：注入 systemPrompt/toolSchemas、Summari
 public final class AgentLoop {
 
     /** 普通用户交互入口：派发 UserPromptSubmit、追加 user 消息、进入 while 循环。 */
-    void stream(String prompt, List<Attachment> attachments, AgentEventSink sink,
+    void stream(String prompt, List<MessageReference> references, AgentEventSink sink,
                 String systemPrompt, List<ToolSchemaView> toolSchemas,
                 CancellationToken cancellation);
 
@@ -192,9 +192,9 @@ public final class AgentLoop {
 }
 ```
 
-- 两个入口对应参考的 `stream` / `continue_stream`。`stream` 是用户回合入口（追加 user message + durable attachment 后跑循环）；`continueStream` 用于子 Agent fork 与恢复（消息链已由调用方 seed，见 [十二](#十二子-agent-fork-继续入口)）。
+- 两个入口对应参考的 `stream` / `continue_stream`。`stream` 是用户回合入口（追加一个携带 canonical Message References 的 USER message 后跑循环）；`continueStream` 用于子 Agent fork 与恢复（消息链已由调用方 seed，见 [十二](#十二子-agent-fork-继续入口)）。
 - 构造依赖（注入，均为他模块协议）：`RuntimeState`、`MessageStore`（context）、`ContextEngine`（context）、`ContextCompactionService`（context）、`ChatModelClient`（infra/ai）、`ToolExecutor`（tools）、`HookRegistry`（hooks）、`TraceRecorder`（eval）、`CurrentModelContext`（context，供子 Agent fork 继承）、`PermissionContextFactory`（permission）。除前几个核心外，缺省可注入 no-op 替身用于测试与子 Agent fork。
-- **附件解析、prompt 组装、可见工具集、权限评估都不在 loop**：附件由调用方（conversation/agent）在调用前收集为 durable attachment；prompt/toolSchemas 由 agent 层在每轮 `buildForModel` 时传入；权限评估在 tools 执行管线内。
+- **素材引用解析、prompt 组装、可见工具集、权限评估都不在 loop**：调用方（conversation/agent）传入已规范化且已去重的 `MessageReference(referenceKey, displayPathSnapshot)`；prompt/toolSchemas 由 agent 层在每轮 `buildForModel` 时传入；权限评估在 tools 执行管线内。
 
 ### 6.2 `RuntimeState` —— 单会话可变运行态
 
@@ -264,7 +264,7 @@ public interface AgentEventSink {
 ```
 
 - 事件集合**精简**：不含 `interaction_started` 这类纯 UI 事件；**不 emit `error` 事件**——不可恢复错误经 `ErrorRecorder` 落盘后向上抛，由 web 层统一归一化为 HTTP/SSE error 帧（避免参考实现里「error 事件泄漏给 SDK 调用方导致会话被误终止」的问题，见 query.ts 注释）。
-- `AgentEventSink` 是**同步**接口：loop 在回合执行线程内调用 `emit`，web 层把它桥接到 `SseEmitter`（LLM token 流式）；任务进度的 WebSocket 推送是另一条独立链路（`module/task` + `common.ProgressNotifier`），不走本 sink。
+- `AgentEventSink` 是**同步**接口：loop 在回合执行线程内调用 `emit`，web 层把它桥接到 `SseEmitter`（LLM token 流式）；上传、解压、DAG 与 IMAGEGEN 的 Activity 更新经全局 `/user/queue/activity` 推送，不走本 sink。
 - 模型 retry 期间，loop 不自行重订阅或过滤 attempt；它只消费 `ChatModelClient.stream` 产出的 `TextDelta`、`AttemptReset` 与 `Completed`。是否透明丢弃失败 attempt 的 partial、是否用 `AttemptReset` 暴露重试状态，均由 infra/ai 的首次发射边界决定。
 
 ---
@@ -293,9 +293,9 @@ flowchart LR
   AI -->|ModelStreamEvent| Loop
 ```
 
-- conversation 先构造 `AgentTurnRequest(conversationId, prompt, attachments, cancellation)`，agent 装配层把同一 token 传入 `loop.stream(...)`。loop 仍同步跑完整个 while，但 SSE session 位于独立 worker 中。
+- conversation 先构造 `AgentTurnRequest(conversationId, prompt, references, cancellation)`，其中 `references` 是有序且按 canonical `referenceKey` 去重的 Message References；agent 装配层把同一 token 传入 `loop.stream(...)`。loop 仍同步跑完整个 while，但 SSE session 位于独立 worker 中。
 - `ModelStreamConsumer` 用 token signal 作为 `takeUntilOther` publisher；适配时必须 suppress cancel，避免模型流先完成后反向取消公共 signal。`blockLast` 返回或抛错后再次检查 token，取消不能被误判为空模型成功。
-- 任务进度（"已处理 320/800"）是 WebSocket/STOMP 另一条链路（`design.md §三`、`state.md §十一`），与 loop 的 SSE token 流正交，不混用。
+- Activity 状态与进度经全局 `/user/queue/activity` WebSocket/STOMP 链路推送，并以 `GET /api/activities` 作为首次快照；它与 loop 的 SSE token 流正交，不混用。
 
 ---
 
@@ -306,7 +306,7 @@ flowchart LR
 ```mermaid
 flowchart TD
   Start["stream(prompt, sink)"] --> UPS["HookRegistry.dispatch(USER_PROMPT_SUBMIT)"]
-  UPS --> AppendU["context.MessageStore.appendUser(prompt) + appendAttachments<br/>(写穿透 TranscriptPort → session 落库)"]
+  UPS --> AppendU["context.MessageStore.appendUser(prompt, references)<br/>(单个 USER message 写穿透 TranscriptPort → session 落库)"]
   AppendU --> Begin["TraceRecorder.begin(conv, turnNo, traceId, scope) → TurnTrace"]
   Begin --> Loop{"while true"}
   Loop --> Build["context.buildForModel(state, systemPrompt, toolSchemas)<br/>(cheap pipeline + 必要时 autoCompact 内含)"]
@@ -316,7 +316,7 @@ flowchart TD
   Consume -->|抛 CONTEXT_LIMIT 且首次| RC["ReactiveCompactionGate:<br/>context.reactiveCompact → set REACTIVE_COMPACT_RETRY<br/>emit TRANSITION → continue(不 append assistant)"]
   Consume -->|outputInterrupted| OI["OutputInterruptHandler:<br/>首次 escalate / 再次 recovery(见 §十) → continue"]
   Consume -->|正常完成| AppendA["context.appendAssistant(msg) (落库)<br/>emit ASSISTANT_MESSAGE_COMPLETED"]
-  AppendA --> AMC["HookRegistry.dispatch(ASSISTANT_MESSAGE_COMPLETED)<br/>(触发分析结论记忆异步抽取)"]
+  AppendA --> AMC["HookRegistry.dispatch(ASSISTANT_MESSAGE_COMPLETED)<br/>(仅观察，不写回业务记忆)"]
   AMC --> HasTool{"本轮有实际 toolCalls?"}
   HasTool -->|是| Exec["toolExecutor.execute(calls, toolExecutionContext)<br/>(串行 preflight + 相邻并发；TurnTrace 句柄在 ctx 内)"]
   Exec --> AppendT["context.appendToolResults(results) (落库)<br/>emit TOOL_RESULT*"]
@@ -385,7 +385,7 @@ PixFlow 特定接缝点（文档级硬约定）：
 
 ## 十二、子 Agent fork 继续入口
 
-PixFlow 的 vision / explore 子 Agent 在 Wave 3 就绪，真正接成 `agent` 工具动作在 Wave 5。loop 本期**只提供引擎入口 `continueStream`**，子 Agent runner 的装配（child runtime、工具裁剪、结果汇总）留给 `agent` 层（`subagent-architecture.md` 的接入边界：一个 `agent` 工具 + type 参数，不在主循环加特例分支）。
+PixFlow 的 explore 子 Agent 通过 `agent(type=explore)` 使用 child runtime。商品视觉理解已经收窄为持久化事实工具 `get_product_visual_facts`，不使用 `continueStream`。loop 本期**只提供引擎入口 `continueStream`**，explore runner 的装配（child runtime、工具裁剪、结果汇总）留给 `agent` 层。
 
 - `continueStream(sink)`：从**已 seed 的消息链**继续跑 while 循环，**不**派发 `UserPromptSubmit`、**不**追加用户 prompt（与 `stream` 的唯一区别）。
 - fork 消息链由 context 的 fork 流程构造（`context.md §十二`）：深拷贝父 `currentMessages()`；若末条 assistant 有未闭合 tool_use，为每个缺失 `toolCallId` 追加占位 `tool_result`（标 `placeholder`）修复 provider 协议；再追加 fork directive 的 user 消息。子 Agent 用 ephemeral `MessageStore`（不绑 `TranscriptPort`、不落 `message` 表）。
@@ -402,15 +402,15 @@ PixFlow 的 vision / explore 子 Agent 在 Wave 3 就绪，真正接成 `agent` 
 | 对接方 | 契约 |
 |---|---|
 | `agent`（Wave 5） | 驱动 `stream`/`continueStream`；每轮 `buildForModel` 传入组装好的 `systemPrompt` 与可见 `toolSchemas`；实现 `SummarizationPort`（context 用，destructive compaction 备份路径）与 `SessionMemoryPort`（主要压缩手段）；实现 `agent` 工具 handler + 子 Agent runner + Plan 模式控制器；自动记忆召回（RRF 融合）/ Session Memory 累积提取 / Skill 工具注册 / Skill 加载的按需披露在 prompt 组装前完成。详细接缝见 `docs/design-docs/agent.md` |
-| `harness/context` | 每迭代 `buildForModel(state, systemPrompt, toolSchemas)` 取快照（cheap pipeline 内含）；`appendUser/appendAssistant/appendToolResults/appendAttachments`（写穿透 session）；`CONTEXT_LIMIT` 触发 `reactiveCompact`；prune 日志经 loop 转投 eval（建议 `buildForModel` 带出裁剪条目，见 [八](#八单轮-think-act-observe-流程)）；`CurrentModelContext` 供 fork 继承 |
+| `harness/context` | 每迭代 `buildForModel(state, systemPrompt, toolSchemas)` 取快照（cheap pipeline 内含）；`appendUser(prompt, references)/appendAssistant/appendToolResults`（写穿透 session）；USER message metadata 保存 canonical Message References，不创建附件消息；`CONTEXT_LIMIT` 触发 `reactiveCompact`；prune 日志经 loop 转投 eval（建议 `buildForModel` 带出裁剪条目，见 [八](#八单轮-think-act-observe-流程)）；`CurrentModelContext` 供 fork 继承 |
 | `harness/tools` | `ToolExecutor.execute(calls, ctx)`；loop 构造 `ToolExecutionContext`（`PermissionContext` + 当前 `TurnTrace` 句柄 + `RuntimeScope`）；loop 不评估权限、不理解工具语义；工具异常已被 tools 归一化为 tool error，loop 照常 append 续轮 |
-| `harness/hooks` | 回合入口派发 `USER_PROMPT_SUBMIT`；每次 assistant 完成派发 `ASSISTANT_MESSAGE_COMPLETED`（触发分析结论记忆异步抽取）；无工具调用自然结束派发 `TURN_STOPPED`；`dispatch` 同步返回，loop 据返回 metadata 决策；hook 执行的 trace 由 loop 经 eval 记录 |
+| `harness/hooks` | 回合入口派发 `USER_PROMPT_SUBMIT`；每次 assistant 完成派发仅观察性的 `ASSISTANT_MESSAGE_COMPLETED`，不写回业务记忆；无工具调用自然结束派发 `TURN_STOPPED`；`dispatch` 同步返回，loop 据返回 metadata 决策；hook 执行的 trace 由 loop 经 eval 记录 |
 | `harness/eval` | 回合开始 `TraceRecorder.begin` 开累积器；每迭代 `recordInput`；自然结束 `commit`、异常 `abort`；把 context 的 prune 日志、tools 的 span、hooks 的执行投递/转投给当前 `TurnTrace`（trace 责任在 loop） |
 | `harness/session` | loop 不直接调 session；经 context 的 `appendXxx`/`TranscriptPort` 落库；在回合边界（`TURN_STOPPED`）调 `session.flush()` |
 | `permission` | loop 构造 `PermissionContext`（含子 Agent 约束、Plan 模式 denied 集合）交 tools 执行管线；**loop 不调 permission 的评估**，安全硬 deny 在 tools 管线内发生 |
 | `infra/ai` | 依赖 provider-neutral `ChatModelClient.stream(request)`、`ChatStreamEvent`（`Completed.toolCalls` 续轮信号、`AttemptReset` 重试提示、`StopReason.LENGTH` 恢复信号）、`ProviderError`（`CONTEXT_LIMIT` 等）、`ModelUsage` |
 | `common` | `CONTEXT_LIMIT` 等经 `ErrorCategory` 归一化；不可恢复错误经 `ErrorRecorder`（eval 实现）落盘 + 错误指标后向上抛；文案脱敏经 `Sanitizer` |
-| `module/conversation` / web 层 | 提供 REST/SSE 端点，创建 `SseEmitter` 适配为 `AgentEventSink`，调 `stream`；收集附件为 durable attachment 在调用前传入；不可恢复异常归一化为 HTTP/SSE error 帧 |
+| `module/conversation` / web 层 | 提供 REST/SSE 端点，创建 `SseEmitter` 适配为 `AgentEventSink`，调 `stream`；把用户消息携带的 canonical Message References 在调用前规范化并按 `referenceKey` 去重；不可恢复异常归一化为 HTTP/SSE error 帧 |
 
 **关键不变量**：① loop 是 provider-neutral 薄编排，不组装 prompt、不决定可见工具集、不评估权限；② 续轮只看 tool_calls，不读 stop_reason；③ 无 maxTurns，唯一正常终止是无工具调用；④ 错误恢复分层（retry 在 infra/ai、CONTEXT_LIMIT 与输出截断在 loop、其余上抛）；⑤ trace 责任在 loop（其余 harness 零 eval 依赖）；⑥ 回合内线程封闭、并发外移。
 

@@ -32,7 +32,7 @@
 
 `eval` 专属设计原则：
 
-1. **记录，不评估**。`design.md §5.6` 名为「Evaluation Interface」，含义是「为评估**提供**接口」，不是「执行评估」。所有评分（图片质量 / 文案质量 / 决策质量）归 `module/rubrics`（Wave 6 离线，`design.md §11`）。eval 只产出 trace + 回放 + 错误记录，绝不打分、绝不在线触发 Rubrics 预警（与 `hooks.md §六`「Rubrics 预警不接入在线 hook 链」一致）。
+1. **记录，不评估**。`design.md §5.6` 名为「Evaluation Interface」，含义是「为评估**提供**接口」，不是「执行评估」。图片、文案和决策的 Rubrics criterion 判定归 `module/rubrics`（Wave 6 离线，`design.md §11`）。eval 只产出 trace + 回放 + 错误记录，绝不执行 judge、聚合 verdict 或在线触发 Rubrics 预警（与 `hooks.md §六`「Rubrics 预警不接入在线 hook 链」一致）。
 
 2. **被动 sink，可观测责任上移**。trace 责任在调用方：loop / tools **主动投递**数据给 eval，eval 不反向去 loop / tools 内部抓取。这正是 `context.md`「snapshot 落 trace 由 loop 经 eval SPI 负责」、`hooks.md`「hooks 零观测依赖，trace 由调用方记录」的承接端。eval 只定义投递契约 + 落库 + 查询。
 
@@ -64,7 +64,7 @@ PixFlow 的差异点：
 | 可靠性 | 尽力 | best-effort + 高水位告警 + 崩溃可见（`turn_status`） |
 | 粒度 | 细粒度 span 流 | **每回合一行**聚合（含 input/tool_calls/recall/prune 四段） |
 | 错误落盘 | 分散 | 统一实现 `common.ErrorRecorder`，错误并入 trace + 错误指标 |
-| 评估耦合 | 无明确离线边界 | 严格区分：eval 记录、rubrics 离线评分，eval 零评估依赖 |
+| 评估耦合 | 无明确离线边界 | 严格区分：eval 记录、rubrics 离线 criterion 判定，eval 零评估依赖 |
 | 大结果 | 内联 | 复用 `infra/storage` 外置，trace 行只存引用 + preview |
 
 **可借鉴的结构骨架**：`TraceRecorder` 抽象、span 字段（输入 / 工具调用 / 召回 / 裁剪）、回放数据来源理念。
@@ -244,7 +244,7 @@ public interface TraceReplay {
 }
 ```
 
-- **rubrics（离线，Wave 6）** 经 `TraceQuery.query` 批量拉取回合 trace，结合本地数据集做图片/文案/决策质量评估（`design.md §11`）。决策质量评估消费 `tool_calls_json`（采纳/修改/追问行为）+ `recall_json`（召回质量）。
+- **rubrics（离线，Wave 6）** 经 `TraceQuery.query` 批量拉取回合 trace，并只选择与某个 `TASK_DECISION` criterion 相关的 span 构建 Evidence Pack。`IMAGE_RESULT` 与 `COPY_RESULT` 使用各自 typed subject 的证据，不把整份 trace 无差别塞给 judge。
 - **回放** 把外置引用回读为完整 content（缺失则保 preview + 标记 `missingExternal`，不阻断回放，与 `context.md` 外置回读语义一致）。
 - 读面统一用 `common` 的 `Pagination`/`PageResponse` 收口（`common.md §7`），避免无界查询。
 - 读面**只读**：不提供经读面修改 trace 的能力。
@@ -330,7 +330,7 @@ trace 的大部分内容**已是引用 + preview**——工具结果在 `harness
 - **外置物连带清理**：被删 trace 行引用的 MinIO 外置对象一并清理（按引用回收），避免 MinIO 孤儿对象。
 - **删除分批**：按主键分批删（避免大事务长锁），单次上限可配。
 - **可配**：`pixflow.eval.retention.days`（默认 7）、清理 cron、单批上限。
-- **与 rubrics 的时序约束**：rubrics 离线评估应在 trace 7 天保留期内消费完毕；超期 trace 视为已无评估价值（本期约束，离线评估窗口 < 保留期）。
+- **与 rubrics 的时序约束**：依赖 trace 的 `TASK_DECISION` dataset 必须在 trace 7 天保留期内构建并固化所需 Evidence Pack；超期后 Rubrics 不得假装能重放缺失证据，应把对应 criterion 标为 `INCONCLUSIVE(MISSING_EVIDENCE)` 或 dataset item 标为不可重放。
 
 ---
 
@@ -342,12 +342,12 @@ trace 的大部分内容**已是引用 + preview**——工具结果在 `harness
 | `harness/tools` 执行管线 | 在同一回合线程内向当前 `TurnTrace.recordToolCall` 投递单次工具调用 span（含 classification / permission 决策只读视图 / 耗时 / 结果引用 / error）；不反向依赖 eval 查找回合 |
 | `harness/context` | context 零 eval 依赖；其 snapshot 与裁剪日志由 loop 经 eval SPI 落 trace（`context.md §十一/§十四`） |
 | `harness/hooks` | hooks 零 eval 依赖；hook span（event/callbackCount/blocking/hookErrors/改写与否）由调用方（executor/loop）经 eval 记录（`hooks.md §9.3`） |
-| `module/rubrics` | 离线消费 `TraceQuery`/`TraceReplay`；rubrics 评分写回 RAG 记忆（`design.md §11`），**不写回 `agent_trace`**；rubrics 反向依赖 eval（`eval → rubrics` 边） |
+| `module/rubrics` | 离线消费 `TraceQuery`/`TraceReplay` 的相关 span 构建 Evidence Pack；evaluation/verdict **不写回 `agent_trace` 或 memory**，也不存在人工 Promotion 接口；rubrics 反向依赖 eval（`eval → rubrics` 边） |
 | `common` | 实现 `ErrorRecorder` SPI（落盘 + `pixflow.error.count` 指标）；落库前用 `Sanitizer` 脱敏；落库失败经 `ErrorNormalizer` 归一化后丢弃不冒泡 |
 | `infra/storage` | 消费共享 `ToolResultStorage` 外置超阈值 JSON 列 + 回读 + 连带清理 |
 | `module/task` | 任务维度可观测仍以 `process_task`/`process_result`（task 自管）为事实源；eval 只承接回合级 trace 与归一化错误，不替 task 记任务态 |
 
-**关键不变量**：① eval 记录不评估，评分归 rubrics 离线；② 被动 sink，可观测责任在调用方；③ 写路径异步非阻塞、best-effort 可丢；④ `agent_trace` 单写者是 eval；⑤ trace 脱敏后落库、绝不回流模型；⑥ eval 只依赖 `common` 与 `infra/storage`，对 rubrics 是被依赖方。
+**关键不变量**：① eval 记录不评估，criterion 判定归 rubrics 离线；② 被动 sink，可观测责任在调用方；③ 写路径异步非阻塞、best-effort 可丢；④ `agent_trace` 单写者是 eval；⑤ trace 脱敏后落库、绝不回流模型；⑥ eval 只依赖 `common` 与 `infra/storage`，对 rubrics 是被依赖方。
 
 ---
 
@@ -396,7 +396,7 @@ pixflow:
 
 ## 十五、暂不考虑
 
-- **在线评分 / Rubrics 预警**：评分与预警是 `module/rubrics` 离线职责（`design.md §11`），eval 只提供数据源，本期不在 eval 做任何打分或在线告警。
+- **在线 Rubrics 判定 / 预警**：criterion verdict 与回归预警是 `module/rubrics` 离线职责（`design.md §11`），eval 只提供数据源，本期不在 eval 做任何 judge、门禁或在线告警。
 - **trace 实时流式可视化**：本期 trace 落库后离线查询/回放，不做实时 trace 看板推送。
 - **at-least-once / 跨进程可靠投递**：本期 best-effort 进程内缓冲，不引入持久化队列 / 跨进程可靠 trace 投递。
 - **分布式 tracing backend（Jaeger/Tempo）接入**：`traceId` 由 Micrometer Tracing 生成（`common.md §9.2`），eval 落 MySQL trace；本期不接外部 tracing 后端做 span 可视化。

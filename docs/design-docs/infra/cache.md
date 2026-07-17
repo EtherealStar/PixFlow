@@ -2,7 +2,7 @@
 
 > 本文是 PixFlow 完整重写阶段 `infra/cache` 模块的设计文档，对应 `design.md` 第四章「技术栈选型」、第九章「DAG 确定性执行引擎」并发与断点部分、`13.3 Redis 键约定`，以及 `module-dependency-dag-plan.md` 的 **Wave 1 基础设施**。
 > 范围：基于 Redis + Redisson 的分布式协调原语（锁 / 计数 / 信号量 / 加权令牌桶）与带 TTL 的 KV 缓存抽象。本文不涉及 MVP 既有实现，从新架构需求重新推导。
-> 依赖契约沿用 `common` 模块（`docs/design-docs/module/common.md`）的错误模型与脱敏约定；确认令牌相关的 SPI / DTO 统一来自独立 `contracts` 模块。
+> 依赖契约沿用 `common` 模块的错误模型与脱敏约定。确认令牌机制已删除，infra/cache 不提供对应业务存储适配器。
 
 ---
 
@@ -28,11 +28,11 @@
 
 ## 一、文档定位与设计原则
 
-`infra/cache` 处于依赖 DAG 的 **Wave 1**，依赖 `common + contracts`，被 `harness/state`、`module/dag`、`module/task`、`infra/thirdparty` 使用。它的职责是把 Redis/Redisson 的分布式能力收敛成**少量稳定、无业务知识的原语**，让上层只关心"用哪种协调能力"，不关心 Redisson API 细节、键拼装、续期与序列化。
+`infra/cache` 处于依赖 DAG 的 **Wave 1**，依赖 `common`，被 `harness/state`、`module/dag`、`module/task`、`module/file`、`infra/thirdparty` 使用。它的职责是把 Redis/Redisson 的分布式能力收敛成**少量稳定、无业务知识的原语**，让上层只关心“用哪种协调能力”，不关心 Redisson API 细节、键拼装、续期与序列化。
 
 模块专属设计原则：
 
-1. **只提供通用原语，不承载业务知识**。模块内**不得出现** `task`、`branch`、`group`、`sku`、具体 provider 等业务词。`lock:task:{taskId}`、`branch:cache:*`、`bucket:thirdparty:*` 这类键名、令牌成本与生命周期，全部由调用模块拥有；`infra/cache` 只提供安全拼 key 的工具与执行机制。
+1. **只提供通用原语，不承载业务知识**。模块实现内**不得出现** `task`、`branch`、`group`、`sku`、具体 provider 等业务词。`lock:task:{taskId}:execution`、`runref:group:*`、`bucket:thirdparty:*` 这类键名、令牌成本与生命周期，全部由调用模块拥有；`infra/cache` 只提供安全拼 key 的工具与执行机制。
 2. **机制与语义分离**。锁、计数、信号量、KV 是机制；什么时候加锁、缓存什么、何时失效是语义。语义留给调用方。
 3. **安全释放优先**。锁与信号量一律走"在临界区内执行回调"的模板方法，强制 try-finally 释放，禁止把裸 `RLock` 暴露给上层手动 lock/unlock。
 4. **正确性靠事实源，锁只防重复**。分布式锁用于防止同一工作单元被并发/重复消费，**不作为业务正确性的唯一保证**；真正的幂等与断点以 MySQL `process_result` 为事实源（见 `design.md` 9.4）。
@@ -49,7 +49,7 @@
 | 层次 | 例子 | 归属 |
 |---|---|---|
 | 纯机制 | 分布式锁、原子计数、信号量、带 TTL 的 KV | **本模块** |
-| 业务语义 | `lock:task:{taskId}`、`progress:task:{taskId}`、`branch:cache:{taskId}:{imageId}:{branchId}`、`group:cache:...`、"整组聚合成功后才统一删" | `module/task`、`module/dag` |
+| 业务语义 | `lock:task:{taskId}:execution`、`progress:task:{taskId}`、`runref:group:{taskId}:{runEpoch}:...`、"当前 epoch compose 后删除" | `module/task`、`module/dag` |
 
 如果把业务键名和生命周期塞进 `infra/cache`，那么每次 task/dag 的业务调整都会反向震动地基模块，违背 Wave 1 的稳定性目标，也违背 `common.md` 已确立的"infra 不承载业务知识"原则。
 
@@ -91,13 +91,11 @@ infra/cache/
 │   ├── TokenBucketPolicy.java       # capacity/refillTokens/refillPeriod
 │   ├── TokenBucketDecision.java     # allowed/remaining/retryAfter
 │   └── RedisLuaTokenBucket.java     # Redisson RScript + Redis TIME
-├── confirmation/
-│   └── RedisConfirmationTokenStore.java # contracts.ConfirmationTokenStore 的 Redis 实现
 └── error/
     └── CacheException.java         # infra 内部具体异常（边界处归一化为 DEPENDENCY）
 ```
 
-依赖方向：`infra/cache → common + contracts`。其中 `common` 提供错误模型与脱敏，`contracts` 只提供确认令牌 SPI / DTO；本模块不依赖 permission / harness / module / agent。
+依赖方向：`infra/cache → common`。本模块不依赖 permission / harness / module / agent，也不依赖已删除的 confirmation contracts。
 
 ---
 
@@ -143,7 +141,7 @@ public interface CacheStore {
 
 ### 4.2.1 `ExpiringStateStore` / `ExpiringHashStore` —— 权威临时状态
 
-上传会话、确认令牌等状态带 TTL，但在生命周期内是正确性事实，不能套用普通 `CacheStore` 的“读失败视为 miss、写失败吞掉”降级语义。infra/cache 为此提供 fail-closed 的权威临时状态 interface；业务模块不直接依赖 Redisson：
+上传会话等状态带 TTL，但在生命周期内是正确性事实，不能套用普通 `CacheStore` 的“读失败视为 miss、写失败吞掉”降级语义。infra/cache 为此提供 fail-closed 的权威临时状态 interface；业务模块不直接依赖 Redisson：
 
 ```java
 public interface ExpiringStateStore {
@@ -259,9 +257,9 @@ public record TokenBucketDecision(
 - 调用 Redisson `lock()` 时**不传 leaseTime**（leaseTime = -1），触发看门狗：默认锁超时 30s（`lockWatchdogTimeout` 可配），持有期间每 1/3 超时（约 10s）自动续期一次，直到显式 `unlock`。
 - **强制模板内 try-finally 释放**：`LockTemplate.runWithLock` 在 finally 中 `unlock`（并校验 `isHeldByCurrentThread`，避免误解他人锁）。上层拿不到裸 `RLock`，杜绝忘记解锁。
 - **进程假死兜底**：看门狗会随进程一起停摆，超过 `lockWatchdogTimeout` 未续期后锁自动释放，其他实例可接管。配合恢复机制（`@Scheduled` 重扫 `status=执行中` 任务）重新入队。
-- **正确性不押在锁上**：锁仅防"同一任务/工作单元被并发或重复消费"。即使锁异常释放导致重复执行，因工作单元以 MySQL `process_result` 为幂等事实源（已成功的单元被跳过），不会产生重复副作用。本期**不引入 fencing token**（单体 + DB 事实源已足够，避免过度设计）。
+- **正确性不押在锁上**：锁仅防"同一任务/工作单元被并发或重复消费"。task 在取得锁后由 MySQL `run_epoch` 产生 ownership generation，并以条件更新 fence 失去锁的旧 worker；该 epoch 不是 Redis lock token，cache 只提供 watchdog lock 与只读 guard 机制。
 
-锁键示例（由 `task` 模块构造，本模块只执行）：`lock:task:{taskId}`、`lock:unit:{taskId}:{imageId}:{branchId}`。
+锁键示例（由 `task` 模块构造，本模块只执行）：`lock:task:{taskId}:execution`。Work Unit 不另建锁，统一由 task owner 的锁与 MySQL epoch 管理提交。
 
 ---
 
@@ -379,12 +377,10 @@ Redis 信号量、Redis 令牌桶与 Resilience4j 各管一个维度：
 
 | 模块 | 契约 |
 |---|---|
-| `contracts` | 只提供确认令牌相关的纯类型与 SPI，不承载存储实现 |
-| `permission` | 通过 `contracts.ConfirmationTokenStore` 注入 Redis 实现；permission 不直接依赖本模块 |
 | `harness/state` | 用 `CacheStore` 读写任务运行态引用、`AtomicCounter` 暴露进度；故障读降级、计数上抛 |
 | `module/task` | 持有 task 命名空间，自定义 `lock:task` / `progress:task` / `cancel:task` 的 key 构造；用 `LockTemplate` 防重复消费、`AtomicCounter` 计进度、`CacheStore` 置取消标志 |
 | `module/file` | `UploadSessionStore` implementation 使用 `ExpiringStateStore` 保存 fileHash 索引/session，使用 `ExpiringHashStore` 保存 `index -> ChunkMetadata`；module/file 的调用方只消费上传快照与幂等结果，不理解 Redis |
-| `module/dag` | 持有 branch/group 命名空间，自定义 `branch:cache` / `group:cache` 的 key 与"成功即删 / 整组延迟删"生命周期；缓存值只存引用 |
+| `module/dag` | 持有 group runtime-reference 命名空间，自定义 `runref:group:*` key 与当前 epoch 生命周期；缓存值只存引用 |
 | `infra/thirdparty` | 直接消费 `DistributedSemaphore` + `DistributedTokenBucket`；provider/api key 与 cost policy 归 thirdparty，重试/熔断/舱壁归 Resilience4j |
 | `infra/ai` | 通过 ai 自有 quota SPI 间接消费令牌桶；组合根提供 cache adapter，避免 ai 反向依赖 cache |
 | `common` | 本模块异常跨边界由 `ErrorNormalizer` 归一化为 `DEPENDENCY`；文案经 `Sanitizer` |
@@ -401,7 +397,6 @@ Redis 信号量、Redis 令牌桶与 Resilience4j 各管一个维度：
 - **降级分级**：用故障注入（关停容器/断连）验证"读降级为 miss、锁/计数上抛"两类行为。
 - **归一化**：断言 cache 异常跨边界后变成 `DEPENDENCY` 的 `PixFlowException`。
 - **键命名空间**：断言环境前缀、段拼接、默认 TTL 兜底。
-- **确认令牌存储**：验证 `RedisConfirmationTokenStore` 的 TTL 生效、原子 consume、并发下只有一次消费成功。
 - 单元层用 in-memory 替身（无需 Redis）跑模板逻辑与降级分支，集成层用 Testcontainers 跑真实语义。
 
 ---
@@ -409,7 +404,7 @@ Redis 信号量、Redis 令牌桶与 Resilience4j 各管一个维度：
 ## 十五、暂不考虑
 
 - 多级缓存（本地 Caffeine + Redis 两级）：本期只做分布式单级，后续如需读热点再叠本地层。
-- fencing token 强一致锁：本期以 MySQL 事实源保证幂等，不引入。
+- Redis fencing token：不引入；执行 fencing 由 task 拥有的 MySQL `run_epoch` 条件更新承担。
 - Redis 多级降级到本地内存继续服务：本期 Redis 不可用按 `DEPENDENCY` 上抛 + 任务恢复机制兜底，不做无 Redis 降级运行。
 - 用户级 HTTP 入站防滥用、每日预算、真实 LLM TPM/账单核算：不属于本通用原语；本期令牌桶只为出站 provider attempt 提供请求权重额度。
 - 缓存预热、批量管道(pipeline)优化：待出现明确性能瓶颈再做。
@@ -420,3 +415,5 @@ Redis 信号量、Redis 令牌桶与 Resilience4j 各管一个维度：
 2026-07-11 / Codex: 新增 fail-closed 的 `ExpiringStateStore/ExpiringHashStore` interface 与 Redis/in-memory adapter 契约，为 module/file 的 `UploadSessionStore` 提供权威临时 KV/Hash 状态；业务模块不再以 N 个 KV key 扫描分片进度，也不直接依赖 Redisson。
 
 2026-07-11 / Codex: 将集群级出站限速从 resilience4j 单 JVM RateLimiter 收敛为 Redis Lua 加权令牌桶。新增 `DistributedTokenBucket` 深模块接口、原子补充/消费/`retryAfter` 语义、fail-closed 策略、低基数指标和 Testcontainers 契约；明确 provider policy 归调用模块、每个 retry attempt 必须重新过桶，并决定实施时删除过渡的 `DistributedRateLimiter`/`RedissonDistributedRateLimiter` 双路径。
+
+2026-07-12 / Codex: 更新运行态引用边界：task 互斥使用调用方命名的 Redisson `RLock`，group 中间引用使用带 `runEpoch` 的 `runref:group:*`，只服务当前 fan-in，不作为 MySQL Work Unit Checkpoint；fencing 与 heartbeat 事实由 task/MySQL 持有。

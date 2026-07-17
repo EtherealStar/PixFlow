@@ -34,7 +34,7 @@
 
 `context` 专属设计原则：
 
-1. **纯运行期工作内存，持久化倒置给 session**。context 自身**不直连 MySQL**，只持有内存链与 append-only 语义；落库由 `TranscriptPort` SPI 委托给 `harness/session`（依赖倒置，复用 `common.ErrorRecorder` / `contracts.ConfirmationTokenStore` 同款手法）。这解释了依赖 DAG 中 `context → session` 的箭头方向——session 通过实现 context 的 SPI 反向接入。
+1. **纯运行期工作内存，持久化倒置给 session**。context 自身**不直连 MySQL**，只持有内存链与 append-only 语义；落库由 `TranscriptPort` SPI 委托给 `harness/session`（与 `common.ErrorRecorder` 的接线同类）。
 2. **MySQL 是事实源，内存可重建**。`message` 表是会话 transcript 的唯一事实源（由 session 统一写）。context 的内存链与可选 Redis 缓存都是「同次运行内避免重复加载」的优化，**可丢可重建**，与 `design.md §5.4` State Store「Redis 缓存可丢失可重建、MySQL 才是断点」的口径一致。
 3. **确定性优先，LLM 兜底**。上下文体积治理分两层：**cheap pipeline**（预算外置 + 投影滑窗 + microcompact，纯确定性、不调 LLM、不改写链）必跑；**destructive compaction**（摘要式，调 LLM）仅在超阈值/CONTEXT_LIMIT 时触发，且 LLM 摘要经 `SummarizationPort` SPI 倒置给 agent 层，context 不依赖 LLM 调用。
 4. **不可变投影，杜绝别名修改**。对外返回的消息一律不可变拷贝（Java `record` + 防御性拷贝），替代参考实现的 `deepcopy`，避免上层句柄回写污染内部状态。
@@ -82,7 +82,7 @@ infra/storage ──► context ──► session ──► conversation
 |---|---|---|
 | `harness/context` | **运行期工作内存**：消息模型、append-only 内存链、投影、Token 预算、cheap pipeline、摘要式压缩编排、ContextSnapshot、fork 继承、大结果外置 | `message_store` + `projector` + `snapshot` + `current_model_context` + `compaction/*` |
 | `harness/session` | **transcript 持久化（唯一写者）**：实现 `TranscriptPort`，把消息链落 MySQL `message` 表、会话生命周期、恢复加载 | `transcript.py`（JSONL → MySQL） |
-| `module/conversation` | **业务出口**：`conversation` 表 CRUD、REST、SSE 流式、附件关联；对 `message` 表**只读查询** | 无（参考无业务层） |
+| `module/conversation` | **业务出口**：`conversation` 表 CRUD、REST、SSE 流式、canonical Message Reference 规范化；对 `message` 表**只读查询** | 无（参考无业务层） |
 
 边界硬约束（与本次设计决策一致）：
 
@@ -101,7 +101,7 @@ infra/storage ──► context ──► session ──► conversation
 harness/context/
 ├── model/
 │   ├── Message.java               # 不可变 record：role + content + metadata + toolCallId
-│   ├── MessageRole.java           # USER / ASSISTANT / TOOL_RESULT / ATTACHMENT
+│   ├── MessageRole.java           # USER / ASSISTANT / TOOL_RESULT
 │   ├── MessageMetadata.java       # 压缩边界/摘要标记、外置引用标记等开放扩展位
 │   └── ToolResultReference.java   # 外置结果引用（MinIO key + preview + 原始大小）
 ├── store/
@@ -141,7 +141,7 @@ loop ──► context（每轮 buildForModel 取 snapshot；append 用户/assis
 conversation ──► context（共享消息模型；触发 append；只读查询走 session 侧 repo）
 ```
 
-> **新增依赖边说明**：`SummarizationPort` 由 `agent` 层实现引入 `agent → context` 边（agent 在 Wave 5，远高于 context，无环）。`MessageChainCache` 由 `infra/cache` 实现引入 `infra/cache → context` 边（cache 在 Wave 1，但它只实现 context 定义的 SPI，是倒置接入，不构成环——与 `infra/cache` 实现 `contracts.ConfirmationTokenStore` 同理）。这两条 SPI 倒置边在 `module-dependency-dag-plan.md` 的依赖图中体现为「实现方指向 SPI 定义方」。
+> **依赖边说明**：`SummarizationPort` 由 agent 实现，`MessageChainCache` 由 infra/cache 实现；两者都由实现方指向 context 定义的 SPI，不构成反向业务依赖。
 
 > **接口约束**：context 不引用 `harness/tools` 的 `ToolDescriptor` 等类型；`ContextSnapshot.toolSchemas` 用 context 自定义的最小 schema 视图（由调用方填充），避免 `context → tools` 倒挂。
 
@@ -157,13 +157,12 @@ context 持有 provider-neutral 的内部消息，由 provider adapter（`infra/
 public enum MessageRole {
     USER,         // 用户输入
     ASSISTANT,    // 模型输出（可含 tool_use）
-    TOOL_RESULT,  // 工具结果（provider-neutral，adapter 投影为目标格式）
-    ATTACHMENT    // durable internal role：附件（图片/素材包引用），调用前投影后隐藏
+    TOOL_RESULT   // 工具结果（provider-neutral，adapter 投影为目标格式）
 }
 ```
 
 - `TOOL_RESULT` 保持中立，不绑定任何供应商的 tool message 格式；`infra/ai` 的 adapter 负责投影。
-- `ATTACHMENT` 是 durable internal role：承载素材包/图片引用，与 `module/conversation` 的附件关联对应。本期其投影为**轻量直通**（把 MinIO 引用/元信息拼入调用前可见内容，调用后在内部链保留、在模型视图隐藏），不做复杂附件治理（见 [十七](#十七暂不考虑)）。
+- USER message metadata may contain ordered `MessageReference(referenceKey, displayPathSnapshot)` values. Context renders their canonical keys and snapshots into the model-visible user message; it never loads or embeds archive/image bytes as a separate message role.
 
 ### 5.2 `Message`
 
@@ -201,10 +200,9 @@ public record Message(
 
 ```java
 public final class MessageStore {
-    Message appendUser(String content);
+    Message appendUser(String content, List<MessageReference> references);
     Message appendAssistant(Message assistant);
     List<Message> appendToolResults(List<Message> results);
-    List<Message> appendAttachments(List<Message> attachments);
 
     List<Message> currentMessages();   // 返回不可变拷贝
     List<Message> seedMessages(List<Message> messages);   // rehydrate 用
@@ -218,6 +216,8 @@ public final class MessageStore {
     void flush();   // 显式 flush transcript（回合收尾 / 测试）
 }
 ```
+
+`appendUser` appends exactly one USER message. Its ordered `references` are stored in message metadata as canonical `referenceKey + displayPathSnapshot` pairs; no separate attachment message is created.
 
 - `currentMessages()` 返回**不可变拷贝**，外部无法回写内部状态。
 - `replaceMessagesForCompaction` 是 destructive compaction 改写活动链的**唯一入口**；cheap pipeline 的投影**不**走它（只投影，不改写）。
@@ -289,7 +289,7 @@ public final class ContextProjector {
 }
 ```
 
-- 仅处理 `USER` / `ASSISTANT` / `TOOL_RESULT` 配对；**不处理 `ATTACHMENT`**（附件投影是 ATTACHMENT 角色的轻量直通，不归投影器）。
+- 投影处理 `USER` / `ASSISTANT` / `TOOL_RESULT`，并保护 tool call/result 配对；USER references 随该消息一起保留或裁剪，不成为孤立消息。
 - **配对保护硬不变量**：滑窗起点若落在某 tool call/result 配对中间，向前回退起点以保留完整配对，绝不产出孤立 `tool_result`。
 - 投影只读不改写内存链；它服务 cheap pipeline 的 snip 步骤与压缩的 tail 选取。
 
@@ -458,10 +458,10 @@ public final class CurrentModelContext {
 | 对接方 | 契约 |
 |---|---|
 | `harness/session` | 实现 `TranscriptPort`，是 `message` 表唯一写者；`append`/`load`/`replaceForCompaction`；落库时经共享 `ToolResultStorage` 外置大结果 |
-| `module/conversation` | 共享 context 消息模型；用户消息经 context→`TranscriptPort` 落库（不直接写 `message` 表）；历史展示走**只读**查询；SSE 流式与附件关联在 conversation，附件以 `ATTACHMENT` 消息进 context |
+| `module/conversation` | 共享 context 消息模型；用户消息经 context→`TranscriptPort` 落库；ordered Message References 存于 USER metadata，不创建附件消息 |
 | `harness/loop` | 每轮 `buildForModel` 取 `BuildResult(snapshot, pruneEntries)`；append 用户/assistant/tool 消息；`CONTEXT_LIMIT` 时触发 `reactiveCompact`；`pruneEntries` 由 loop 经 `TraceFanout` 转投 `eval.TurnTrace.recordPrune`；snapshot 落 trace 由 loop 经 eval SPI 负责 |
 | `agent` | 实现 `SummarizationPort`（fork 子 Agent 调 LLM 摘要）；组装 systemPrompt 与可见 toolSchemas 传入 `buildForModel` |
-| `infra/ai` | provider adapter 把内部 `TOOL_RESULT`/`ATTACHMENT` 投影为目标 wire format；模型调用超窗抛 `CONTEXT_LIMIT`（`common` 归一化），由 context/loop 消费 |
+| `infra/ai` | provider adapter 把内部 TOOL_RESULT 投影为目标 wire format；USER references 已由 context 渲染为安全文本，不传文件字节；模型调用超窗抛 `CONTEXT_LIMIT` |
 | `infra/storage` | 提供共享 `ToolResultStorage`（外置/去重/回读），底层仍用 `ObjectStorage` 与 `StorageKeys.toolResult(id)` |
 | `infra/cache` | 实现 `MessageChainCache`（Redis 热缓存，可丢可重建；压缩时失效） |
 | `harness/hooks` | `PreCompact` 返回 `summaryInstructions` 注入 `SummarizationRequest`；`PostCompact`/`CompactFailed` 为观察事件（context 在压缩各阶段派发，hooks 不写 trace） |
@@ -500,7 +500,7 @@ pixflow:
 
 ## 十六、测试策略
 
-- **投影配对**：滑窗起点落在配对中间时，断言回退保留完整 tool call/result；断言绝不产出孤立 `tool_result`；ATTACHMENT 不被投影器处理。
+- **投影配对**：滑窗起点落在配对中间时，断言回退保留完整 tool call/result；绝不产出孤立 tool_result；USER references 与所属消息同生共灭。
 - **不可变性**：`currentMessages()` 返回的 list 与元素修改不影响内部链。
 - **cheap pipeline**：结果预算外置（>50KB 写 MinIO + 引用+preview、去重复用）、snip 上限、microcompact 占位、jtokkit 估算单调性。
 - **持久化倒置**：用 in-memory `TranscriptPort` 替身验证 append 写穿透、`load` rehydrate、`replaceForCompaction` 改写；断言 context 不出现任何 MySQL 直连。
@@ -516,7 +516,7 @@ pixflow:
 ## 十七、暂不考虑
 
 - **session memory（跨压缩连续性 Markdown + 提取子 Agent）**：参考实现的 `session-memory.md` 机制本期不做；摘要直接进活动链，不维护独立 session 级 memory 文件。
-- **附件治理**：`ATTACHMENT` 仅做轻量直通投影；复杂附件去重/降级/多模态附件预算治理本期不做。
+- **文件字节进入上下文**：不做；Agent 只看到 canonical reference keys 和 display snapshots，需要内容时调用资产工具。
 - **稀疏/BM25 或语义层面的智能裁剪**：裁剪是确定性优先级 + 滑窗，不引入向量相似度选择保留消息（语义召回属 `module/memory`）。
 - **跨会话上下文共享 / 多对话合并**：context 以单会话为单位，不做跨会话拼接。
 - **会话-节点亲和（sticky session）**：采用每轮 rehydrate，不做节点亲和。

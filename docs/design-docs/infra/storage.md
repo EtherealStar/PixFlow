@@ -86,8 +86,8 @@ infra/storage/
 | 逻辑桶（`BucketType`） | 默认物理桶名 | 内容 | 保留策略 |
 |---|---|---|---|
 | `PACKAGES` | `pixflow-packages` | 素材包原始 zip、解压后原图、文案文档 | 永久（随素材包显式删除） |
-| `RESULTS` | `pixflow-results` | 确定性 DAG 处理结果图（含组支路合成图） | 永久 |
-| `GENERATED` | `pixflow-generated` | 生图子 Agent 的重绘结果 | 永久 |
+| `RESULTS` | `pixflow-results` | 已发布的确定性 DAG 输出 Asset Image | 随 generated asset 显式删除；不随 task/Activity 记录删除 |
+| `GENERATED` | `pixflow-generated` | 已发布的 IMAGEGEN 输出 Asset Image | 随 generated asset 显式删除；不随 task/Activity 记录删除 |
 | `TOOL_RESULTS` | `pixflow-tool-results` | 外置的大 tool-result（>阈值），供模型引用与回放 | 长期（默认不过期；可配 TTL） |
 | `TMP` | `pixflow-tmp` | 中间产物、断点临时文件 | **24 小时自动过期** |
 
@@ -111,15 +111,15 @@ infra/storage/
 
 | 方法 | 逻辑桶 | key 模板 | 来源 |
 |---|---|---|---|
-| `packageSource(packageId)` | PACKAGES | `{packageId}/source.zip` | 原始 zip |
+| `packageSource(packageId, archiveExt)` | PACKAGES | `{packageId}/source.{archiveExt}` | 原始 ZIP/RAR/7z 压缩包 |
 | `packageImage(packageId, relPath)` | PACKAGES | `{packageId}/images/{relPath}` | 解压后原图 |
 | `packageDoc(packageId, fileName)` | PACKAGES | `{packageId}/doc/{fileName}` | 文案文档 |
-| `result(taskId, skuId, imageId, branchId, ext)` | RESULTS | `{taskId}/{skuId}_{imageId}_{branchId}.{ext}` | 普通支路结果 |
-| `groupResult(taskId, skuId, groupKey, branchId, ext)` | RESULTS | `{taskId}/{skuId}_g{groupKey}_{branchId}.{ext}` | 组支路合成图（`image_id` 置空，以 `group_key` 命名） |
-| `generated(taskId, skuId, imageId, ext)` | GENERATED | `{taskId}/{skuId}_{imageId}.{ext}` | 生图结果 |
+| `resultUnit(taskId, unitKeyHash, runEpoch, ext)` | TMP | `results/{taskId}/units/{unitKeyHash}/epochs/{runEpoch}/output.{ext}` | 普通/组 Work Unit 候选；发布前不可见 |
+| `generatedUnit(taskId, unitKeyHash, runEpoch, ext)` | TMP | `generated/{taskId}/units/{unitKeyHash}/epochs/{runEpoch}/output.{ext}` | IMAGEGEN 候选；发布前不可见 |
+| `resultAsset(packageId, imageId, ext)` | RESULTS | `{packageId}/images/{imageId}/output.{ext}` | File 注册后稳定的 generated asset 对象 |
+| `generatedAsset(packageId, imageId, ext)` | GENERATED | `{packageId}/images/{imageId}/output.{ext}` | File 注册后稳定的 IMAGEGEN asset 对象 |
 | `toolResult(id)` | TOOL_RESULTS | `{id}.txt` | 外置大 tool-result |
-| `tmpBranch(taskId, imageId, branchId, name)` | TMP | `{taskId}/{imageId}/{branchId}/{name}` | 支路中间产物 |
-| `tmpGroup(taskId, groupKey, branchId, imageId, name)` | TMP | `{taskId}/{groupKey}/{branchId}/{imageId}/{name}` | 组支路成员中间产物 |
+| `runtimeGroup(taskId, runEpoch, unitKeyHash, memberId, name)` | TMP | `{taskId}/{runEpoch}/{unitKeyHash}/{memberId}/{name}` | 当前 epoch 组成员临时对象；非 checkpoint，epoch 结束/TTL 清理 |
 
 > key 中的业务标识（skuId、文件名等）来自外部输入，模板内对路径分隔与非法字符做规范化（去前导 `/`、禁止 `..`），防止路径穿越。规范化逻辑随 `StorageKeys` 一并单测。
 
@@ -158,6 +158,7 @@ public interface ObjectStorage {
 
     void delete(ObjectLocation loc);
     void deleteByPrefix(BucketType bucket, String prefix);   // 任务/支路级批量清理
+    ObjectRef copy(ObjectLocation source, ObjectLocation target); // 候选结果发布为稳定 Asset Image
 
     URL presignGet(ObjectLocation loc, Duration ttl);        // 下载/预览直连
     URL presignPut(ObjectLocation loc, Duration ttl);        // 前端直传（预留）
@@ -193,7 +194,7 @@ public record StoredObjectMetadata(long size, String contentType, String etag, I
 ### 6.3 批量删除（前缀）
 
 - `deleteByPrefix(bucket, prefix)`：`listObjects(prefix, recursive=true)` 拿到 key 列表后 `removeObjects` 批量删。
-- 用于任务级/支路级清理 `TMP` 桶残留，以及素材包删除时清 `PACKAGES` 桶对应前缀。
+- 用于任务级/支路级清理 `TMP` 桶残留，以及素材包删除时清 `PACKAGES` 桶对应前缀。禁止用 task prefix 删除 `RESULTS`/`GENERATED`，因为成功资产生命周期独立于执行记录。
 - 批量删按页处理，避免单次列举过大；删除失败的 key 收集后随 `StorageException` 上报（含失败明细 details）。
 
 ### 6.4 大 tool-result 外置（共享 ToolResultStorage）
@@ -211,10 +212,12 @@ public record StoredObjectMetadata(long size, String contentType, String etag, I
 
 - **`TMP` 桶配 24 小时自动过期**：通过 MinIO 桶生命周期规则（`SetBucketLifecycleArgs` + `LifecycleConfiguration`，规则 `Expiration(days=1)` 作用于全桶）实现。所有临时产物落 `TMP` 桶，到期由对象存储自动回收，**应用层无需定时删除任务**。
 - 规则在 `StorageInitializer` 启动期声明（幂等：重复声明覆盖同一规则），受建桶开关控制。
-- 主动清理仍保留 `deleteByPrefix` 供「支路成功即删中间产物」「任务结束清 tmp 前缀」等即时回收场景；与 24h 兜底过期互补——正常路径即时删，异常残留靠生命周期兜底。
+- 主动清理仍保留 `deleteByPrefix` 供「当前 epoch compose 成功后删 group runtime refs」「任务结束清 epoch/TMP 前缀」等即时回收场景；与 24h 兜底过期互补——正常路径即时删，异常残留靠生命周期兜底。
 - 其余桶（`PACKAGES`/`RESULTS`/`GENERATED`）不配过期；`TOOL_RESULTS` 默认不过期，TTL 留作可配项（供回放/trace 长期留存）。
 
-> 设计取舍：`design.md` §9.4 的支路断点缓存以 Redis 为主（`branch:cache:*`、`group:cache:*` 成功即删）；MinIO 的 `TMP` 仅承载「需落对象存储的中间产物（如需）」，并由 24h 生命周期兜底，二者职责不冲突。
+成功发布顺序为：候选写 TMP → fenced result SUCCESS → File 分配新 `imageId` → copy 到稳定 result/generated asset key → 事务登记 `asset_image` 与 lineage → 删除 TMP 候选。只有登记完成的稳定对象进入 Outputs。失败/取消只清理候选；删除成功 task/Activity 记录不触碰稳定资产对象。
+
+> 设计取舍：Work Unit checkpoint 只在 MySQL `process_result.status=SUCCESS`；Redis 的 `runref:group:{taskId}:{runEpoch}:*` 只是当前 epoch 的运行态引用，MinIO 的 `TMP`/epoch 对象由生命周期兜底清理。对象写入与 fenced MySQL SUCCESS 分离，不能仅凭 MinIO 存在宣告完成。
 
 ---
 
@@ -300,8 +303,8 @@ pixflow:
 | 模块 | 契约 |
 |---|---|
 | `module/file` | 用 `StorageKeys.package*` 写入原 zip/原图/文档；大文件走 `put` 流式分片 |
-| `module/dag`/`task` | 结果图 `put` 到 `RESULTS`；下载/预览取 `presignGet`；任务清理用 `deleteByPrefix(TMP, ...)` |
-| `module/imagegen` | 生图结果 `put` 到 `GENERATED` |
+| `module/dag`/`task` | 候选结果写 TMP；fenced SUCCESS 后经 File publication port 提升到 RESULTS；任务清理只删未发布 TMP 对象 |
+| `module/imagegen` | 单图候选写 TMP；成功后经 File publication port 提升到 GENERATED 并获得新 imageId |
 | `harness/context` | cheap pipeline 判断单条 tool_result 超阈值后调用共享 `ToolResultStorage`，只把引用+preview 送入模型 |
 | `harness/tools` | Tool handler 返回超阈值结果后调用共享 `ToolResultStorage`，trace/工具结果只保存稳定引用 |
 | `harness/session` | transcript 落库前调用共享 `ToolResultStorage` 外置大 tool_result，`load` rehydrate 时通过同一抽象回读完整 content |
@@ -330,3 +333,7 @@ pixflow:
 - CDN 回源——前端预览先用预签名 URL，CDN 后续再加。
 - 阿里云 OSS 真实切换——本期用 MinIO 官方 SDK，OSS 适配作为后续实现替换项；接口层已为替换预留。
 - 前端直传业务接线——`presignPut` 接口先在，业务编排后续再做。
+
+## Revision Notes
+
+2026-07-12 / Codex: 对齐 task/dag 的结果写序：结果对象按 task/unit/run_epoch 确定性寻址；MinIO 对象存在不等于完成，只有 MySQL fenced `process_result.status=SUCCESS` 引用的对象对外可见，失效 epoch 对象由生命周期清理。

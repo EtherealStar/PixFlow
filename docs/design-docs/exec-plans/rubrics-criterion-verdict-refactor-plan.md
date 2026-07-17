@@ -19,9 +19,12 @@ This ExecPlan is a living document. The sections `Progress`, `Surprises & Discov
 - [x] (2026-07-12 00:15+08:00) 核对当前 `pixflow-module-rubrics` v1 源码、迁移、模板和测试，确认设计与实现差距。
 - [x] (2026-07-12 00:20+08:00) 创建本 v2 重构 ExecPlan，并记录深模块接口、迁移顺序、设计关键词和验收闭环。
 - [x] (2026-07-12 16:13+08:00) 完成 `infra/ai` 独立 Rubrics judge role 契约与 v2 无标量分数领域核心；删除 v1 score/feedback/run/controller 生产链，新增静态 Image Result 模板、canonical hash 注册和四态汇总。
-- [ ] 实现人工批准静态模板、typed subject、系统 Evidence Pack 与 Image Result 纵向切片。
-- [ ] 实现三次独立 judge rollout、严格多数、四态聚合和原子持久化。
-- [ ] 重构 run、HTTP API、事件/定时自动化门，并删除 v1 score 与自动 memory 路径。
+- [x] (2026-07-12 16:46+08:00) 建立 task 公共只读 `TaskOutcomeQuery`，实现 Image Result typed subject、canonical snapshot hash、系统生成的 E1/E2 Evidence Pack、resolution/format 规则裁决与严格多数 reducer，并通过 6 个定向领域测试。
+- [x] (2026-07-12 19:04+08:00) 实现三次独立 Rubrics vision/text judge 调用、严格多数、parser 与 system-owned evidence ID 校验；新增测试覆盖 2-1 多数、非法 evidence 和 parser failure。
+- [x] (2026-07-12 19:11+08:00) 新增 V2 criterion verdict migration、`RubricsEvaluationService`、Image Result run/evaluation/history HTTP 纵向切片，并保持 `rubrics_score` 只读历史。
+- [x] (2026-07-12 19:25+08:00) 增加 run-item checkpoint、evaluation/criterion/rollout/item 事务提交、required evidence type 完整性检查；事件自动化默认关闭、拒绝 EXPERIMENTAL 且完全移入有界 executor。
+- [ ] (2026-07-12 20:31+08:00) rollout provenance、自动 trigger 与并发安全 resume 已完成；self-judged detector 已完成但 IMAGE_RESULT 的 task outcome 尚未持久化 producer provider/model，生产切片仍不能观测 true。Rubrics 干净重编译后 12 tests 通过。
+- [ ] 完成 run/API 与 ArchUnit 集成测试（已完成真实 MySQL V1->V2 migration 和 listener trigger 测试；resume 当前由 mapper checkpoint 条件和单模块编译覆盖，仍需数据库集成测试）。
 - [ ] 实现 Evaluation Dataset、gold-label 校准、同 dataset 正式回归、baseline 与 alert。
 - [ ] 实现人工 Promotion，并依次扩展 Copy Result、Task Decision。
 - [ ] 完成模块、相邻模块、数据库、自动装配、ArchUnit 和端到端验证，更新本文 living sections。
@@ -54,6 +57,27 @@ This ExecPlan is a living document. The sections `Progress`, `Surprises & Discov
 
 - Observation: 单模块测试会从本地 Maven 仓库解析旧版 `pixflow-infra-ai`，导致新 judge role 无法反序列化；使用 `-am` 的 reactor 测试可确保 Rubrics 消费当前源码契约。
   Evidence: 首次 `mvn -pl pixflow-module-rubrics ... test` 报 `RUBRICS_JUDGE_VISION` 非法枚举；reactor 重跑后进入模板自身验证并最终通过。
+
+- Observation: Rubrics v2 尚无 task 公共结果读取 seam，直接恢复旧 runner 会再次穿透 `ProcessResultMapper`；因此 Image Result 切片先在 task 内新增 immutable query adapter，Rubrics 仅依赖 public API。
+  Evidence: `TaskOutcomeQuery` 与 `TaskOutcomeQueryImpl`；Rubrics 新代码没有 import `com.pixflow.module.task.infra.persistence`。
+
+- Observation: code-review 发现同步 `@EventListener` 在 executor handoff 前做模板和数据库工作，会让 Rubrics 异常传播到 task event publisher；现已把 admission、query 和 run 创建全部移到 executor 内，并在 listener 边界隔离 queue rejection。
+  Evidence: `TaskCompletedEvaluationListener.onCompleted` 只提交 runnable；`evaluate` 捕获 Rubrics runtime failure。
+
+- Observation: 触达 reactor 全测被当前 execution-domain 工作树中的 DAG 测试阻断，Rubrics 未进入测试阶段。`PendingPlanMapperTest.pendingPlanStatus_enumValues` 仍期望 4 个状态而实现已有 5 个；`PendingPlanServiceTest.confirm_marksPending_asConfirmed` 报 `pending_plan 状态竞争`。memory 集成测试另被 infra-ai 测试上下文缺少 `GlobalConcurrencyLimiter` 阻断。
+  Evidence: `mvn -pl "pixflow-module-memory,pixflow-module-rubrics" -am test` 在 DAG 的 162 tests 后失败；单独 memory 普通单测 7/7、Rubrics 10/10 通过。
+
+- Observation: 本轮 reactor 重跑被同时进行的 execution-domain 重构阻断，`pixflow-state` 的 `RunStateRefStore` / `CheckpointReadPort` 仍引用已删除的 `ArtifactRef` / `CompletedUnits`。Rubrics 单模块全量重编译与 12 tests 均通过。
+  Evidence: `mvn -pl pixflow-module-rubrics -am ... test` 在 `pixflow-state` compile 失败；`mvn -pl pixflow-module-rubrics test` 成功。
+
+- Observation: V2 migration 已在真实 MySQL 8.4 上从 V1 schema 和 legacy score 样例执行成功，旧 `rubrics_score(result_id=99, overall_score=88.00)` 保持不变，`rubrics_judge_rollout` 包含 provider/model/prompt_hash/latency_ms/usage_json。
+  Evidence: 临时 `mysql:8.4` 容器顺序执行 V1、legacy insert、V2 后查询通过。
+
+- Observation: 双轴 review 发现初版 resume 会让两个调用者同时选择 RUNNING item，唯一键失败的一方还能把另一方已提交的 checkpoint 覆盖为 FAILED；重复 subject ID 也会在 run 已创建后撞唯一键。
+  Evidence: `markRunning`/`markFinished` 原本没有 attempt/status predicate；现以 `attempt_count` 乐观 claim，并在创建 run 前验证 subject ID 唯一。
+
+- Observation: task 的 `SuccessfulResultSnapshot` 没有 producer provider/model，故 IMAGE_RESULT 即使来自生成式任务也无法可靠判断 self-judged；不能从 task type 或当前配置推测历史生产模型。
+  Evidence: `TaskOutcomeQuery.SuccessfulResultSnapshot` 与 `process_result` 当前字段均无生产模型身份。
 
 ## Decision Log
 
@@ -103,7 +127,9 @@ This ExecPlan is a living document. The sections `Progress`, `Surprises & Discov
 
 ## Outcomes & Retrospective
 
-当前仅完成设计和实施计划，尚未修改生产代码。预期完成结果是 v2 criterion evaluation 成为唯一生产路径，Image Result、Copy Result 与 Task Decision 各自拥有独立 subject/evidence 边界；旧 scalar score 只作为历史数据存在；自动化、正式回归和 memory Promotion 均由显式门控保护。
+截至 2026-07-12 19:25+08:00，v1 scalar score、旧 runner/controller 和自动 memory feedback Java 路径已删除；Image Result 已具备静态模板、typed snapshot、Evidence Pack、rule/三次 judge、四态汇总、V2 原子事实表、run service、HTTP 查询和 gated event adapter。Rubrics 领域测试 10/10、memory 定向普通单测 7/7 通过，触达 reactor compile 通过。
+
+尚未完成 Evaluation Dataset/gold calibration/paired regression/baseline/alert、人工 Promotion、Copy Result、Task Decision、完整 rollout provenance、真实 MySQL V1->V2 migration test、run/API/automation 集成测试和最终 ArchUnit/全仓验证。因此本计划仍处于执行中，不能把当前 Image Result 纵向切片视为整个重构完成。
 
 实施结束时，本节必须记录实际新增/删除的接口与表、迁移是否在真实 MySQL 上验证、各测试命令的通过数量、是否存在不可重放 dataset item、以及计划与最终代码的差异。不能只写“build success”。
 
@@ -548,3 +574,9 @@ AI interface 约束：
 2026-07-12 / Codex: 创建本计划。原因是 domain-modeling 后的权威设计已从 v1 confidence-weighted scalar scoring 切换为 typed subject、atomic Criterion、四态 verdict、系统 Evidence Pack、三次 judge 多数决、版本化 dataset 正式回归和人工 Promotion，而当前实现仍是完整 v1。计划按 AI role/领域核心、Image Result 纵向切片、judge/persistence、run/API/automation、dataset/regression、Promotion/其它 subject 的顺序直接替换生产路径，并提供设计文档快速定位关键词。
 
 2026-07-12 / Codex: 完成 Milestone 1。直接删除 v1 标量评分、自动 memory feedback、旧 runner/controller/baseline/judge/rule 生产链；保留 V1 migration 与 legacy score persistence 作为只读历史事实。新增独立 judge roles、显式 VisionRequest role、v2 template/criterion/verdict/gate、canonical template hash 与 nullable 汇总语义。审查后补齐 judge role 开发配置与启动期 fail-fast、verifier 组合校验和 SemanticVersion。验证：20 模块 reactor compile 成功；最终触达 reactor 共 84 tests 成功（common 23、storage 15、infra-ai 26、infra-image 16、rubrics 4）。
+
+2026-07-12 / Codex: 继续实施 Milestone 2-5 的 Image Result 纵向切片。新增 repeated judge、V2 facts migration、`RubricsEvaluationService`、HTTP 查询、run-item checkpoint 和异步 event admission；删除 memory 的 v1 `appendRubricsScore` 命令。双轴 code-review 后修复 listener 异常传播、required evidence 只检查非空、未提交 run-item checkpoint 三个行为缺陷。后续必须先补齐 rollout provenance/resume/trigger 测试，再进入 dataset、Promotion 和其它 subject，原因是这些审计事实是正式回归与人工提升的前置条件。
+
+2026-07-12 / Codex: 补齐 rollout 审计 provenance、producer/judge identity self-judged 检测、显式自动 trigger 和 run resume API；真实 MySQL 8.4 验证 V1 历史 score 在 V2 migration 后不变。Rubrics 单模块 12 tests 通过；完整 reactor 暂被 execution-domain 工作树中已删除 state model 类型的剩余引用阻断。
+
+2026-07-12 / Codex: 根据双轴 review 修复重复 subject 留下 RUNNING run、并发 resume 覆盖 terminal checkpoint、criterion-specific prompt 使 evaluatorVersion 只代表最后 criterion 三项缺陷；API record 增加 selfJudged 审计字段。self-judged 生产检测仍等待 task/imagegen 持久化 producer identity，因此对应 Progress 保持未完成。

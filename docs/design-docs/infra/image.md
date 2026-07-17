@@ -132,20 +132,22 @@ infra/image/
 
 ### 4.1 `RasterImage` —— 内存栅格句柄
 
-把 `BufferedImage` 与元信息包成不可变句柄，避免上层直接摸 AWT 细节，并携带处理链上需要的源信息（源格式、是否含 alpha、尺寸）。
+把 `BufferedImage` 与元信息包成**独占所有权句柄**，避免上层直接摸 AWT 细节，并携带处理链上需要的源信息（源格式、是否含 alpha、尺寸）。句柄在 API 上按不可变值传递，但底层 raster 不做隐式防御性复制；每次构造和每次读取都复制整帧会把一条流水线的峰值内存放大到不可控。
 
 ```java
-public final class RasterImage {
-    BufferedImage buffer();      // 底层栅格（已按 EXIF 归正、已统一到处理色彩空间）
+public final class RasterImage implements AutoCloseable {
+    BufferedImage borrowBuffer(); // 借用底层栅格，不复制；不得缓存、跨线程或在 close 后使用
     int width();
     int height();
     boolean hasAlpha();
     ImageFormat sourceFormat();  // 解码来源格式（编码时若未指定则沿用）
-    // 工厂：of(BufferedImage, ImageFormat)
+    RasterImage retain();         // 仅显式共享时增加引用计数
+    void close();                 // 释放本句柄所有权；幂等
+    // 工厂：takeOwnership(BufferedImage, ImageFormat)，不复制整帧
 }
 ```
 
-`RasterImage` 在流水线步骤间传递；每步产出新的 `RasterImage`，不就地改源（便于失败定位与潜在复用）。
+`RasterImage` 在流水线步骤间传递；每步默认产出新的句柄，不就地改源。下游成功取得新句柄后立即关闭上游句柄；异常路径由 try-with-resources 关闭当前持有者。只有显式 `retain()` 才允许短时共享，最后一个引用关闭时释放底层 raster。`borrowBuffer()` 和构造器都不得复制整帧；需要可变副本的具体操作必须显式创建目标 raster，并计入 Pixel Budget。
 
 ### 4.2 `ImageFormat` —— 格式与能力矩阵
 
@@ -298,18 +300,23 @@ public record EncodeSpec(
 
 ```java
 public interface ImagePipeline {
-    // 单图链：decode 一次 → 顺序 apply → encode 一次
-    byte[] run(InputStream source, List<ImageOp> ops, EncodeSpec encode);
+    // 单图链：probe → 像素准入 → decode 一次 → 顺序 apply → encode 一次
+    byte[] run(ReopenableImageSource source, List<ImageOp> ops, EncodeSpec encode);
 
-    // 组链：N 路成员各自 decode/预处理 → compose fan-in → 合成后链 → encode 一次
-    byte[] runComposed(List<InputStream> members, List<ImageOp> perMemberOps,
+    // 组链：先 probe 全部成员并一次性准入，再逐路 decode/预处理 → compose → encode
+    byte[] runComposed(List<ReopenableImageSource> members, List<ImageOp> perMemberOps,
                        MultiImageOp compose, List<ImageOp> postOps, EncodeSpec encode);
+}
+
+public interface ReopenableImageSource {
+    InputStream openStream(); // probe 与 decode 各开一次；调用方适配 MinIO/内存字节
 }
 ```
 
 - 单图链对应普通支路：解码一次、链式处理、编码一次。
 - 组链对应组支路（`design.md §9.5`）：聚合节点之前的逐图节点对每个成员各自施加，`compose` fan-in 合成，聚合之后的节点作用于合成后的单图——这套**结构**由 `module/dag` 的 `BranchExpander` 决定并把对应 ops 列表传入；image 只按既定步骤执行，不理解「组」语义。
-- 中间产物只在堆内 `RasterImage` 间流转，不落盘、不进缓存；真正需要落 MinIO 的中间产物由 dag/task 决定（`storage` 的 `TMP` 桶 + `cache` 的引用，均在上层）。
+- 中间产物只在堆内 `RasterImage` 间流转，不落盘、不进缓存；真正需要落 MinIO 的中间产物由 dag/task 决定（`storage` 的 `TMP` 桶 + 运行态引用，均在上层）。
+- `probe` 与 `decode` 必须使用两个可重新打开的流：先读取元信息并完成尺寸/预算准入，取得 permit 后才允许打开 decode 流。禁止为了复用一个不可回绕流而先把整张图无上限读入内存。
 
 ---
 
@@ -317,11 +324,26 @@ public interface ImagePipeline {
 
 图像处理是内存与原生资源的高危区，MVP 不会做、本期必须做：
 
+```java
+public interface PixelBudget {
+    Permit acquire(long weightedPixels, Duration timeout);
+
+    interface Permit extends AutoCloseable {
+        long weightedPixels();
+        @Override void close();
+    }
+}
+```
+
+`PixelBudget` 由 `ImageAutoConfiguration` 装配为 JVM 单例；所有 `ImagePipeline` 实例和所有 task worker pool 注入同一个 capability。它只管理本进程活跃 raster 的加权许可，不替代 task 的线程池、Redis provider 配额或跨实例锁。
+
 1. **像素炸弹防护**：`decode` 前先 `probe` 拿尺寸，`width*height` 超过 `max-source-pixels`（默认 40MP）或单边超 `max-dimension` 时，**不实际解码**，直接抛 `ImageProcessingException(SOURCE_TOO_LARGE)` → SKIP。防恶意/异常超大图瞬间 OOM（兼具稳定性与安全性）。
-2. **堆占用边界**：`BufferedImage` 占约 `w*h*4` 字节。文档明确：单图堆占用 × `module/task` 并发线程数 是内存上限来源，二者需联动配置（task 并发默认 8，见 `design.md §9.3`）。
-3. **原生资源释放**：scrimage/libwebp 编码路径确保 native buffer 用完即释，避免堆外泄漏；ImageIO `reader/writer` 用完 `dispose()`，`ImageInputStream`/`OutputStream` 以 try-with-resources 关闭。
-4. **每调用新实例**：ImageIO reader/writer 非线程安全，封装内每次新建，模块对外零共享可变状态，满足高并发调用。
-5. **迭代压缩有界**：目标体积压缩的质量搜索设迭代上限（默认 ≤8 次），避免病态输入导致无界重编码。
+2. **JVM 全局 Pixel Budget**：`PixelBudget` 是进程内单例加权许可池，所有 process worker pool 共享，不按 task/线程池各建一份。单图按“源 raster + 估算最大目标 raster”的保守像素数申请；组链先 probe 全部成员，按成员总 raster + compose 画布上界一次申请。未拿到许可不得 decode，permit 覆盖所有 raster 生命周期并在成功、异常、取消时释放。
+3. **线程数与内存准入正交**：worker pool 控制 CPU/I/O 排队，Pixel Budget 控制活跃栅格内存；不能用“默认 8 线程”推导安全堆占用，也不能因为线程空闲绕过预算。单个工作单元估算值大于总预算时直接 `PIXEL_BUDGET_EXCEEDED`；等待超过 `acquire-timeout` 时返回 `PIXEL_BUDGET_TIMEOUT`，不在 image 内重试。
+4. **无隐式全帧复制**：`RasterImage.takeOwnership`、`borrowBuffer` 和普通 cache hit 都不得复制整个 raster。操作确需目标 buffer 时显式分配，旧句柄在新句柄就绪后立即关闭；共享只通过有界、可观测的 `retain/close` 生命周期。
+5. **原生资源释放**：scrimage/libwebp 编码路径确保 native buffer 用完即释，避免堆外泄漏；ImageIO `reader/writer` 用完 `dispose()`，`ImageInputStream`/`OutputStream` 以 try-with-resources 关闭。
+6. **每调用新实例**：ImageIO reader/writer 非线程安全，封装内每次新建，模块对外零共享可变状态，满足高并发调用。
+7. **迭代压缩有界**：目标体积压缩的质量搜索设迭代上限（默认 ≤8 次），避免病态输入导致无界重编码。
 
 ---
 
@@ -338,7 +360,8 @@ public interface ImagePipeline {
 ```java
 public class ImageProcessingException extends RuntimeException {
     private final Reason reason;     // DECODE_FAILED / ENCODE_FAILED / UNSUPPORTED_ENCODE_FORMAT
-                                     // / SOURCE_TOO_LARGE / CORRUPTED_IMAGE / INVALID_OP_PARAM
+                                     // / SOURCE_TOO_LARGE / PIXEL_BUDGET_EXCEEDED
+                                     // / PIXEL_BUDGET_TIMEOUT / CORRUPTED_IMAGE / INVALID_OP_PARAM
     private final ImageFormat format;   // 涉及的格式（可空）
     private final Integer width;        // 涉及尺寸（可空）
     private final Integer height;
@@ -367,12 +390,16 @@ pixflow:
     default-webp-quality: 80         # 未显式指定时的 WebP 质量
     flatten-background: "#FFFFFF"   # alpha 扁平化默认底色（白）
     target-size-max-iterations: 8    # 目标体积压缩迭代上限
+    pixel-budget:
+      max-in-flight-pixels: 120000000 # JVM 内所有图片流水线共享的加权像素上限
+      acquire-timeout: 30s            # 等待预算许可的最长时间；超时不在 image 内重试
+      target-headroom-factor: 1.25    # 对目标 raster/临时 buffer 的保守余量
     resize:
       allow-upscale: false           # 默认禁止放大
     color-space: sRGB               # 处理链统一色彩空间
 ```
 
-- 配置只承载**护栏与编解码调优**（尺寸上限、默认质量、扁平化底色、迭代上限），**不承载业务参数**——具体 resize 尺寸、watermark 位置、compress 质量/目标体积来自 DAG 节点参数，由 `module/dag` 映射进 spec。
+- 配置只承载**护栏与编解码调优**（尺寸上限、全局像素预算、默认质量、扁平化底色、迭代上限），**不承载业务参数**——具体 resize 尺寸、watermark 位置、compress 质量/目标体积来自 DAG 的类型化执行步骤。
 - 扁平化默认底色集中配置，单点可调；可被 `EncodeSpec.flattenBackground` 覆盖。
 
 ---
@@ -391,7 +418,7 @@ pixflow:
 
 | 模块 | 契约 |
 |---|---|
-| `module/dag` | 唯一主要消费方。把已校验的 DAG 节点参数映射为类型化 spec，组装 `ImagePipeline`；逐图支路调 `run`，组支路调 `runComposed`；解码源/编码结果的 MinIO I/O 由 dag 在两端缝合 |
+| `module/dag` | 唯一主要消费方。`DagCompiler` 预先生成类型化 image steps，执行器组装 `ImagePipeline`；逐图支路调 `run`，组支路调 `runComposed`；以可重新打开的 source 适配 MinIO，使 image 能先 probe/准入再 decode |
 | `infra/thirdparty` | 间接协作：`remove_bg` 抠图结果（带 alpha 的字节）由 dag 喂给本模块 `decode` 再 `set_background`/`resize` 等；本模块不直接依赖 thirdparty |
 | `infra/storage` | 无直接依赖：image 不读写 MinIO；字节进出由 dag 用 `ObjectStorage` 缝合 |
 | `common` | image 抛 `ImageProcessingException`，由 `ErrorNormalizer` 边界翻译为 `IMAGE_PROCESSING`（SKIP）；文案经 `Sanitizer` |
@@ -408,6 +435,8 @@ pixflow:
 - **Alpha 扁平化**：透明 PNG → JPEG 默认白底（断言四角为白、无黑边）；带 `set_background` 后再转 JPEG 为 no-op；→ PNG/WebP 保留透明。
 - **EXIF 归正**：带各 orientation 的样图解码后断言视觉正向。
 - **像素炸弹防护**：构造超 `max-source-pixels`/`max-dimension` 的图（或伪造尺寸头），断言 `probe` 阶段即拒绝、**未实际解码**、归 `SOURCE_TOO_LARGE`。
+- **Pixel Budget**：跨两个 worker pool 并发提交不同尺寸图片，断言总加权像素不超过全局上限；许可等待期间未调用 decode；成功/异常/取消均释放 permit；组链在任何成员 decode 前完成全体 probe 与一次性准入。
+- **Raster 生命周期**：构造器与 `borrowBuffer()` 保持同一底层对象、无隐式全帧复制；操作链每次只保留必要句柄，`retain/close` 计数正确，close 后借用失败。
 - **各操作单测**：resize 三种 mode + 禁止放大；compress 按质量 / 按目标体积（断言不超目标且迭代有界）；watermark 九宫格定位/透明度/缩放；set_background 纯色/背景图；convert_format；compose 三种 layout + 尺寸不一对齐。
 - **流水线**：多步支路断言**仅解码一次、编码一次**（用计数桩验证 codec 调用次数）；组链 perMember→compose→post 顺序正确。
 - **并发安全**：多线程并发跑 pipeline，断言无共享状态污染、reader/writer 每次新建并 dispose。
@@ -427,3 +456,7 @@ pixflow:
 - **智能裁剪 / 显著性检测 / 人脸对齐**：属视觉理解范畴，归 `module/vision`（VLLM），不在确定性像素层。
 - **EXIF/元数据透传写出**：解码归正后默认丢弃源 EXIF（避免朝向二次旋转与隐私元数据外带），保留元数据需另设计。
 - **色彩管理高级特性**（保留嵌入 ICC、广色域输出）：本期统一 sRGB，后续如需再扩。
+
+## Revision Notes
+
+2026-07-12 / Codex: 增加 JVM 全局 Pixel Budget，规定所有图片 worker 共享加权许可并严格执行 probe-before-decode；组链在解码任何成员前完成整体预算准入。`RasterImage` 改为显式独占/引用计数生命周期，构造与借用不再隐式复制整帧，流水线用可重新打开的 source 分离 probe 与 decode 流。
