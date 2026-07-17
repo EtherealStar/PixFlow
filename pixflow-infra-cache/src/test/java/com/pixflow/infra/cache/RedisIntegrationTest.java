@@ -6,10 +6,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
-import com.pixflow.contracts.confirmation.ConfirmationAction;
-import com.pixflow.contracts.confirmation.ConfirmationLevel;
-import com.pixflow.contracts.confirmation.TokenClaims;
-import com.pixflow.infra.cache.confirmation.RedisConfirmationTokenStore;
 import com.pixflow.infra.cache.counter.RedissonAtomicCounter;
 import com.pixflow.infra.cache.key.CacheKey;
 import com.pixflow.infra.cache.key.CacheNamespace;
@@ -229,55 +225,6 @@ class RedisIntegrationTest {
         } finally {
             pool.shutdownNow();
         }
-    }
-
-    @Test
-    void confirmationTokenConsumeSucceedsOnlyOnce() {
-        RedisConfirmationTokenStore store = new RedisConfirmationTokenStore(
-                redissonClient,
-                namespace,
-                objectMapper,
-                new NoopCacheMetrics());
-        TokenClaims claims = new TokenClaims(
-                ConfirmationAction.SUBMIT_DAG,
-                "conversation-1",
-                "package-1",
-                "hash-1",
-                ConfirmationLevel.NORMAL,
-                1,
-                Instant.now(),
-                Instant.now().plusSeconds(60),
-                "nonce-1");
-
-        store.save("token-1", claims, Duration.ofSeconds(5));
-
-        assertThat(store.consume("token-1")).contains(claims);
-        assertThat(store.consume("token-1")).isEmpty();
-    }
-
-    @Test
-    void confirmationTokenExpiresAfterTtl() throws InterruptedException {
-        RedisConfirmationTokenStore store = new RedisConfirmationTokenStore(
-                redissonClient,
-                namespace,
-                objectMapper,
-                new NoopCacheMetrics());
-        TokenClaims claims = new TokenClaims(
-                ConfirmationAction.SUBMIT_DAG,
-                "conversation-2",
-                "package-2",
-                "hash-2",
-                ConfirmationLevel.NORMAL,
-                1,
-                Instant.now(),
-                Instant.now().plusSeconds(1),
-                "nonce-2");
-
-        store.save("token-2", claims, Duration.ofMillis(250));
-
-        Thread.sleep(400);
-
-        assertThat(store.consume("token-2")).isEmpty();
     }
 
     @Test

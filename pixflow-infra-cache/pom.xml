@@ -17,10 +17,6 @@
             <artifactId>pixflow-common</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.pixflow</groupId>
-            <artifactId>pixflow-contracts</artifactId>
-        </dependency>
-        <dependency>
             <groupId>org.redisson</groupId>
             <artifactId>redisson</artifactId>
             <version>${redisson.version}</version>
@@ -61,4 +57,37 @@
             <scope>test</scope>
         </dependency>
     </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <version>3.5.0</version>
+                <executions>
+                    <execution>
+                        <id>cache-depends-only-on-common</id>
+                        <phase>validate</phase>
+                        <goals>
+                            <goal>enforce</goal>
+                        </goals>
+                        <configuration>
+                            <rules>
+                                <bannedDependencies>
+                                    <searchTransitive>false</searchTransitive>
+                                    <excludes>
+                                        <exclude>com.pixflow:*</exclude>
+                                    </excludes>
+                                    <includes>
+                                        <include>com.pixflow:pixflow-common</include>
+                                    </includes>
+                                    <message>pixflow-infra-cache 只允许依赖 pixflow-common 和外部技术库。</message>
+                                </bannedDependencies>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
 </project>

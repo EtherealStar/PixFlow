@@ -16,15 +16,12 @@ class MicrometerCacheMetricsTest {
         metrics.recordCacheOperation("get", "alpha", "hit");
         metrics.recordLock("alpha", "acquired", Duration.ofMillis(12));
         metrics.recordSemaphore("removebg", "acquired");
-        metrics.recordConfirmationToken("consume", "hit");
 
         assertThat(registry.counter("pixflow.cache.op", "op", "get", "namespace", "alpha", "result", "hit").count())
                 .isEqualTo(1);
         assertThat(registry.counter("pixflow.cache.lock", "namespace", "alpha", "result", "acquired").count())
                 .isEqualTo(1);
         assertThat(registry.counter("pixflow.cache.semaphore", "api", "removebg", "result", "acquired").count())
-                .isEqualTo(1);
-        assertThat(registry.counter("pixflow.cache.confirmation", "op", "consume", "result", "hit").count())
                 .isEqualTo(1);
     }
 }

@@ -3,8 +3,6 @@ package com.pixflow.infra.cache.config;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
-import com.pixflow.contracts.confirmation.ConfirmationTokenStore;
-import com.pixflow.infra.cache.confirmation.RedisConfirmationTokenStore;
 import com.pixflow.infra.cache.counter.AtomicCounter;
 import com.pixflow.infra.cache.counter.RedissonAtomicCounter;
 import com.pixflow.infra.cache.key.CacheNamespace;
@@ -123,16 +121,6 @@ public class CacheAutoConfiguration {
             RedissonClient redissonClient,
             CacheMetrics metrics) {
         return new RedisLuaTokenBucket(redissonClient, metrics);
-    }
-
-    @Bean
-    @ConditionalOnMissingBean
-    public ConfirmationTokenStore confirmationTokenStore(
-            RedissonClient redissonClient,
-            CacheNamespace cacheNamespace,
-            ObjectMapper objectMapper,
-            CacheMetrics metrics) {
-        return new RedisConfirmationTokenStore(redissonClient, cacheNamespace, objectMapper, metrics);
     }
 
     private static ObjectMapper defaultObjectMapper() {
