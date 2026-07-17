@@ -1,7 +1,6 @@
 package com.pixflow.module.dag.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.pixflow.contracts.proposal.ProposalPublicationPort;
 import com.pixflow.common.error.ErrorNormalizer;
 import com.pixflow.module.dag.DagFacade;
 import com.pixflow.module.dag.cache.TaskAssetCache;
@@ -22,11 +21,9 @@ import com.pixflow.module.dag.expand.BranchExpander;
 import com.pixflow.module.dag.expand.GroupPreflight;
 import com.pixflow.module.dag.ir.DagJsonReader;
 import com.pixflow.module.dag.propose.DagProposalService;
-import com.pixflow.module.dag.propose.SubmitImagePlanHandler;
 import com.pixflow.module.dag.validate.DagValidator;
 import com.pixflow.module.dag.validate.ParamSchemaRegistry;
 import com.pixflow.module.dag.validate.SchemaRegistryValidator;
-import java.time.Clock;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -316,18 +313,9 @@ public class DagAutoConfiguration {
     @ConditionalOnMissingBean
     public DagProposalService dagProposalService(
             DagValidator validator,
-            ObjectMapper objectMapper,
-            Clock clock,
-            ProposalPublicationPort publicationPort) {
+            ObjectMapper objectMapper) {
         return new DagProposalService(
-                validator, objectMapper, clock, canonicalDagFactory(objectMapper), publicationPort);
-    }
-
-    @Bean
-    @ConditionalOnMissingBean
-    public SubmitImagePlanHandler submitImagePlanHandler(DagProposalService service,
-                                                           ObjectMapper objectMapper) {
-        return new SubmitImagePlanHandler(service, objectMapper);
+                validator, objectMapper, canonicalDagFactory(objectMapper));
     }
 
     @Bean

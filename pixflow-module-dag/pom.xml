@@ -19,7 +19,7 @@
             <groupId>com.pixflow</groupId>
             <artifactId>pixflow-common</artifactId>
         </dependency>
-        <!-- 共享 ephemeral Proposal 发布 SPI -->
+        <!-- 共享 canonical Asset Reference 契约 -->
         <dependency>
             <groupId>com.pixflow</groupId>
             <artifactId>pixflow-contracts</artifactId>
@@ -49,12 +49,6 @@
             <groupId>com.pixflow</groupId>
             <artifactId>pixflow-state</artifactId>
         </dependency>
-        <!-- tools 模块：SubmitImagePlanHandler 倒置接缝 -->
-        <dependency>
-            <groupId>com.pixflow</groupId>
-            <artifactId>pixflow-tools</artifactId>
-        </dependency>
-
         <!-- JSON Schema 校验 -->
         <dependency>
             <groupId>com.networknt</groupId>

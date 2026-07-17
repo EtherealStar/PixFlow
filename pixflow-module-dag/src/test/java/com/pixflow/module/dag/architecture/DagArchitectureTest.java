@@ -12,9 +12,9 @@ import com.tngtech.archunit.lang.ArchRule;
  *
  * <ul>
  *   <li>不依赖 module/file、module/task、module/conversation</li>
- *   <li>不依赖 harness/loop、agent</li>
+ *   <li>不依赖 harness/loop、harness/tools、agent</li>
  *   <li>不依赖 infra/cache(中间产物引用经 state)</li>
- *   <li>只允许依赖 contracts.proposal 的 pending-plan 纯契约,不依赖 confirmation 令牌契约</li>
+ *   <li>只依赖 contracts 的 Asset Reference 纯契约</li>
  *   <li>不出现线程池/MQ/Redisson/process_result 实体直连</li>
  * </ul>
  */
@@ -53,6 +53,12 @@ class DagArchitectureTest {
         noClasses()
             .that().resideInAPackage("com.pixflow.module.dag..")
             .should().dependOnClassesThat().resideInAPackage("com.pixflow.harness.loop..");
+
+    @ArchTest
+    static final ArchRule should_not_depend_on_harness_tools =
+        noClasses()
+            .that().resideInAPackage("com.pixflow.module.dag..")
+            .should().dependOnClassesThat().resideInAPackage("com.pixflow.harness.tools..");
 
     @ArchTest
     static final ArchRule should_not_depend_on_agent =
