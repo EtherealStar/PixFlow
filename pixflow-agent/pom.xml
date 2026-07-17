@@ -19,16 +19,11 @@
     </properties>
 
     <dependencies>
-        <!-- common / contracts -->
+        <!-- common -->
         <dependency>
             <groupId>com.pixflow</groupId>
             <artifactId>pixflow-common</artifactId>
         </dependency>
-        <dependency>
-            <groupId>com.pixflow</groupId>
-            <artifactId>pixflow-contracts</artifactId>
-        </dependency>
-
         <!-- harness -->
         <dependency>
             <groupId>com.pixflow</groupId>
