@@ -10,6 +10,7 @@ import com.pixflow.module.task.internal.download.DownloadBundleBuilder;
 import com.pixflow.module.task.internal.download.DownloadService;
 import com.pixflow.module.task.internal.query.TaskQueryServiceImpl;
 import java.time.Clock;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -32,7 +33,8 @@ public class TaskQueryConfiguration {
     public TaskQueryService taskQueryService(ProcessTaskMapper taskMapper,
                                              ProcessResultMapper resultMapper,
                                              DownloadService downloadService,
-                                             Clock clock) {
-        return new TaskQueryServiceImpl(taskMapper, resultMapper, downloadService, clock);
+                                             Clock clock,
+                                             ObjectMapper objectMapper) {
+        return new TaskQueryServiceImpl(taskMapper, resultMapper, downloadService, clock, objectMapper);
     }
 }

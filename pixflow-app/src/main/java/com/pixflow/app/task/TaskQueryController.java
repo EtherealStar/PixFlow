@@ -2,7 +2,10 @@ package com.pixflow.app.task;
 
 import com.pixflow.common.web.ApiResponse;
 import com.pixflow.module.task.api.TaskQueryService;
+import com.pixflow.module.task.api.TaskCommandService;
 import com.pixflow.module.task.api.command.TaskId;
+import com.pixflow.module.task.api.command.RetryFailedTaskCommand;
+import com.pixflow.module.task.api.command.RetryTaskResponse;
 import com.pixflow.module.task.api.query.DownloadHandle;
 import com.pixflow.module.task.api.query.PageQuery;
 import com.pixflow.module.task.api.query.PageResult;
@@ -13,6 +16,8 @@ import com.pixflow.module.task.api.query.TaskSummary;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -21,9 +26,18 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 public class TaskQueryController {
     private final TaskQueryService taskQueryService;
+    private final TaskCommandService taskCommandService;
 
-    public TaskQueryController(TaskQueryService taskQueryService) {
+    public TaskQueryController(TaskQueryService taskQueryService, TaskCommandService taskCommandService) {
         this.taskQueryService = taskQueryService;
+        this.taskCommandService = taskCommandService;
+    }
+
+    @PostMapping("/api/tasks/{taskId}/retry-failed")
+    public ApiResponse<RetryTaskResponse> retryFailed(@PathVariable String taskId,
+                                           @RequestHeader("Idempotency-Key") String idempotencyKey) {
+        return ApiResponse.ok(taskCommandService.retryFailed(
+                new RetryFailedTaskCommand(new TaskId(taskId), idempotencyKey)));
     }
 
     @GetMapping("/api/tasks/{taskId}")
