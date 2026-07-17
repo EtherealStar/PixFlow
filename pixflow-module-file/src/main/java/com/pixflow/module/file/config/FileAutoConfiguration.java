@@ -16,7 +16,6 @@ import com.pixflow.infra.storage.ObjectStorage;
 import com.pixflow.infra.storage.config.StorageAutoConfiguration;
 import com.pixflow.module.file.FileService;
 import com.pixflow.module.file.copydoc.AssetCopyMapper;
-import com.pixflow.module.file.copydoc.CopyDocParser;
 import com.pixflow.module.file.copydoc.CsvCopyDocParser;
 import com.pixflow.module.file.copydoc.ExcelCopyDocParser;
 import com.pixflow.module.file.error.AssetIngestErrorMapper;
@@ -38,6 +37,7 @@ import com.pixflow.module.file.pkg.ConservativePackageReferenceChecker;
 import com.pixflow.module.file.pkg.DefaultPackageReferenceResolver;
 import com.pixflow.module.file.pkg.PackageReferenceChecker;
 import com.pixflow.module.file.pkg.PackageReferenceResolver;
+import com.pixflow.module.file.permission.AssetPermissionProof;
 import com.pixflow.module.file.upload.UploadSessionService;
 import com.pixflow.module.file.upload.UploadSessionStore;
 import com.pixflow.module.file.upload.RedisUploadSessionStore;
@@ -62,7 +62,12 @@ import org.mybatis.spring.annotation.MapperScan;
 @EnableConfigurationProperties(FileProperties.class)
 @EnableScheduling
 @MapperScan(
-        basePackageClasses = {AssetPackageMapper.class, AssetImageMapper.class, AssetIngestErrorMapper.class, AssetCopyMapper.class},
+        basePackageClasses = {
+                AssetPackageMapper.class,
+                AssetImageMapper.class,
+                AssetIngestErrorMapper.class,
+                AssetCopyMapper.class
+        },
         annotationClass = Mapper.class)
 public class FileAutoConfiguration {
 
@@ -115,6 +120,13 @@ public class FileAutoConfiguration {
             AssetPackageService packageService,
             AssetImageMapper imageMapper) {
         return new DefaultPackageReferenceResolver(packageService, imageMapper);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public AssetPermissionProof assetPermissionProof(
+            AssetPackageService packageService, AssetImageMapper imageMapper) {
+        return new AssetPermissionProof(packageService, imageMapper);
     }
 
     @Bean
@@ -181,7 +193,12 @@ public class FileAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    @ConditionalOnBean({UploadSessionStore.class, LockTemplate.class, ObjectStorage.class, ExtractionPublisher.class})
+    @ConditionalOnBean({
+            UploadSessionStore.class,
+            LockTemplate.class,
+            ObjectStorage.class,
+            ExtractionPublisher.class
+    })
     public UploadSessionService uploadSessionService(
             UploadSessionStore uploadSessionStore,
             LockTemplate lockTemplate,
@@ -205,7 +222,12 @@ public class FileAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    @ConditionalOnBean({ObjectStorage.class, AssetPackageService.class, AssetImageMapper.class, AssetIngestErrorMapper.class})
+    @ConditionalOnBean({
+            ObjectStorage.class,
+            AssetPackageService.class,
+            AssetImageMapper.class,
+            AssetIngestErrorMapper.class
+    })
     public ZipExtractor zipExtractor(
             ObjectStorage objectStorage,
             AssetPackageService packageService,

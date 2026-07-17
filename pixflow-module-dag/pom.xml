@@ -19,7 +19,7 @@
             <groupId>com.pixflow</groupId>
             <artifactId>pixflow-common</artifactId>
         </dependency>
-        <!-- 共享提案 SPI: imagegen 提案写入由 dag 的 pending_plan 实现承载 -->
+        <!-- 共享 ephemeral Proposal 发布 SPI -->
         <dependency>
             <groupId>com.pixflow</groupId>
             <artifactId>pixflow-contracts</artifactId>
@@ -60,12 +60,6 @@
             <groupId>com.networknt</groupId>
             <artifactId>json-schema-validator</artifactId>
             <version>1.5.6</version>
-        </dependency>
-        <!-- MyBatis-Plus：pending_plan 表持久化 -->
-        <dependency>
-            <groupId>com.baomidou</groupId>
-            <artifactId>mybatis-plus-spring-boot3-starter</artifactId>
-            <version>${mybatis-plus.version}</version>
         </dependency>
         <!-- Caffeine：任务级 watermark 进程内缓存 -->
         <dependency>

@@ -11,8 +11,8 @@ import com.pixflow.module.imagegen.confirm.ImagegenPayloadHasher;
 import com.pixflow.module.imagegen.config.ImagegenProperties;
 import com.pixflow.module.imagegen.error.ImagegenErrorCode;
 import com.pixflow.module.imagegen.metrics.ImagegenMetrics;
-import com.pixflow.contracts.proposal.PendingPlanPort;
-import com.pixflow.contracts.proposal.PendingPlanProposal;
+import com.pixflow.contracts.proposal.ProposalDraft;
+import com.pixflow.contracts.proposal.ProposalPublicationPort;
 import com.pixflow.module.imagegen.port.SourceImageInfo;
 import com.pixflow.module.imagegen.port.SourceImageReader;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -38,7 +38,7 @@ class ImagegenPlanToolHandlerTest {
 
     private ImagegenPlanService service;
     private ImagegenPlanToolHandler handler;
-    private FakePendingPlanPort port;
+    private FakeProposalPublicationPort port;
     private FakeSourceImageReader reader;
     private ObjectMapper objectMapper;
 
@@ -46,7 +46,7 @@ class ImagegenPlanToolHandlerTest {
     void setUp() {
         objectMapper = new ObjectMapper();
         ImagegenProperties properties = new ImagegenProperties();
-        port = new FakePendingPlanPort();
+        port = new FakeProposalPublicationPort();
         reader = new FakeSourceImageReader();
         ImagegenPlanValidator validator = new ImagegenPlanValidator(properties, reader);
         ImagegenPayloadHasher hasher = new ImagegenPayloadHasher();
@@ -68,6 +68,8 @@ class ImagegenPlanToolHandlerTest {
             1,
             "trace-1",
             RuntimeScope.main(),
+            com.pixflow.harness.tools.ToolRuntimeContext.unavailable(),
+            (proposalType, referenceKeys, payloadHash) -> { },
             meta);
     }
 
@@ -87,7 +89,7 @@ class ImagegenPlanToolHandlerTest {
         @SuppressWarnings("unchecked")
         Map<String, Object> result = objectMapper.readValue(json, Map.class);
 
-        assertThat(result).containsKey("planId");
+        assertThat(result).containsKey("proposalId");
         assertThat(result.get("sourceCount")).isEqualTo(2);
         assertThat(result.get("payloadHash")).isNotNull();
         assertThat(String.valueOf(result.get("summary"))).contains("2 张");
@@ -187,16 +189,12 @@ class ImagegenPlanToolHandlerTest {
             "packages/pkg-1/" + imageId, "image/png", null, null);
     }
 
-    static class FakePendingPlanPort implements PendingPlanPort {
-        final List<PendingPlanProposal> enqueued = new java.util.ArrayList<>();
+    static class FakeProposalPublicationPort implements ProposalPublicationPort {
+        final List<ProposalDraft> enqueued = new java.util.ArrayList<>();
         @Override
-        public synchronized String enqueue(PendingPlanProposal proposal) {
+        public synchronized String publish(ProposalDraft proposal) {
             enqueued.add(proposal);
             return "plan-" + (enqueued.size() + 1);
-        }
-        @Override
-        public java.util.Optional<PendingPlanProposal> find(String planId) {
-            return enqueued.stream().filter(p -> p.toolCallId().equals(planId)).findFirst();
         }
     }
 

@@ -14,6 +14,7 @@ public record ToolInvocation(
         String traceId,
         RuntimeScope runtimeScope,
         ToolRuntimeContext runtimeContext,
+        ProposalPublicationAuthorizer proposalPublicationAuthorizer,
         Map<String, Object> metadata) {
 
     public ToolInvocation {
@@ -21,6 +22,8 @@ public record ToolInvocation(
         metadata = immutableCopy(metadata);
         runtimeScope = runtimeScope == null ? RuntimeScope.main() : runtimeScope;
         runtimeContext = runtimeContext == null ? ToolRuntimeContext.unavailable() : runtimeContext;
+        proposalPublicationAuthorizer = proposalPublicationAuthorizer == null
+                ? ProposalPublicationAuthorizer.unavailable() : proposalPublicationAuthorizer;
     }
 
     public ToolInvocation(
@@ -33,7 +36,21 @@ public record ToolInvocation(
             RuntimeScope runtimeScope,
             Map<String, Object> metadata) {
         this(toolCallId, toolName, arguments, conversationId, turnNo, traceId, runtimeScope,
-                ToolRuntimeContext.unavailable(), metadata);
+                ToolRuntimeContext.unavailable(), ProposalPublicationAuthorizer.unavailable(), metadata);
+    }
+
+    public ToolInvocation(
+            String toolCallId,
+            String toolName,
+            Map<String, Object> arguments,
+            String conversationId,
+            Integer turnNo,
+            String traceId,
+            RuntimeScope runtimeScope,
+            ToolRuntimeContext runtimeContext,
+            Map<String, Object> metadata) {
+        this(toolCallId, toolName, arguments, conversationId, turnNo, traceId, runtimeScope,
+                runtimeContext, ProposalPublicationAuthorizer.unavailable(), metadata);
     }
 
     private static Map<String, Object> immutableCopy(Map<String, ?> source) {

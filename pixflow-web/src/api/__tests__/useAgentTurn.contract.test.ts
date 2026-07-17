@@ -4,13 +4,13 @@ import { createSseClient } from '@/transport/sse'
 import type { Proposal } from '@/types/agent'
 
 const mocks = vi.hoisted(() => ({
-  challenge: vi.fn(),
-  submit: vi.fn()
+  confirm: vi.fn(),
+  reject: vi.fn()
 }))
 
 vi.mock('@/api/confirm', () => ({
-  challenge: mocks.challenge,
-  submit: mocks.submit
+  confirm: mocks.confirm,
+  reject: mocks.reject
 }))
 
 vi.mock('@/transport/sse', () => ({
@@ -20,34 +20,27 @@ vi.mock('@/transport/sse', () => ({
 describe('agent turn HITL contract', () => {
   beforeEach(() => {
     sessionStorage.clear()
-    mocks.challenge.mockReset()
-    mocks.submit.mockReset()
+    mocks.confirm.mockReset()
+    mocks.reject.mockReset()
     vi.mocked(createSseClient).mockReset()
   })
 
-  it('calls challenge once, then submits answer with challengeId', async () => {
+  it('confirms a proposal directly with an empty command body', async () => {
     const proposal: Proposal = {
       proposalId: 'p1',
       conversationId: 'c1',
       type: 'DAG'
     }
-    mocks.challenge.mockResolvedValue({
-      needChallenge: true,
-      challenge: { challengeId: 'ch1', prompt: '请输入确认' }
-    })
-    mocks.submit.mockResolvedValue({ proposalId: 'p1', taskId: 't1', status: 'CONFIRMED' })
+    mocks.confirm.mockResolvedValue({ proposalId: 'p1', taskId: 't1', status: 'CONFIRMED' })
 
     const turn = createAgentTurn({ conversationId: 'c1' })
     turn.__setPendingProposal(proposal)
 
-    const first = await turn.confirm('p1')
-    const second = await turn.confirm('p1', '确认')
+    const result = await turn.confirm('p1')
 
-    expect(first.challenge?.challengeId).toBe('ch1')
-    expect(second.taskId).toBe('t1')
-    expect(mocks.challenge).toHaveBeenCalledTimes(1)
-    expect(mocks.challenge).toHaveBeenCalledWith('c1', 'p1')
-    expect(mocks.submit.mock.calls[0]?.[2]).toEqual({ challengeId: 'ch1', challengeAnswer: '确认' })
+    expect(result.taskId).toBe('t1')
+    expect(mocks.confirm).toHaveBeenCalledOnce()
+    expect(mocks.confirm).toHaveBeenCalledWith('c1', 'p1')
   })
 
   it('rejects send when the SSE stream emits an error event', async () => {

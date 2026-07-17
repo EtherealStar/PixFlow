@@ -1,7 +1,7 @@
 package com.pixflow.module.dag.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.pixflow.contracts.proposal.PendingPlanPort;
+import com.pixflow.contracts.proposal.ProposalPublicationPort;
 import com.pixflow.common.error.ErrorNormalizer;
 import com.pixflow.module.dag.DagFacade;
 import com.pixflow.module.dag.cache.TaskAssetCache;
@@ -21,21 +21,17 @@ import com.pixflow.module.dag.ir.CanonicalDagFactory;
 import com.pixflow.module.dag.expand.BranchExpander;
 import com.pixflow.module.dag.expand.GroupPreflight;
 import com.pixflow.module.dag.ir.DagJsonReader;
-import com.pixflow.module.dag.propose.PendingPlanMapper;
-import com.pixflow.module.dag.propose.PendingPlanPortAdapter;
-import com.pixflow.module.dag.propose.PendingPlanService;
+import com.pixflow.module.dag.propose.DagProposalService;
 import com.pixflow.module.dag.propose.SubmitImagePlanHandler;
 import com.pixflow.module.dag.validate.DagValidator;
 import com.pixflow.module.dag.validate.ParamSchemaRegistry;
 import com.pixflow.module.dag.validate.SchemaRegistryValidator;
 import java.time.Clock;
-import org.apache.ibatis.annotations.Mapper;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
-import org.mybatis.spring.annotation.MapperScan;
 
 /**
  * DagAutoConfiguration:dag 模块 Spring 装配。
@@ -44,10 +40,10 @@ import org.mybatis.spring.annotation.MapperScan;
  */
 @AutoConfiguration
 @EnableConfigurationProperties(DagProperties.class)
-@MapperScan(value = "com.pixflow.module.dag.propose", annotationClass = Mapper.class)
 public class DagAutoConfiguration {
 
-    @Bean @ConditionalOnMissingBean
+    @Bean
+    @ConditionalOnMissingBean
     public PipelineUnitExecutor.SourceReader pipelineSourceReader(
             com.pixflow.infra.storage.ObjectStorage storage) {
         return new PipelineUnitExecutor.SourceReader() {
@@ -55,12 +51,21 @@ public class DagAutoConfiguration {
                 return com.pixflow.infra.storage.ObjectLocation.of(
                         com.pixflow.infra.storage.BucketType.PACKAGES, key);
             }
-            @Override public java.io.InputStream openStream(String key) { return storage.getStream(location(key)); }
-            @Override public long statSize(String key) { return storage.stat(location(key)).size(); }
+
+            @Override
+            public java.io.InputStream openStream(String key) {
+                return storage.getStream(location(key));
+            }
+
+            @Override
+            public long statSize(String key) {
+                return storage.stat(location(key)).size();
+            }
         };
     }
 
-    @Bean @ConditionalOnMissingBean
+    @Bean
+    @ConditionalOnMissingBean
     public PipelineUnitExecutor.BackgroundRemovalPort pipelineBackgroundRemoval(
             com.pixflow.infra.thirdparty.bgremoval.BackgroundRemovalClient client) {
         return (bytes, spec) -> client.remove(new com.pixflow.infra.thirdparty.bgremoval.BackgroundRemovalRequest(
@@ -72,15 +77,15 @@ public class DagAutoConfiguration {
                         spec.crop(), spec.featherRadius(), java.util.Map.of()))).image();
     }
 
-    @Bean @ConditionalOnMissingBean
+    @Bean
+    @ConditionalOnMissingBean
     public PipelineUnitExecutor.PixelPipeline pipelinePixelPipeline(
             com.pixflow.infra.image.pipeline.ImagePipeline pipeline) {
-        return (source, ops, encode) -> {
-            return pipeline.run(source, ops, encode);
-        };
+        return pipeline::run;
     }
 
-    @Bean @ConditionalOnMissingBean
+    @Bean
+    @ConditionalOnMissingBean
     public PipelineUnitExecutor.ResultWriter pipelineResultWriter(
             com.pixflow.infra.storage.ObjectStorage storage) {
         return (key, data) -> storage.put(com.pixflow.infra.storage.ObjectLocation.of(
@@ -88,39 +93,52 @@ public class DagAutoConfiguration {
                 new java.io.ByteArrayInputStream(data), data.length, "application/octet-stream").key();
     }
 
-    @Bean @ConditionalOnMissingBean
+    @Bean
+    @ConditionalOnMissingBean
     public GroupUnitExecutor.SourceReader groupSourceReader(PipelineUnitExecutor.SourceReader reader) {
         return new GroupUnitExecutor.SourceReader() {
-            @Override public java.io.InputStream openStream(String key) { return reader.openStream(key); }
-            @Override public long statSize(String key) { return reader.statSize(key); }
+            @Override
+            public java.io.InputStream openStream(String key) {
+                return reader.openStream(key);
+            }
+
+            @Override
+            public long statSize(String key) {
+                return reader.statSize(key);
+            }
         };
     }
 
-    @Bean @ConditionalOnMissingBean
+    @Bean
+    @ConditionalOnMissingBean
     public GroupUnitExecutor.BackgroundRemovalPort groupBackgroundRemoval(
-            PipelineUnitExecutor.BackgroundRemovalPort port) { return port::remove; }
+            PipelineUnitExecutor.BackgroundRemovalPort port) {
+        return port::remove;
+    }
 
-    @Bean @ConditionalOnMissingBean
+    @Bean
+    @ConditionalOnMissingBean
     public GroupUnitExecutor.PixelPipeline groupPixelPipeline(
             com.pixflow.infra.image.pipeline.ImagePipeline pipeline) {
-        return (members, perMember, compose, post, encode) -> {
-            return pipeline.runComposed(members, perMember, compose, post, encode);
-        };
+        return pipeline::runComposed;
     }
 
-    @Bean @ConditionalOnMissingBean
+    @Bean
+    @ConditionalOnMissingBean
     public GroupUnitExecutor.ResultWriter groupResultWriter(PipelineUnitExecutor.ResultWriter writer) {
         return writer::write;
     }
 
-    @Bean @ConditionalOnMissingBean
+    @Bean
+    @ConditionalOnMissingBean
     public GroupRuntimeArtifactStore groupRuntimeArtifactStore(
             com.pixflow.harness.state.runtime.RunStateRefStore refs,
             com.pixflow.infra.storage.ObjectStorage storage) {
         return new GroupRuntimeArtifactStore(refs, storage);
     }
 
-    @Bean @ConditionalOnMissingBean
+    @Bean
+    @ConditionalOnMissingBean
     public TypedImageOpFactory.WatermarkResolver watermarkResolver(
             com.pixflow.infra.storage.ObjectStorage storage,
             com.pixflow.infra.image.ImageCodec codec) {
@@ -139,7 +157,8 @@ public class DagAutoConfiguration {
         };
     }
 
-    @Bean @ConditionalOnMissingBean
+    @Bean
+    @ConditionalOnMissingBean
     public TypedImageOpFactory.BackgroundResolver backgroundResolver(
             com.pixflow.infra.storage.ObjectStorage storage,
             com.pixflow.infra.image.ImageCodec codec) {
@@ -148,7 +167,9 @@ public class DagAutoConfiguration {
                     com.pixflow.infra.storage.BucketType.PACKAGES, spec.imageRef()));
                  var background = codec.decode(stream)) {
                 return new com.pixflow.infra.image.op.impl.SetBackgroundOp(
-                        new com.pixflow.infra.image.op.SetBackgroundSpec(spec.color(), background, spec.fit())).apply(src);
+                        new com.pixflow.infra.image.op.SetBackgroundSpec(
+                                spec.color(), background, spec.fit()))
+                        .apply(src);
             } catch (java.io.IOException e) {
                 throw new IllegalStateException("读取背景图片失败", e);
             }
@@ -173,20 +194,26 @@ public class DagAutoConfiguration {
         return new StepSpecCompiler();
     }
 
-    @Bean @ConditionalOnMissingBean
+    @Bean
+    @ConditionalOnMissingBean
     public CanonicalDagFactory canonicalDagFactory(ObjectMapper objectMapper) {
         return new CanonicalDagFactory(objectMapper);
     }
 
-    @Bean @ConditionalOnMissingBean
-    public StepBindingRegistry stepBindingRegistry() { return new StepBindingRegistry(); }
+    @Bean
+    @ConditionalOnMissingBean
+    public StepBindingRegistry stepBindingRegistry() {
+        return new StepBindingRegistry();
+    }
 
-    @Bean @ConditionalOnMissingBean
+    @Bean
+    @ConditionalOnMissingBean
     public DagCompiler dagCompiler(StepSpecCompiler mapper, StepBindingRegistry bindings) {
         return new DefaultDagCompiler(mapper, bindings);
     }
 
-    @Bean @ConditionalOnMissingBean
+    @Bean
+    @ConditionalOnMissingBean
     public TypedImageOpFactory typedImageOpFactory(
             TypedImageOpFactory.WatermarkResolver watermarkResolver,
             TypedImageOpFactory.BackgroundResolver backgroundResolver) {
@@ -287,34 +314,25 @@ public class DagAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public PendingPlanService pendingPlanService(PendingPlanMapper mapper,
-                                                    DagValidator validator,
-                                                    DagProperties props,
-                                                    ObjectMapper objectMapper,
-                                                    Clock clock) {
-        return new PendingPlanService(mapper, validator, props, objectMapper, clock,
-                canonicalDagFactory(objectMapper));
+    public DagProposalService dagProposalService(
+            DagValidator validator,
+            ObjectMapper objectMapper,
+            Clock clock,
+            ProposalPublicationPort publicationPort) {
+        return new DagProposalService(
+                validator, objectMapper, clock, canonicalDagFactory(objectMapper), publicationPort);
     }
 
     @Bean
     @ConditionalOnMissingBean
-    public PendingPlanPort pendingPlanPort(PendingPlanMapper mapper,
-                                           PendingPlanService service,
-                                           DagProperties props) {
-        return new PendingPlanPortAdapter(mapper, service, props);
-    }
-
-    @Bean
-    @ConditionalOnMissingBean
-    public SubmitImagePlanHandler submitImagePlanHandler(PendingPlanService service,
+    public SubmitImagePlanHandler submitImagePlanHandler(DagProposalService service,
                                                            ObjectMapper objectMapper) {
         return new SubmitImagePlanHandler(service, objectMapper);
     }
 
     @Bean
     @ConditionalOnMissingBean
-    public SchemaRegistryValidator schemaRegistryValidator(ParamSchemaRegistry registry,
-                                                             PendingPlanService service) {
-        return new SchemaRegistryValidator(registry, service);
+    public SchemaRegistryValidator schemaRegistryValidator(ParamSchemaRegistry registry) {
+        return new SchemaRegistryValidator(registry);
     }
 }

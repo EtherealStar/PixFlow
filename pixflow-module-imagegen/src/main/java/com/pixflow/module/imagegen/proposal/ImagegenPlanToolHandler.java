@@ -84,7 +84,7 @@ public class ImagegenPlanToolHandler {
         Map<String, Object> outputSchema = Map.of(
             "type", "object",
             "properties", Map.of(
-                "planId", Map.of("type", "string"),
+                "proposalId", Map.of("type", "string"),
                 "payloadHash", Map.of("type", "string"),
                 "sourceCount", Map.of("type", "integer"),
                 "summary", Map.of("type", "string")
@@ -161,13 +161,14 @@ public class ImagegenPlanToolHandler {
             String planId = service.enqueue(inputs,
                 invocation.toolCallId(),
                 invocation.conversationId(),
-                packageId);
+                packageId,
+                invocation.proposalPublicationAuthorizer());
             // 摘要:payloadHash 与入队时一致(让 UI 能直接展示)
             String payloadHash = service.payloadHashFor(servicePayloadHash(inputs, packageId,
                 invocation.conversationId()));
             String summary = "已入队 " + list.size() + " 张源图重绘提案,等待用户确认";
             Map<String, Object> result = new LinkedHashMap<>();
-            result.put("planId", planId);
+            result.put("proposalId", planId);
             result.put("payloadHash", payloadHash);
             result.put("sourceCount", list.size());
             result.put("summary", summary);

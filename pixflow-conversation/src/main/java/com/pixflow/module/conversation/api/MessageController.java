@@ -31,7 +31,7 @@ public class MessageController {
             @CurrentUser AuthPrincipal principal,
             @PathVariable String conversationId,
             @RequestBody MessageSubmitRequest request) {
-        PreparedTurn prepared = preparationService.prepare(principal.userId(), conversationId, request);
+        PreparedTurn prepared = preparationService.prepare(principal, conversationId, request);
         SseTurnSession session = sessionFactory.create(prepared);
         session.start();
         return session.emitter();

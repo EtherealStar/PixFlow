@@ -3,11 +3,12 @@ package com.pixflow.module.imagegen.proposal;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pixflow.common.error.PixFlowException;
-import com.pixflow.contracts.proposal.PendingPlanPort;
-import com.pixflow.contracts.proposal.PendingPlanProposal;
+import com.pixflow.contracts.proposal.ProposalDraft;
+import com.pixflow.contracts.proposal.ProposalPublicationPort;
 import com.pixflow.module.imagegen.confirm.ImagegenPayloadHasher;
 import com.pixflow.module.imagegen.error.ImagegenErrorCode;
 import com.pixflow.module.imagegen.metrics.ImagegenMetrics;
+import com.pixflow.harness.tools.ProposalPublicationAuthorizer;
 import io.micrometer.core.instrument.Timer;
 import java.time.Clock;
 import java.time.Instant;
@@ -23,13 +24,12 @@ import org.springframework.stereotype.Service;
  * <ol>
  *   <li>序列化 {@link ImagegenPlan} 为 payload JSON</li>
  *   <li>调 {@link ImagegenPayloadHasher} 计算 payloadHash</li>
- *   <li>调 {@link PendingPlanPort#enqueue} 入队(同 toolCallId 幂等)</li>
+ *   <li>调 {@link ProposalPublicationPort#publish} 发布(同 toolCallId 幂等)</li>
  *   <li>记录 metrics(proposal result=ok / reject)</li>
  *   <li>返回 planId</li>
  * </ol>
  *
- * <p>同 toolCallId 重复入队由 {@link PendingPlanPort} 保证幂等,本类不感知具体实现
- * (MyBatis-Plus / 内存 fake 都可替换)。
+ * <p>同 toolCallId 重复发布由 {@link ProposalPublicationPort} 保证幂等；本类不感知进程内实现。
  */
 @Service
 public class ImagegenPlanService {
@@ -40,29 +40,29 @@ public class ImagegenPlanService {
     public static final String PLAN_TYPE_IMAGEGEN = "IMAGEGEN";
 
     private final ImagegenPlanValidator validator;
-    private final PendingPlanPort pendingPlanPort;
+    private final ProposalPublicationPort publicationPort;
     private final ImagegenPayloadHasher payloadHasher;
     private final ObjectMapper objectMapper;
     private final Clock clock;
     private final ImagegenMetrics metrics;
 
     public ImagegenPlanService(ImagegenPlanValidator validator,
-                               PendingPlanPort pendingPlanPort,
+                               ProposalPublicationPort publicationPort,
                                ImagegenPayloadHasher payloadHasher,
                                ObjectMapper objectMapper) {
-        this(validator, pendingPlanPort, payloadHasher, objectMapper,
+        this(validator, publicationPort, payloadHasher, objectMapper,
             Clock.systemUTC(), null);
     }
 
     @Autowired
     public ImagegenPlanService(ImagegenPlanValidator validator,
-                               PendingPlanPort pendingPlanPort,
+                               ProposalPublicationPort publicationPort,
                                ImagegenPayloadHasher payloadHasher,
                                ObjectMapper objectMapper,
                                Clock clock,
                                ImagegenMetrics metrics) {
         this.validator = validator;
-        this.pendingPlanPort = pendingPlanPort;
+        this.publicationPort = publicationPort;
         this.payloadHasher = payloadHasher;
         this.objectMapper = objectMapper;
         this.clock = clock;
@@ -82,7 +82,8 @@ public class ImagegenPlanService {
     public String enqueue(ImagegenPlanInputs inputs,
                           String toolCallId,
                           String conversationId,
-                          String packageId) {
+                          String packageId,
+                          ProposalPublicationAuthorizer authorizer) {
         Timer.Sample sample = metrics == null ? null : metrics.startProposal();
         try {
             // 1. 深校验 + 规范化 → ImagegenPlan
@@ -97,14 +98,23 @@ public class ImagegenPlanService {
             }
 
             // 3. 入队(幂等:同 toolCallId 不产生新 plan)
-            PendingPlanProposal proposal = new PendingPlanProposal(
+            String payloadHash = payloadHasher.hash(plan);
+            java.util.List<String> referenceKeys = plan.sourceImageIds().stream()
+                    .map(imageId -> "package:" + packageId + "/image:" + imageId)
+                    .toList();
+            ProposalDraft proposal = new ProposalDraft(
                 PLAN_TYPE_IMAGEGEN,
                 payloadJson,
                 conversationId,
                 packageId,
                 toolCallId,
+                payloadHash,
+                plan.sourceImageIds().size(),
+                referenceKeys,
                 clock.instant());
-            String planId = pendingPlanPort.enqueue(proposal);
+            // 深校验与稳定 hash 完成后再授权，避免用未经验证的模型输入形成权限事实。
+            authorizer.authorize(PLAN_TYPE_IMAGEGEN, referenceKeys, payloadHash);
+            String planId = publicationPort.publish(proposal);
 
             if (metrics != null) {
                 metrics.recordProposal("ok", null);

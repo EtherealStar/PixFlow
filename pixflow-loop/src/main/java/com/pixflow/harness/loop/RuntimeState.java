@@ -2,6 +2,8 @@ package com.pixflow.harness.loop;
 
 import com.pixflow.harness.hooks.payload.RuntimeScope;
 import com.pixflow.infra.ai.model.TokenUsage;
+import com.pixflow.harness.permission.PermissionPlanMode;
+import com.pixflow.harness.permission.PermissionPrincipal;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
@@ -41,7 +43,9 @@ public final class RuntimeState {
     private boolean hasEscalatedMaxOutput;
     private TransitionReason lastTransition;
     private String conversationId;
-    private RuntimeScope runtimeScope = RuntimeScope.main();
+    private RuntimeScope runtimeScope;
+    private PermissionPrincipal permissionPrincipal;
+    private PermissionPlanMode permissionPlanMode = PermissionPlanMode.OFF;
     private int turnNo;
     private String traceId;
     private final Map<String, Object> metadata = new HashMap<>();
@@ -120,7 +124,23 @@ public final class RuntimeState {
     }
 
     public void setRuntimeScope(RuntimeScope runtimeScope) {
-        this.runtimeScope = runtimeScope == null ? RuntimeScope.main() : runtimeScope;
+        this.runtimeScope = runtimeScope;
+    }
+
+    public PermissionPrincipal permissionPrincipal() {
+        return permissionPrincipal;
+    }
+
+    public void setPermissionPrincipal(PermissionPrincipal permissionPrincipal) {
+        this.permissionPrincipal = permissionPrincipal;
+    }
+
+    public PermissionPlanMode permissionPlanMode() {
+        return permissionPlanMode;
+    }
+
+    public void setPermissionPlanMode(PermissionPlanMode permissionPlanMode) {
+        this.permissionPlanMode = permissionPlanMode == null ? PermissionPlanMode.ACTIVE : permissionPlanMode;
     }
 
     public int turnNo() {

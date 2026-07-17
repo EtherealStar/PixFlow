@@ -23,7 +23,7 @@ class MessageControllerLifecycleTest {
         TurnPreparationService preparation = mock(TurnPreparationService.class);
         SseTurnSessionFactory factory = mock(SseTurnSessionFactory.class);
         MessageSubmitRequest request = new MessageSubmitRequest("q", List.of(), null, Map.of());
-        when(preparation.prepare(7L, "missing", request)).thenThrow(
+        when(preparation.prepare(principal(), "missing", request)).thenThrow(
                 new PixFlowException(ConversationErrorCode.CONVERSATION_NOT_FOUND, "missing"));
         MessageController controller = new MessageController(preparation, factory);
 
@@ -41,7 +41,7 @@ class MessageControllerLifecycleTest {
         SseTurnSession session = mock(SseTurnSession.class);
         SseEmitter emitter = new SseEmitter();
         MessageSubmitRequest request = new MessageSubmitRequest("q", List.of(), null, Map.of());
-        when(preparation.prepare(7L, "conv-1", request)).thenReturn(prepared);
+        when(preparation.prepare(principal(), "conv-1", request)).thenReturn(prepared);
         when(factory.create(prepared)).thenReturn(session);
         when(session.emitter()).thenReturn(emitter);
         MessageController controller = new MessageController(preparation, factory);
@@ -51,6 +51,6 @@ class MessageControllerLifecycleTest {
     }
 
     private static AuthPrincipal principal() {
-        return new AuthPrincipal(7L, "user", "User", "ACTIVE", List.of("USER"));
+        return new AuthPrincipal(7L, "user", "User");
     }
 }

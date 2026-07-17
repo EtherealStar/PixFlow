@@ -27,6 +27,7 @@ import com.pixflow.module.task.internal.publish.TaskEventPublisher;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Optional;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -43,6 +44,7 @@ public class CreateTaskServiceImpl implements TaskCommandService {
     private final ProcessResultMapper resultMapper;
     private final WorkUnitPlanner planner;
     private final ObjectMapper objectMapper;
+
     private final RetryFailedTaskService retryFailedTaskService;
 
     public CreateTaskServiceImpl(ProcessTaskMapper taskMapper,
@@ -80,6 +82,11 @@ public class CreateTaskServiceImpl implements TaskCommandService {
                     return new TaskId(existingTaskId);
                 })
                 .orElseGet(() -> createNew(command, started));
+    }
+
+    @Override
+    public Optional<TaskId> findByIdempotencyKey(String idempotencyKey) {
+        return idempotencyGuard.findExistingTaskId(idempotencyKey).map(TaskId::new);
     }
 
     @Override

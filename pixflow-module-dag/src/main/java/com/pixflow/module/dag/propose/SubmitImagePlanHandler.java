@@ -21,13 +21,13 @@ import org.springframework.stereotype.Component;
 /**
  * SubmitImagePlanHandler:实现 {@link ToolHandler} 接口,贡献给 harness/tools。
  *
- * <p>工具入参:`{dag: {nodes:[...], edges:[...]}, note?: string}`。
+ * <p>工具入参:`{referenceKeys:[...], dag: {nodes:[...], edges:[...]}, note?: string}`。
  * 执行步骤:
  * <ol>
  *   <li>dag 浅层校验(合法 JSON object、含 nodes/edges)</li>
- *   <li>PendingPlanService.parseDocument → DagDocument</li>
+ *   <li>DagProposalService.parseDocument → DagDocument</li>
  *   <li>DagValidator 深度校验</li>
- *   <li>PendingPlanService.enqueue(幂等)</li>
+ *   <li>按当前权限事实授权并发布 ephemeral Proposal（同 toolCallId 幂等）</li>
  *   <li>返回 planId + summary</li>
  * </ol>
  *
@@ -38,13 +38,13 @@ public class SubmitImagePlanHandler {
 
     public static final String TOOL_NAME = "submit_image_plan";
 
-    private final PendingPlanService pendingPlanService;
+    private final DagProposalService proposalService;
     private final ObjectMapper objectMapper;
 
     @Autowired
-    public SubmitImagePlanHandler(PendingPlanService pendingPlanService,
+    public SubmitImagePlanHandler(DagProposalService proposalService,
                                   ObjectMapper objectMapper) {
-        this.pendingPlanService = pendingPlanService;
+        this.proposalService = proposalService;
         this.objectMapper = objectMapper;
     }
 
@@ -61,8 +61,13 @@ public class SubmitImagePlanHandler {
         Map<String, Object> inputSchema = Map.of(
             "type", "object",
             "additionalProperties", false,
-            "required", java.util.List.of("dag"),
+            "required", java.util.List.of("referenceKeys", "dag"),
             "properties", Map.of(
+                "referenceKeys", Map.of(
+                    "type", "array",
+                    "minItems", 1,
+                    "items", Map.of("type", "string", "minLength", 1)
+                ),
                 "dag", dagSchema,
                 "note", Map.of("type", "string", "maxLength", 1024)
             )
@@ -70,7 +75,7 @@ public class SubmitImagePlanHandler {
         Map<String, Object> outputSchema = Map.of(
             "type", "object",
             "properties", Map.of(
-                "planId", Map.of("type", "integer"),
+                "proposalId", Map.of("type", "string"),
                 "payloadHash", Map.of("type", "string"),
                 "status", Map.of("type", "string"),
                 "summary", Map.of("type", "string")
@@ -119,20 +124,29 @@ public class SubmitImagePlanHandler {
             return ToolHandlerOutput.of(
                 "{\"error\":\"DAG_INVALID_STRUCTURE: dag 不是合法 JSON object\"}");
         }
-        String note = args.get("note") == null ? null : args.get("note").toString();
+        Object referencesObject = args.get("referenceKeys");
+        if (!(referencesObject instanceof java.util.List<?> rawReferences)
+                || rawReferences.isEmpty()
+                || rawReferences.stream().anyMatch(item -> !(item instanceof String text) || text.isBlank())) {
+            return ToolHandlerOutput.of(
+                    "{\"error\":\"DAG_INVALID_STRUCTURE: referenceKeys 必须是非空字符串数组\"}");
+        }
+        java.util.List<String> referenceKeys = rawReferences.stream()
+                .map(String.class::cast).toList();
         try {
-            DagDocument doc = pendingPlanService.parseDocument(dagJson);
-            PendingPlan plan = pendingPlanService.enqueue(
+            DagDocument doc = proposalService.parseDocument(dagJson);
+            DagProposal proposal = proposalService.publish(
                 invocation.toolCallId(),
                 invocation.conversationId(),
                 doc,
-                note
+                referenceKeys,
+                invocation.proposalPublicationAuthorizer()
             );
             Map<String, Object> result = new LinkedHashMap<>();
-            result.put("planId", plan.getId());
-            result.put("payloadHash", plan.getPayloadHash());
-            result.put("status", plan.getStatus().name());
-            result.put("summary", "已入队,等待用户确认");
+            result.put("proposalId", proposal.proposalId());
+            result.put("payloadHash", proposal.payloadHash());
+            result.put("status", "PENDING");
+            result.put("summary", "已发布,等待用户确认");
             return ToolHandlerOutput.of(objectMapper.writeValueAsString(result));
         } catch (PixFlowException pe) {
             Map<String, Object> err = new LinkedHashMap<>();

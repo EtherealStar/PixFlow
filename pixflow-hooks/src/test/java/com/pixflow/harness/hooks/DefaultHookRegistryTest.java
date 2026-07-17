@@ -271,7 +271,7 @@ class DefaultHookRegistryTest {
                 "compile_dag",
                 "call-1",
                 input,
-                PermissionDecision.allow("compile_dag", PermissionSource.DEFAULT_ALLOW),
+                PermissionDecision.allow("compile_dag"),
                 Map.of());
     }
 

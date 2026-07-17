@@ -1,10 +1,7 @@
 package com.pixflow.harness.permission;
 
-/**
- * 权限评估的三态结果。
- */
+/** 授权只有允许或终态拒绝，不承载业务确认流程状态。 */
 public enum PermissionAction {
     ALLOW,
-    DENY,
-    CONFIRM_REQUIRED
+    DENY
 }

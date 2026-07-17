@@ -1,9 +1,8 @@
 import { computed, ref, type Ref } from 'vue'
 import { z } from 'zod'
 import { createSseClient } from '@/transport/sse'
-import { challenge as challengeConfirm, submit as submitConfirm } from '@/api/confirm'
-import { getIdempotencyKey, setIdempotencyKey } from '@/utils/idempotencyStore'
-import { newId, newUuid } from '@/utils/id'
+import { confirm as confirmProposal, reject as rejectProposal } from '@/api/confirm'
+import { newId } from '@/utils/id'
 import { ApiError } from '@/types/api'
 import type {
   AgentEvent,
@@ -12,8 +11,6 @@ import type {
   AgentTurnSummary,
   AssistantDeltaPayload,
   AssistantMessageCompletedPayload,
-  ChallengeOrToken,
-  ConfirmationChallenge,
   CompletedPayload,
   ErrorEventPayload,
   Proposal,
@@ -29,16 +26,12 @@ import type {
  * 见 web.md §八。
  *
  *  - timeline 维护在 composable 内的 ref<TimelineItem[]>（不入 Pinia）
- *  - confirmationToken 永不出函数（仅在闭包内流转）
+ *  - Proposal 仅通过 proposalId 直接确认，不在浏览器保存授权凭据
  *  - 多回合并发：同 conversationId 不允许两个 active 回合
  */
 
 interface PendingProposal {
   proposal: Proposal
-  /** challenge 暂存（needChallenge=true 时） */
-  challengeId?: string
-  /** token 暂存（needChallenge=false 或答对 challenge 后） */
-  token?: string
 }
 
 interface QueuedTurn {
@@ -55,7 +48,6 @@ export interface SendAttachments {
 
 export interface ConfirmResult {
   taskId: string
-  challenge?: ConfirmationChallenge
 }
 
 export function createAgentTurn(opts: { conversationId: string }) {
@@ -540,9 +532,10 @@ export function createAgentTurn(opts: { conversationId: string }) {
     pending = { proposal: p }
   }
 
-  function reject(proposalId: string): void {
+  async function reject(proposalId: string): Promise<void> {
     const idx = proposals.value.findIndex((p) => p.proposalId === proposalId)
     if (idx === -1) return
+    await rejectProposal(opts.conversationId, proposalId)
     const next = proposals.value.slice()
     const rejected: Proposal & { rejected?: true } = { ...next[idx]!, rejected: true }
     next[idx] = rejected
@@ -550,16 +543,10 @@ export function createAgentTurn(opts: { conversationId: string }) {
     if (pending?.proposal.proposalId === proposalId) {
       pending = null
     }
-    // 不调 /submit；只把状态置 REJECTED
     setPhase('completed')
   }
 
-  /**
-   * HITL 三步编排（见 web.md §十二）。
-   * @param proposalId 待确认提案
-   * @param challengeAnswer 仅在 needChallenge=true 时需要回答
-   */
-  async function confirm(proposalId: string, challengeAnswer?: string): Promise<ConfirmResult> {
+  async function confirm(proposalId: string): Promise<ConfirmResult> {
     if (!pending || pending.proposal.proposalId !== proposalId) {
       throw new ApiError({
         status: 400,
@@ -568,80 +555,15 @@ export function createAgentTurn(opts: { conversationId: string }) {
         traceId: ''
       })
     }
-    if (challengeAnswer && pending.challengeId) {
-      return await doSubmit(proposalId, challengeAnswer)
-    }
-    setPhase('awaiting_challenge')
-    let ct: ChallengeOrToken
-    try {
-      ct = await challengeConfirm(opts.conversationId, proposalId)
-    } catch (e: unknown) {
-      const err = toApiError(e)
-      if (err.errorCode === 'PROPOSAL_CHALLENGE_FAILED') {
-        setPhase('awaiting_challenge', { error: err })
-        throw err
-      }
-      if (err.errorCode === 'PROPOSAL_CHALLENGE_EXPIRED') {
-        setPhase('error', { error: err })
-        throw err
-      }
-      throw err
-    }
-    if (ct.needChallenge) {
-      if (!ct.challenge) {
-        const err = new ApiError({ status: 500, errorCode: 'INTERNAL_ERROR', message: 'challenge 响应缺 challenge 字段', traceId: '' })
-        setPhase('error', { error: err })
-        throw err
-      }
-      pending.challengeId = ct.challenge.challengeId
-      // 等用户在 UI 输入答案（ChallengeDialog 调 confirm(proposalId, answer) 再走一次）
-      return { taskId: '', challenge: ct.challenge }
-    }
-    if (!ct.token) {
-      const err = new ApiError({ status: 500, errorCode: 'INTERNAL_ERROR', message: 'challenge 响应缺 token 字段', traceId: '' })
-      setPhase('error', { error: err })
-      throw err
-    }
-    pending.token = typeof ct.token === 'string' ? ct.token : ct.token.token
-    return await doSubmit(proposalId)
-  }
-
-  async function doSubmit(proposalId: string, challengeAnswer?: string): Promise<ConfirmResult> {
-    if (!pending || (!pending.token && !pending.challengeId)) {
-      throw new ApiError({
-        status: 400,
-        errorCode: 'CONFIRMATION_TOKEN_INVALID',
-        message: 'no token to submit',
-        traceId: ''
-      })
-    }
     setPhase('awaiting_confirm')
-    const idemp = getIdempotencyKey(proposalId) ?? newUuid()
-    setIdempotencyKey(proposalId, idemp)
     try {
-      const r = await submitConfirm(
-        opts.conversationId,
-        proposalId,
-        {
-          challengeId: pending.challengeId,
-          challengeAnswer
-        },
-        idemp
-      )
+      const r = await confirmProposal(opts.conversationId, proposalId)
       setPhase('completed', { taskId: r.taskId })
       pending = null
       return { taskId: r.taskId }
     } catch (e: unknown) {
       const err = toApiError(e)
-      if (err.errorCode === 'PROPOSAL_ALREADY_CONFIRMED') {
-        // 幂等：视为成功
-        setPhase('completed')
-        return { taskId: typeof err.details?.taskId === 'string' ? err.details.taskId : '' }
-      }
-      if (err.errorCode === 'CONFIRMATION_TOKEN_INVALID') {
-        setPhase('error', { error: err })
-        throw err
-      }
+      setPhase('error', { error: err })
       throw err
     }
   }
@@ -663,7 +585,7 @@ export function createAgentTurn(opts: { conversationId: string }) {
 }
 
 function isActivePhase(phase: AgentTurnPhase): boolean {
-  return phase === 'sending' || phase === 'streaming' || phase === 'awaiting_challenge' || phase === 'awaiting_confirm'
+  return phase === 'sending' || phase === 'streaming' || phase === 'awaiting_confirm'
 }
 
 function toApiError(error: unknown): ApiError {

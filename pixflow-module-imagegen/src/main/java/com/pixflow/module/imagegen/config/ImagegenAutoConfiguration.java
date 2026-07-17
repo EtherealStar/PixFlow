@@ -1,8 +1,7 @@
 package com.pixflow.module.imagegen.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.pixflow.contracts.proposal.PendingPlanPort;
-import com.pixflow.module.imagegen.confirm.ImagegenConfirmationSupport;
+import com.pixflow.contracts.proposal.ProposalPublicationPort;
 import com.pixflow.module.imagegen.confirm.ImagegenPayloadHasher;
 import com.pixflow.harness.tools.ToolDescriptor;
 import com.pixflow.module.imagegen.metrics.ImagegenMetrics;
@@ -58,24 +57,14 @@ public class ImagegenAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public ImagegenConfirmationSupport imagegenConfirmationSupport(
-            PendingPlanPort port,
-            ImagegenPayloadHasher hasher,
-            ObjectMapper objectMapper,
-            ImagegenMetrics metrics) {
-        return new ImagegenConfirmationSupport(port, hasher, objectMapper, metrics);
-    }
-
-    @Bean
-    @ConditionalOnMissingBean
     public ImagegenPlanService imagegenPlanService(
             ImagegenPlanValidator validator,
-            PendingPlanPort pendingPlanPort,
+            ProposalPublicationPort publicationPort,
             ImagegenPayloadHasher payloadHasher,
             ObjectMapper objectMapper,
             Clock clock,
             ImagegenMetrics metrics) {
-        return new ImagegenPlanService(validator, pendingPlanPort, payloadHasher, objectMapper, clock, metrics);
+        return new ImagegenPlanService(validator, publicationPort, payloadHasher, objectMapper, clock, metrics);
     }
 
     @Bean

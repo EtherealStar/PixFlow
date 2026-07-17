@@ -1,8 +1,6 @@
 <script setup lang="ts">
-import { ref } from 'vue'
 import AppCard from '@/components/ui/AppCard.vue'
 import AppButton from '@/components/ui/AppButton.vue'
-import AppInput from '@/components/ui/AppInput.vue'
 import AppBadge from '@/components/ui/AppBadge.vue'
 import type { Proposal } from '@/types/agent'
 
@@ -14,25 +12,17 @@ import type { Proposal } from '@/types/agent'
  */
 const props = defineProps<{
   proposal: Proposal
-  challengePrompt?: string
-  awaitingChallenge: boolean
   /** 防止双击 */
   busy?: boolean
 }>()
 
 const emit = defineEmits<{
-  confirm: [answer?: string]
+  confirm: []
   reject: []
 }>()
 
-const answer = ref('')
-
 function onConfirm(): void {
-  if (props.awaitingChallenge) {
-    emit('confirm', answer.value || undefined)
-  } else {
-    emit('confirm')
-  }
+  emit('confirm')
 }
 </script>
 
@@ -52,18 +42,6 @@ function onConfirm(): void {
     </header>
     <div class="text-base text-fg-primary mb-2">
       {{ proposal.summary ?? '(无摘要)' }}
-    </div>
-    <div
-      v-if="awaitingChallenge && challengePrompt"
-      class="bg-bg-panel rounded-md p-2 mb-2"
-    >
-      <div class="text-sm text-fg-secondary mb-1.5">
-        {{ challengePrompt }}
-      </div>
-      <AppInput
-        v-model="answer"
-        placeholder="请输入答案..."
-      />
     </div>
     <div class="flex gap-2 justify-end">
       <AppButton

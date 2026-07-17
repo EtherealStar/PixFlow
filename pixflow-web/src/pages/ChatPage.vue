@@ -2,7 +2,6 @@
 import { useRoute, useRouter } from 'vue-router'
 import MessageStream from '@/components/chat/MessageStream.vue'
 import ProposalCard from '@/components/chat/ProposalCard.vue'
-import ChallengeDialog from '@/components/chat/ChallengeDialog.vue'
 import Composer from '@/components/chat/Composer.vue'
 import TaskProgressCard from '@/components/tasks/TaskProgressCard.vue'
 import { useChatSession } from '@/runtime/useChatSession'
@@ -12,8 +11,7 @@ import { useChatSession } from '@/runtime/useChatSession'
  *
  * - Composer 接管输入（@ 提及 / Ctrl+Enter / 附件）
  * - MessageStream 渲染 agent timeline + 用户消息
- * - ProposalCard 列表：HITL 二次确认入口
- * - ChallengeDialog：答案错误时弹出
+ * - ProposalCard 列表：Proposal 直接确认入口
  * - TaskProgressCard：当消息流中带 taskId 时挂载
  */
 const route = useRoute()
@@ -39,10 +37,8 @@ const chat = useChatSession({ route, router })
         v-for="p in chat.visibleProposals.value"
         :key="p.proposalId"
         :proposal="p"
-        :challenge-prompt="chat.currentChallenge.value?.prompt"
-        :awaiting-challenge="chat.currentPhase.value === 'awaiting_challenge'"
         :busy="chat.currentPhase.value === 'awaiting_confirm'"
-        @confirm="(ans?: string) => chat.confirmProposal(p, ans)"
+        @confirm="chat.confirmProposal(p)"
         @reject="chat.rejectProposal(p)"
       />
 
@@ -54,16 +50,6 @@ const chat = useChatSession({ route, router })
         class="mx-6 my-2"
       />
 
-      <ChallengeDialog
-        v-model:visible="chat.challengeVisible.value"
-        :proposal="chat.activeProposal.value"
-        :challenge="chat.currentChallenge.value"
-        :error="chat.turnError.value"
-        @submit="(ans: string) => {
-          const p = chat.activeProposal.value
-          if (p) chat.confirmProposal(p, ans)
-        }"
-      />
     </div>
 
     <footer class="chat-foot border-t border-border bg-bg-panel px-4 py-3">

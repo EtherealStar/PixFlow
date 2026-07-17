@@ -1,12 +1,14 @@
 package com.pixflow.harness.permission;
 
-/**
- * 决策来源，便于审计和 trace 记录。
- */
+/** 决策阶段的低基数来源，供 trace 使用。 */
 public enum PermissionSource {
-    SUBAGENT_CONSTRAINT,
-    TOOL_DENIED,
-    TOOL_DISABLED,
-    TOKEN_GATE,
-    DEFAULT_ALLOW
+    AUTHENTICATION,
+    ADMINISTRATOR,
+    RUNTIME_SCOPE,
+    PLAN_MODE,
+    CONVERSATION,
+    ASSET,
+    PROPOSAL,
+    TASK,
+    POLICY_ALLOW
 }

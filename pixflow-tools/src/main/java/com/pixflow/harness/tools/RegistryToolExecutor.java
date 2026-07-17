@@ -10,6 +10,7 @@ import com.pixflow.harness.hooks.HookResult;
 import com.pixflow.harness.hooks.payload.ToolUsePayload;
 import com.pixflow.harness.permission.PermissionAction;
 import com.pixflow.harness.permission.PermissionDecision;
+import com.pixflow.harness.permission.PermissionPlanMode;
 import com.pixflow.harness.permission.PermissionSubject;
 import com.pixflow.harness.tools.error.ToolErrorFactory;
 import com.pixflow.harness.tools.plan.PlanModeView;
@@ -134,9 +135,8 @@ public class RegistryToolExecutor implements ToolExecutor {
             context.cancellation().throwIfCancellationRequested();
             validateArgs(descriptor, args);
             ToolCallClassification classification = descriptor.classifier().classify(descriptor, args);
-            PermissionDecision decision = evaluatePermission(
-                    call, descriptor, classification, context.permissionContext());
-            if (decision.action() == PermissionAction.DENY || decision.action() == PermissionAction.CONFIRM_REQUIRED) {
+            PermissionDecision decision = evaluatePermission(call, descriptor, classification, context);
+            if (decision.action() == PermissionAction.DENY) {
                 ToolExecutionResult result = error(
                         call,
                         "permission denied",
@@ -173,7 +173,7 @@ public class RegistryToolExecutor implements ToolExecutor {
                 args.putAll(pre.updatedInput());
                 validateArgs(descriptor, args);
                 classification = descriptor.classifier().classify(descriptor, args);
-                decision = evaluatePermission(call, descriptor, classification, context.permissionContext());
+                decision = evaluatePermission(call, descriptor, classification, context);
                 if (decision.action() != PermissionAction.ALLOW) {
                     ToolExecutionResult result = error(
                             call,
@@ -219,6 +219,9 @@ public class RegistryToolExecutor implements ToolExecutor {
                 call.traceId(),
                 call.runtimeScope(),
                 context.runtimeContext(),
+                (proposalType, referenceKeys, payloadHash) -> requireAllowed(
+                        evaluateProposalPublication(
+                                call, proposalType, referenceKeys, payloadHash, context)),
                 call.metadata());
         ToolHandlerOutput output = descriptor.handler().handle(invocation);
         context.cancellation().throwIfCancellationRequested();
@@ -311,17 +314,39 @@ public class RegistryToolExecutor implements ToolExecutor {
             ToolCall call,
             ToolDescriptor descriptor,
             ToolCallClassification classification,
-            com.pixflow.harness.permission.PermissionContext context) {
-        PermissionSubject subject = new PermissionSubject(
-                descriptor.name(),
-                classification.readOnly(),
-                null,
-                call.conversationId(),
-                call.conversationId(),
-                Integer.toHexString(Objects.hash(call.toolCallId(), call.toolName(), call.arguments())),
-                1,
-                classification.subjectMetadata());
-        return permissionPolicy.evaluate(subject, context);
+            ToolExecutionContext executionContext) {
+        PermissionPlanMode planMode = executionContext.planModeView() == null
+                ? null
+                : executionContext.planModeView().isPlanMode()
+                        ? PermissionPlanMode.ACTIVE : PermissionPlanMode.OFF;
+        com.pixflow.harness.permission.PermissionContext context =
+                executionContext.permissionContext().forToolCall(call.toolCallId(), planMode);
+        PermissionSubject subject = new PermissionSubject.ToolInvocation(
+                descriptor.name(), classification.readOnly(), classification.subjectMetadata());
+        return permissionPolicy.evaluate(context, subject);
+    }
+
+    private PermissionDecision evaluateProposalPublication(
+            ToolCall call,
+            String proposalType,
+            List<String> referenceKeys,
+            String payloadHash,
+            ToolExecutionContext executionContext) {
+        PermissionPlanMode planMode = executionContext.planModeView() == null
+                ? null
+                : executionContext.planModeView().isPlanMode()
+                        ? PermissionPlanMode.ACTIVE : PermissionPlanMode.OFF;
+        com.pixflow.harness.permission.PermissionContext context =
+                executionContext.permissionContext().forToolCall(call.toolCallId(), planMode);
+        return permissionPolicy.evaluate(context,
+                new PermissionSubject.ProposalPublication(
+                        proposalType, referenceKeys, payloadHash));
+    }
+
+    private static void requireAllowed(PermissionDecision decision) {
+        if (decision.action() == PermissionAction.DENY) {
+            throw new PixFlowException(decision.errorCode(), decision.reason());
+        }
     }
 
     private ToolExecutionResult error(ToolCall call, String content, PixFlowException error) {

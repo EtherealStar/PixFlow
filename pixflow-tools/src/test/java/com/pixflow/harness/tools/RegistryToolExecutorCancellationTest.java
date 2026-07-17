@@ -8,12 +8,18 @@ import static org.mockito.Mockito.when;
 
 import com.pixflow.common.concurrent.CancellationReason;
 import com.pixflow.common.concurrent.CancellationSource;
+import com.pixflow.common.concurrent.CancellationToken;
 import com.pixflow.common.concurrent.OperationCancelledException;
 import com.pixflow.harness.hooks.HookRegistry;
 import com.pixflow.harness.hooks.HookResult;
 import com.pixflow.harness.permission.PermissionContext;
 import com.pixflow.harness.permission.PermissionDecision;
+import com.pixflow.harness.permission.PermissionErrorCode;
+import com.pixflow.harness.permission.PermissionPlanMode;
 import com.pixflow.harness.permission.PermissionPolicy;
+import com.pixflow.harness.permission.PermissionPrincipal;
+import com.pixflow.harness.permission.PermissionRuntimeScope;
+import com.pixflow.harness.permission.PermissionSubject;
 import com.pixflow.harness.permission.PermissionSource;
 import com.pixflow.harness.tools.config.ToolsProperties;
 import com.pixflow.harness.tools.result.ToolTraceSink;
@@ -31,6 +37,116 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
 class RegistryToolExecutorCancellationTest {
+    @Test
+    void proposalPublicationIsReauthorizedAfterHandlerValidation() {
+        AtomicInteger publications = new AtomicInteger();
+        ToolDescriptor descriptor = descriptor("submit_image_plan", invocation -> {
+            invocation.proposalPublicationAuthorizer().authorize(
+                    "DAG", List.of("package:1/image:2"), "sha256:abc");
+            publications.incrementAndGet();
+            return ToolHandlerOutput.of("unexpected");
+        });
+        PermissionPolicy permission = new PermissionPolicy() {
+            @Override
+            public PermissionDecision evaluate(
+                    PermissionContext context, PermissionSubject subject) {
+                return subject instanceof PermissionSubject.ProposalPublication
+                        ? PermissionDecision.deny(
+                                "proposal_publication",
+                                PermissionSource.ASSET,
+                                PermissionErrorCode.PERMISSION_ASSET_DENIED)
+                        : PermissionDecision.allow("submit_image_plan");
+            }
+
+            @Override
+            public boolean isToolVisible(
+                    String toolName, boolean readOnly, PermissionContext context) {
+                return true;
+            }
+        };
+        HookRegistry hooks = mock(HookRegistry.class);
+        when(hooks.dispatch(any(), any())).thenReturn(HookResult.noop());
+        RegistryToolExecutor executor = new RegistryToolExecutor(
+                registry(Map.of(descriptor.name(), descriptor)), permission, hooks,
+                mock(ToolResultStorage.class), event -> { }, () -> false,
+                new ToolsProperties());
+        PermissionContext permissionContext = new PermissionContext(
+                new PermissionPrincipal("42", "admin"), PermissionRuntimeScope.MAIN,
+                PermissionPlanMode.OFF, "conv", "turn");
+        try (ExecutorService toolPool = Executors.newSingleThreadExecutor()) {
+            ToolExecutionContext context = new ToolExecutionContext(
+                    permission, permissionContext, hooks, mock(ToolResultStorage.class),
+                    event -> { }, () -> false, ToolRuntimeContext.unavailable(), toolPool,
+                    Set.of(), CancellationToken.NONE);
+
+            ToolExecutionResult result = executor.execute(
+                    List.of(call("call-1", descriptor.name())), context).getFirst();
+
+            assertThat(result.error()).isTrue();
+            assertThat(publications).hasValue(0);
+        }
+    }
+
+    @Test
+    void directInvocationIsDeniedBeforeHiddenToolHandlerRuns() {
+        AtomicInteger handlerCalls = new AtomicInteger();
+        ToolDescriptor descriptor = descriptor("submit_image_plan", invocation -> {
+            handlerCalls.incrementAndGet();
+            return ToolHandlerOutput.of("unexpected");
+        });
+        PermissionPolicy permission = new PermissionPolicy() {
+            @Override
+            public PermissionDecision evaluate(
+                    PermissionContext context,
+                    com.pixflow.harness.permission.PermissionSubject subject) {
+                return PermissionDecision.deny(
+                        "submit_image_plan",
+                        PermissionSource.PLAN_MODE,
+                        PermissionErrorCode.PERMISSION_PLAN_MODE_DENIED);
+            }
+
+            @Override
+            public boolean isToolVisible(
+                    String toolName, boolean readOnly, PermissionContext context) {
+                return false;
+            }
+        };
+        HookRegistry hooks = mock(HookRegistry.class);
+        RegistryToolExecutor executor = new RegistryToolExecutor(
+                registry(Map.of(descriptor.name(), descriptor)),
+                permission,
+                hooks,
+                mock(ToolResultStorage.class),
+                event -> { },
+                () -> true,
+                new ToolsProperties());
+        PermissionContext permissionContext = new PermissionContext(
+                new PermissionPrincipal("42", "admin"),
+                PermissionRuntimeScope.MAIN,
+                PermissionPlanMode.ACTIVE,
+                "conv",
+                "turn");
+        try (ExecutorService toolPool = Executors.newSingleThreadExecutor()) {
+            ToolExecutionContext context = new ToolExecutionContext(
+                    permission,
+                    permissionContext,
+                    hooks,
+                    mock(ToolResultStorage.class),
+                    event -> { },
+                    () -> true,
+                    ToolRuntimeContext.unavailable(),
+                    toolPool,
+                    Set.of(),
+                    CancellationToken.NONE);
+
+            ToolExecutionResult result = executor.execute(
+                    List.of(call("call-1", descriptor.name())), context).getFirst();
+
+            assertThat(result.error()).isTrue();
+            assertThat(handlerCalls).hasValue(0);
+        }
+    }
+
     @Test
     void cancelsSubmittedBatchAndDoesNotConvertCancellationToToolError() throws Exception {
         CountDownLatch firstStarted = new CountDownLatch(1);
@@ -52,8 +168,7 @@ class RegistryToolExecutorCancellationTest {
         });
         ToolRegistry registry = registry(Map.of("first", first, "second", second));
         PermissionPolicy permission = mock(PermissionPolicy.class);
-        when(permission.evaluate(any(), any())).thenReturn(
-                PermissionDecision.allow("tool", PermissionSource.DEFAULT_ALLOW));
+        when(permission.evaluate(any(), any())).thenReturn(PermissionDecision.allow("tool"));
         HookRegistry hooks = mock(HookRegistry.class);
         when(hooks.dispatch(any(), any())).thenReturn(HookResult.noop());
         RegistryToolExecutor toolExecutor = new RegistryToolExecutor(

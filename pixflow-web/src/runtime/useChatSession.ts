@@ -6,7 +6,7 @@ import { useAgentTurnsStore } from '@/stores/agentTurns'
 import { useConversationsStore } from '@/stores/conversations'
 import { useToastStore } from '@/stores/toast'
 import { ApiError } from '@/types/api'
-import type { ConfirmationChallenge, Proposal, TimelineItem } from '@/types/agent'
+import type { Proposal, TimelineItem } from '@/types/agent'
 
 export interface ChatRouteLike {
   params: RouteLocationNormalizedLoaded['params']
@@ -26,8 +26,6 @@ export function useChatSession(opts: ChatSessionOptions) {
   const sending = ref(false)
   const uploadingAttachment = ref(false)
   const composerText = ref('')
-  const challengeVisible = ref(false)
-  const currentChallenge = ref<ConfirmationChallenge | null>(null)
   const userMessages = ref<Array<{ id: string; text: string }>>([])
   const pendingAttachments = ref<UploadAttachmentResponse[]>([])
   const taskRefs = ref<Array<{ taskId: string; conversationId: string }>>([])
@@ -119,33 +117,29 @@ export function useChatSession(opts: ChatSessionOptions) {
     void sendText(text)
   }
 
-  async function confirmProposal(proposal: Proposal, answer?: string): Promise<void> {
+  async function confirmProposal(proposal: Proposal): Promise<void> {
     if (!turnRef.value || !activeConversationId.value) return
     try {
-      const r = await turnRef.value.confirm(proposal.proposalId, answer)
-      if (r.challenge) {
-        currentChallenge.value = r.challenge
-        challengeVisible.value = true
-        return
-      }
+      const r = await turnRef.value.confirm(proposal.proposalId)
       if (r.taskId) {
         toast.push({ variant: 'success', message: `已创建任务：${r.taskId.slice(0, 8)}` })
         appendTaskRef(taskRefs, r.taskId, activeConversationId.value)
-        challengeVisible.value = false
       }
     } catch (e: unknown) {
       const err = ApiError.fromUnknown(e, { status: 0, errorCode: 'NETWORK_ERROR', message: '确认失败', traceId: '' })
-      if (err.errorCode === 'PROPOSAL_CHALLENGE_FAILED') {
-        challengeVisible.value = true
-      } else {
-        toast.push({ variant: 'danger', message: err.message })
-      }
+      toast.push({ variant: 'danger', message: err.message })
     }
   }
 
-  function rejectProposal(proposal: Proposal): void {
-    turnRef.value?.reject(proposal.proposalId)
-    userMessages.value.push({ id: `r-${Date.now()}`, text: `[已拒绝方案 ${proposal.proposalId.slice(0, 8)}]` })
+  async function rejectProposal(proposal: Proposal): Promise<void> {
+    if (!turnRef.value) return
+    try {
+      await turnRef.value.reject(proposal.proposalId)
+      userMessages.value.push({ id: `r-${Date.now()}`, text: `[已拒绝方案 ${proposal.proposalId.slice(0, 8)}]` })
+    } catch (e: unknown) {
+      const err = ApiError.fromUnknown(e, { status: 0, errorCode: 'NETWORK_ERROR', message: '拒绝失败', traceId: '' })
+      toast.push({ variant: 'danger', message: err.message })
+    }
   }
 
   function stop(): void {
@@ -184,8 +178,6 @@ export function useChatSession(opts: ChatSessionOptions) {
     turnError,
     visibleProposals,
     activeProposal,
-    challengeVisible,
-    currentChallenge,
     userMessages,
     pendingAttachments,
     taskRefs,

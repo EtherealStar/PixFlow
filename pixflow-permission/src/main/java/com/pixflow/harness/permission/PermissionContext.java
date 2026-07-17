@@ -1,42 +1,29 @@
 package com.pixflow.harness.permission;
 
-import com.pixflow.contracts.confirmation.ConfirmationToken;
-import com.pixflow.harness.permission.subagent.SubagentConstraint;
-import java.util.Collections;
-import java.util.LinkedHashSet;
-import java.util.Set;
-
 /**
- * 服务端可信上下文。
+ * 一次授权评估所需的服务端可信上下文。
+ *
+ * <p>principal 允许为空，以便策略把“尚未认证”转换成稳定的终态拒绝；其余字段不得
+ * 从模型输入或工具参数中拼装。
  */
 public record PermissionContext(
+        PermissionPrincipal principal,
+        PermissionRuntimeScope runtimeScope,
+        PermissionPlanMode planMode,
         String conversationId,
-        ConfirmationToken pendingToken,
-        SubagentConstraint subagent,
-        Set<String> deniedTools,
-        Set<String> disabledTools) {
+        String toolCallId) {
 
     public PermissionContext {
-        conversationId = normalizeConversationId(conversationId);
-        deniedTools = immutableSet(deniedTools);
-        disabledTools = immutableSet(disabledTools);
+        conversationId = PermissionValues.requireText(conversationId, "conversationId");
+        toolCallId = PermissionValues.requireText(toolCallId, "toolCallId");
     }
 
-    public boolean isSubagent() {
-        return subagent != null;
-    }
-
-    private static String normalizeConversationId(String value) {
-        if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException("conversationId 不能为空");
-        }
-        return value;
-    }
-
-    private static Set<String> immutableSet(Set<String> source) {
-        if (source == null || source.isEmpty()) {
-            return Set.of();
-        }
-        return Collections.unmodifiableSet(new LinkedHashSet<>(source));
+    public PermissionContext forToolCall(String currentToolCallId, PermissionPlanMode currentPlanMode) {
+        return new PermissionContext(
+                principal,
+                runtimeScope,
+                currentPlanMode,
+                conversationId,
+                currentToolCallId);
     }
 }

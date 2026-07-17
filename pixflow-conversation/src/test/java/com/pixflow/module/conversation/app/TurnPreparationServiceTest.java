@@ -11,6 +11,7 @@ import static org.mockito.Mockito.when;
 import com.pixflow.common.concurrent.CancellationToken;
 import com.pixflow.harness.loop.AgentTurnRequest;
 import com.pixflow.harness.loop.AgentTurnRunner;
+import com.pixflow.infra.auth.context.AuthPrincipal;
 import com.pixflow.module.conversation.attachment.AttachmentMapper;
 import com.pixflow.module.conversation.lock.ConversationLock;
 import com.pixflow.module.conversation.lock.TurnLockHandle;
@@ -41,7 +42,7 @@ class TurnPreparationServiceTest {
                 AgentTurnRunnerRegistry.of(runner));
 
         PreparedTurn prepared = service.prepare(
-                7L,
+                principal(),
                 "conv-1",
                 new MessageSubmitRequest("hello", List.of(), null, Map.of()));
 
@@ -74,11 +75,15 @@ class TurnPreparationServiceTest {
                 registry);
 
         assertThatThrownBy(() -> service.prepare(
-                7L,
+                principal(),
                 "conv-1",
                 new MessageSubmitRequest("hello", List.of(), null, Map.of())))
                 .isInstanceOf(IllegalStateException.class);
 
         verify(lockHandle).close();
+    }
+
+    private static AuthPrincipal principal() {
+        return new AuthPrincipal(7L, "admin", "Admin");
     }
 }

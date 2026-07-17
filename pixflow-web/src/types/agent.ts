@@ -5,7 +5,6 @@ export type AgentTurnPhase =
   | 'idle'
   | 'sending'
   | 'streaming'
-  | 'awaiting_challenge'
   | 'awaiting_confirm'
   | 'completed'
   | 'error'
@@ -19,24 +18,6 @@ export interface Proposal {
   expectedCount?: number | null
   summary?: string
   payload?: Record<string, unknown>
-}
-
-/** 二次确认 challenge（needChallenge=true 时由后端返回）。 */
-export interface ConfirmationChallenge {
-  challengeId: string
-  prompt: string
-}
-
-/** 二次确认 token（needChallenge=false 或答对 challenge 后由后端返回）。 */
-export interface ConfirmationToken {
-  token: string
-}
-
-/** /challenge 响应。 */
-export interface ChallengeOrToken {
-  needChallenge: boolean
-  challenge?: ConfirmationChallenge
-  token?: string | ConfirmationToken
 }
 
 /** Agent 回合摘要状态（Pinia 持久化部分）。运行中的 timeline 留在 composable 内，不进入 Pinia。 */

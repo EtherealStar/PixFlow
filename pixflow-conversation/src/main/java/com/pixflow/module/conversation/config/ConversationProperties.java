@@ -2,18 +2,21 @@ package com.pixflow.module.conversation.config;
 
 import java.time.Duration;
 import java.util.List;
-import java.util.stream.Collectors;
 import jakarta.annotation.PostConstruct;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 @ConfigurationProperties(prefix = "pixflow.conversation")
 public class ConversationProperties {
     private final Sse sse = new Sse();
+
     private final Lock lock = new Lock();
-    private final Confirmation confirmation = new Confirmation();
+
     private final History history = new History();
+
     private final Attachment attachment = new Attachment();
+
     private final Progress progress = new Progress();
+
     private final TurnExecutor turnExecutor = new TurnExecutor();
 
     public Sse getSse() {
@@ -22,10 +25,6 @@ public class ConversationProperties {
 
     public Lock getLock() {
         return lock;
-    }
-
-    public Confirmation getConfirmation() {
-        return confirmation;
     }
 
     public History getHistory() {
@@ -61,27 +60,6 @@ public class ConversationProperties {
         if (turnExecutor.keepAlive == null || turnExecutor.keepAlive.isZero() || turnExecutor.keepAlive.isNegative()) {
             throw new IllegalStateException("pixflow.conversation.turn-executor.keep-alive must be positive");
         }
-        if (confirmation.batchThreshold < 1) {
-            throw new IllegalStateException("pixflow.conversation.confirmation.batch-threshold must be >= 1");
-        }
-        if (confirmation.challengeTtl == null || confirmation.challengeTtl.isZero()
-                || confirmation.challengeTtl.isNegative()) {
-            throw new IllegalStateException("pixflow.conversation.confirmation.challenge-ttl must be positive");
-        }
-        if (confirmation.tokenTtl == null || confirmation.tokenTtl.isZero()
-                || confirmation.tokenTtl.isNegative()) {
-            throw new IllegalStateException("pixflow.conversation.confirmation.token-ttl must be positive");
-        }
-        confirmation.permitLiteralAnswers = confirmation.permitLiteralAnswers == null
-                ? List.of()
-                : confirmation.permitLiteralAnswers.stream()
-                        .filter(answer -> answer != null && !answer.isBlank())
-                        .map(String::trim)
-                        .distinct()
-                        .collect(Collectors.toUnmodifiableList());
-        if (confirmation.permitLiteralAnswers.isEmpty()) {
-            throw new IllegalStateException("pixflow.conversation.confirmation.permit-literal-answers must not be empty");
-        }
         if (history.maxPageSize < 1) {
             throw new IllegalStateException("pixflow.conversation.history.max-page-size must be >= 1");
         }
@@ -93,6 +71,7 @@ public class ConversationProperties {
 
     public static class Sse {
         private Duration timeout = Duration.ofMinutes(5);
+
         private Duration heartbeatInterval = Duration.ofSeconds(30);
 
         public Duration getTimeout() {
@@ -119,6 +98,7 @@ public class ConversationProperties {
          */
         @Deprecated
         private Duration ttl = Duration.ofSeconds(60);
+
         private Duration waitTime = Duration.ofSeconds(2);
 
         /**
@@ -146,47 +126,9 @@ public class ConversationProperties {
         }
     }
 
-    public static class Confirmation {
-        private int batchThreshold = 50;
-        private Duration challengeTtl = Duration.ofMinutes(5);
-        private Duration tokenTtl = Duration.ofMinutes(10);
-        private List<String> permitLiteralAnswers = List.of("按实际", "按实际处理", "确认", "已确认");
-
-        public int getBatchThreshold() {
-            return batchThreshold;
-        }
-
-        public void setBatchThreshold(int batchThreshold) {
-            this.batchThreshold = batchThreshold;
-        }
-
-        public Duration getChallengeTtl() {
-            return challengeTtl;
-        }
-
-        public void setChallengeTtl(Duration challengeTtl) {
-            this.challengeTtl = challengeTtl;
-        }
-
-        public Duration getTokenTtl() {
-            return tokenTtl;
-        }
-
-        public void setTokenTtl(Duration tokenTtl) {
-            this.tokenTtl = tokenTtl;
-        }
-
-        public List<String> getPermitLiteralAnswers() {
-            return permitLiteralAnswers;
-        }
-
-        public void setPermitLiteralAnswers(List<String> permitLiteralAnswers) {
-            this.permitLiteralAnswers = permitLiteralAnswers;
-        }
-    }
-
     public static class History {
         private int defaultPageSize = 50;
+
         private int maxPageSize = 200;
 
         public int getDefaultPageSize() {
@@ -208,6 +150,7 @@ public class ConversationProperties {
 
     public static class Attachment {
         private int maxImageSizeMb = 20;
+
         private List<String> allowedImageMime = List.of("image/jpeg", "image/png", "image/webp");
 
         public int getMaxImageSizeMb() {
@@ -241,6 +184,7 @@ public class ConversationProperties {
 
     public static class TurnExecutor {
         private int maxConcurrency = 16;
+
         private Duration keepAlive = Duration.ofSeconds(60);
 
         public int getMaxConcurrency() {

@@ -26,13 +26,13 @@ import static org.mockito.Mockito.when;
  */
 class SubmitImagePlanHandlerTest {
 
-    private PendingPlanService service;
+    private DagProposalService service;
     private ObjectMapper objectMapper;
     private SubmitImagePlanHandler handler;
 
     @BeforeEach
     void setUp() {
-        service = mock(PendingPlanService.class);
+        service = mock(DagProposalService.class);
         objectMapper = new ObjectMapper();
         handler = new SubmitImagePlanHandler(service, objectMapper);
     }
@@ -44,21 +44,19 @@ class SubmitImagePlanHandlerTest {
 
     @Test
     void handler_validDag_enqueuesAndReturnsPlanId() {
-        PendingPlan plan = new PendingPlan();
-        plan.setId(42L);
-        plan.setStatus(PendingPlanStatus.PENDING);
-        plan.setPayloadHash("abc");
-        plan.setDagJson("{\"nodes\":[],\"edges\":[]}");
         when(service.parseDocument(any())).thenReturn(
             new com.pixflow.module.dag.ir.DagDocument(java.util.List.of(), java.util.List.of()));
-        when(service.enqueue(eq("tc1"), eq("conv1"), any(), eq("note"))).thenReturn(plan);
+        when(service.publish(eq("tc1"), eq("conv1"), any(),
+                eq(java.util.List.of("package:1/image:2")), any()))
+                .thenReturn(new DagProposal("proposal-42", "abc"));
 
         Map<String, Object> args = Map.of(
+            "referenceKeys", java.util.List.of("package:1/image:2"),
             "dag", Map.of("nodes", java.util.List.of(), "edges", java.util.List.of()),
             "note", "note"
         );
         ToolHandlerOutput output = handler.handle(invocation("tc1", args));
-        assertThat(output.content()).contains("\"planId\":42");
+        assertThat(output.content()).contains("\"proposalId\":\"proposal-42\"");
         assertThat(output.content()).contains("\"payloadHash\":\"abc\"");
         assertThat(output.content()).contains("\"status\":\"PENDING\"");
     }
@@ -67,7 +65,7 @@ class SubmitImagePlanHandlerTest {
     void handler_missingDag_returnsError() {
         ToolHandlerOutput output = handler.handle(invocation("tc1", Map.of()));
         assertThat(output.content()).contains("DAG_INVALID_STRUCTURE");
-        verify(service, times(0)).enqueue(any(), any(), any(), any());
+        verify(service, times(0)).publish(any(), any(), any(), any(), any());
     }
 
     @Test
@@ -87,7 +85,7 @@ class SubmitImagePlanHandlerTest {
         assertThat(d.inputSchema()).containsEntry("type", "object");
         @SuppressWarnings("unchecked")
         java.util.List<String> required = (java.util.List<String>) d.inputSchema().get("required");
-        assertThat(required).contains("dag");
+        assertThat(required).contains("referenceKeys", "dag");
     }
 
     @Test

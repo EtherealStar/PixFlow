@@ -1,42 +1,41 @@
 package com.pixflow.harness.permission;
 
-import java.util.Collections;
-import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Objects;
 
-/**
- * 权限评估结果。
- */
+/** 不携带身份、路径或载荷的安全授权结果。 */
 public record PermissionDecision(
         PermissionAction action,
-        String reason,
+        PermissionErrorCode errorCode,
         PermissionSource source,
         String subject,
         Map<String, Object> metadata) {
 
     public PermissionDecision {
-        metadata = immutableCopy(metadata);
-    }
-
-    public static PermissionDecision allow(String subject, PermissionSource source) {
-        return new PermissionDecision(PermissionAction.ALLOW, "允许执行", source, subject, Map.of());
-    }
-
-    public static PermissionDecision deny(String subject, PermissionSource source, String reason) {
-        return new PermissionDecision(PermissionAction.DENY, reason, source, subject, Map.of());
-    }
-
-    public static PermissionDecision confirmRequired(
-            String subject, PermissionSource source, String reason, Map<String, Object> metadata) {
-        return new PermissionDecision(PermissionAction.CONFIRM_REQUIRED, reason, source, subject, metadata);
-    }
-
-    private static Map<String, Object> immutableCopy(Map<String, ?> source) {
-        if (source == null || source.isEmpty()) {
-            return Map.of();
+        Objects.requireNonNull(action, "action");
+        Objects.requireNonNull(source, "source");
+        subject = PermissionValues.requireText(subject, "subject");
+        metadata = metadata == null ? Map.of() : Map.copyOf(metadata);
+        if (action == PermissionAction.ALLOW && errorCode != null) {
+            throw new IllegalArgumentException("ALLOW 不得携带错误码");
         }
-        Map<String, Object> copy = new LinkedHashMap<>();
-        source.forEach(copy::put);
-        return Collections.unmodifiableMap(copy);
+        if (action == PermissionAction.DENY && errorCode == null) {
+            throw new IllegalArgumentException("DENY 必须携带错误码");
+        }
+    }
+
+    public static PermissionDecision allow(String subject) {
+        return new PermissionDecision(
+                PermissionAction.ALLOW, null, PermissionSource.POLICY_ALLOW, subject, Map.of());
+    }
+
+    public static PermissionDecision deny(
+            String subject, PermissionSource source, PermissionErrorCode errorCode) {
+        return new PermissionDecision(PermissionAction.DENY, errorCode, source, subject, Map.of());
+    }
+
+    /** 对外只暴露稳定、安全的通用原因，详细证明失败不会进入模型上下文。 */
+    public String reason() {
+        return action == PermissionAction.ALLOW ? "allowed" : "permission denied";
     }
 }

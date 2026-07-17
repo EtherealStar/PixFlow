@@ -4,8 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.pixflow.common.time.TimeAutoConfiguration;
-import com.pixflow.contracts.proposal.PendingPlanPort;
-import com.pixflow.contracts.proposal.PendingPlanProposal;
+import com.pixflow.contracts.proposal.ProposalPublicationPort;
 import com.pixflow.infra.ai.imagegen.ImageGenClient;
 import com.pixflow.infra.storage.ObjectStorage;
 import com.pixflow.module.imagegen.exec.DefaultImageGenExecutor;
@@ -41,7 +40,7 @@ class ImagegenAutoConfigurationSentinelTest {
     @DisplayName("默认(Default):DefaultImageGenExecutor 不在 Spring 容器中")
     void default_imageGenExecutor_isNotExposed() {
         defaultRunner.run(ctx -> {
-            // 上下文能起来(只缺 PendingPlanPort / SourceImageReader SPI)
+            // 上下文能起来（只缺 ProposalPublicationPort / SourceImageReader SPI）
             // 但 DefaultImageGenExecutor 必须不在容器内
             assertThatThrownBy(() -> ctx.getBean(DefaultImageGenExecutor.class))
                 .isInstanceOf(NoSuchBeanDefinitionException.class);
@@ -49,12 +48,11 @@ class ImagegenAutoConfigurationSentinelTest {
     }
 
     @Test
-    @DisplayName("默认(Default):imagegen 服务消费 contracts PendingPlanPort")
-    void default_imagegenServices_useContractsPendingPlanPort() {
+    @DisplayName("默认(Default):imagegen 服务消费 contracts ProposalPublicationPort")
+    void default_imagegenServices_useContractsProposalPublicationPort() {
         defaultRunner.run(ctx -> {
-            assertThat(ctx).hasSingleBean(PendingPlanPort.class);
+            assertThat(ctx).hasSingleBean(ProposalPublicationPort.class);
             assertThat(ctx).hasSingleBean(com.pixflow.module.imagegen.proposal.ImagegenPlanService.class);
-            assertThat(ctx).hasSingleBean(com.pixflow.module.imagegen.confirm.ImagegenConfirmationSupport.class);
             assertThat(ctx).hasBean("submitImagegenPlanDescriptor");
         });
     }
@@ -118,6 +116,12 @@ class ImagegenAutoConfigurationSentinelTest {
                 }
                 @Override public void delete(com.pixflow.infra.storage.ObjectLocation loc) {}
                 @Override public void deleteByPrefix(com.pixflow.infra.storage.BucketType bucket, String prefix) {}
+                @Override public com.pixflow.infra.storage.ObjectRef copy(
+                        com.pixflow.infra.storage.ObjectLocation source,
+                        com.pixflow.infra.storage.ObjectLocation target) {
+                    return new com.pixflow.infra.storage.ObjectRef(
+                            target.bucket(), target.key(), 3L, "etag");
+                }
                 @Override public java.net.URL presignGet(com.pixflow.infra.storage.ObjectLocation loc, java.time.Duration ttl) {
                     throw new UnsupportedOperationException("not used in sentinel test");
                 }
@@ -128,14 +132,9 @@ class ImagegenAutoConfigurationSentinelTest {
         }
 
         @Bean
-        PendingPlanPort pendingPlanPort() {
-            return new PendingPlanPort() {
-                @Override public String enqueue(PendingPlanProposal proposal) {
+        ProposalPublicationPort proposalPublicationPort() {
+            return proposal -> {
                     return "test-plan-id";
-                }
-                @Override public java.util.Optional<PendingPlanProposal> find(String planId) {
-                    return java.util.Optional.empty();
-                }
             };
         }
 

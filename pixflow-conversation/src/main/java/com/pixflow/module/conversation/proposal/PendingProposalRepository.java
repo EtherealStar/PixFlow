@@ -1,156 +1,127 @@
 package com.pixflow.module.conversation.proposal;
 
 import com.pixflow.common.error.BusinessException;
+import com.pixflow.contracts.proposal.ProposalDraft;
+import com.pixflow.contracts.proposal.ProposalPublicationPort;
 import com.pixflow.module.conversation.error.ConversationErrorCode;
-import com.pixflow.module.dag.expand.BranchExpander;
-import com.pixflow.module.dag.expand.ImageDescriptor;
-import com.pixflow.module.dag.exec.DagCompiler;
-import com.pixflow.module.dag.propose.PendingPlan;
-import com.pixflow.module.dag.propose.PendingPlanMapper;
-import com.pixflow.module.dag.propose.PendingPlanService;
-import com.pixflow.module.file.pkg.ImageReference;
-import com.pixflow.module.file.pkg.PackageReferenceResolver;
-import com.pixflow.module.imagegen.confirm.ImagegenConfirmationSupport;
-import java.util.List;
 import java.util.Optional;
-import java.util.stream.Collectors;
-import com.pixflow.module.dag.expand.GroupPreflight;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicReference;
 
-public class PendingProposalRepository {
-    private final PendingPlanMapper pendingPlanMapper;
-    private final PendingPlanService pendingPlanService;
-    private final PackageReferenceResolver packageReferenceResolver;
-    private final BranchExpander branchExpander;
-    private final ImagegenConfirmationSupport imagegenConfirmationSupport;
-    private final DagCompiler dagCompiler;
-    private final GroupPreflight groupPreflight;
+/** Conversation 进程内 Proposal store；进程丢失即丢弃未确认 Proposal。 */
+public final class PendingProposalRepository implements ProposalPublicationPort {
+    private final ConcurrentMap<String, PendingProposal> proposals = new ConcurrentHashMap<>();
 
-    public PendingProposalRepository(
-            PendingPlanMapper pendingPlanMapper,
-            PendingPlanService pendingPlanService,
-            PackageReferenceResolver packageReferenceResolver,
-            BranchExpander branchExpander,
-            ImagegenConfirmationSupport imagegenConfirmationSupport,
-            DagCompiler dagCompiler,
-            GroupPreflight groupPreflight) {
-        this.pendingPlanMapper = pendingPlanMapper;
-        this.pendingPlanService = pendingPlanService;
-        this.packageReferenceResolver = packageReferenceResolver;
-        this.branchExpander = branchExpander;
-        this.imagegenConfirmationSupport = imagegenConfirmationSupport;
-        this.dagCompiler = dagCompiler;
-        this.groupPreflight = groupPreflight;
+    private final ConcurrentMap<String, String> proposalIdsByToolCall = new ConcurrentHashMap<>();
+
+    private final ConcurrentMap<String, CompletableFuture<String>> confirmationResults =
+            new ConcurrentHashMap<>();
+
+    @Override
+    public String publish(ProposalDraft draft) {
+        String id = proposalIdsByToolCall.computeIfAbsent(draft.toolCallId(), ignored -> {
+            String proposalId = UUID.randomUUID().toString();
+            proposals.put(proposalId, PendingProposal.pending(proposalId, draft));
+            return proposalId;
+        });
+        return id;
     }
 
     public Optional<PendingProposal> find(String proposalId) {
-        Long id = parseId(proposalId);
-        PendingPlan plan = pendingPlanMapper.findById(id);
-        return plan == null ? Optional.empty() : Optional.of(toProposal(plan));
+        return Optional.ofNullable(proposals.get(proposalId));
     }
 
     public PendingProposal require(String proposalId) {
-        return find(proposalId)
-                .orElseThrow(() -> new BusinessException(ConversationErrorCode.PROPOSAL_NOT_FOUND,
-                        "proposal not found: " + proposalId));
+        return find(proposalId).orElseThrow(() -> new BusinessException(
+                ConversationErrorCode.PROPOSAL_NOT_FOUND, "proposal not found"));
     }
 
-    /**
-     * 标记 proposal 为已确认,委托给 dag 模块 {@link PendingPlanService#confirm(Long, String)},
-     * 由后者统一提供事务 + CAS 保护(数据库 {@code AND status = 'PENDING'} 谓词)。
-     *
-     * <p>并发调用时只有一个调用方会成功,其余会触发 {@link com.pixflow.module.dag.error.DagErrorCode#DAG_PLAN_ALREADY_CONFIRMED},
-     * 由 caller 决定是回 409 还是按幂等路径返回既有 taskId。
-     */
-    public PendingProposal markConfirmed(PendingProposal proposal, String taskId) {
-        PendingPlan confirmed = pendingPlanService.confirm(Long.parseLong(proposal.proposalId()), taskId);
-        return PendingProposal.from(confirmed,
-                proposal.payloadHash() == null ? confirmed.getPayloadHash() : proposal.payloadHash(),
-                proposal.expectedCount());
-    }
-
-    public PendingProposal startConfirmation(PendingProposal proposal) {
-        PendingPlan confirming = pendingPlanService.startConfirmation(Long.parseLong(proposal.proposalId()));
-        return PendingProposal.from(confirming,
-                proposal.payloadHash() == null ? confirming.getPayloadHash() : proposal.payloadHash(),
-                proposal.expectedCount());
+    public ConfirmationClaim claimConfirmation(PendingProposal proposal) {
+        CompletableFuture<String> result = new CompletableFuture<>();
+        CompletableFuture<String> existing =
+                confirmationResults.putIfAbsent(proposal.proposalId(), result);
+        if (existing != null) {
+            return new ConfirmationClaim(null, existing, false);
+        }
+        try {
+            PendingProposal confirming = transition(
+                    proposal.proposalId(), PendingProposalStatus.PENDING,
+                    current -> copy(current, PendingProposalStatus.CONFIRMING, null));
+            return new ConfirmationClaim(confirming, result, true);
+        } catch (RuntimeException conflict) {
+            confirmationResults.remove(proposal.proposalId(), result);
+            throw conflict;
+        }
     }
 
     public PendingProposal markConfirmedWithTask(PendingProposal proposal, String taskId) {
-        PendingPlan confirmed = pendingPlanService.markConfirmedWithTask(Long.parseLong(proposal.proposalId()), taskId);
-        return PendingProposal.from(confirmed,
-                proposal.payloadHash() == null ? confirmed.getPayloadHash() : proposal.payloadHash(),
-                proposal.expectedCount());
+        PendingProposal confirmed = transition(proposal.proposalId(), PendingProposalStatus.CONFIRMING,
+                current -> copy(current, PendingProposalStatus.CONFIRMED, taskId));
+        CompletableFuture<String> result = confirmationResults.get(proposal.proposalId());
+        if (result != null) {
+            // 状态与 taskId 绑定完成后再唤醒竞争请求，确保它们观察到同一个幂等结果。
+            result.complete(taskId);
+        }
+        return confirmed;
     }
 
     public void markConfirmationFailed(PendingProposal proposal) {
-        pendingPlanService.markConfirmationFailed(Long.parseLong(proposal.proposalId()));
-    }
-
-    private PendingProposal toProposal(PendingPlan plan) {
-        PendingProposal base = PendingProposal.from(plan);
-        if (base.type() == PendingProposalType.IMAGEGEN) {
-            return imagegenFacts(plan, base);
-        }
-        return dagFacts(plan, base);
-    }
-
-    private PendingProposal imagegenFacts(PendingPlan plan, PendingProposal base) {
-        if (imagegenConfirmationSupport == null) {
-            return base;
-        }
-        String planId = String.valueOf(plan.getId());
-        return PendingProposal.from(
-                plan,
-                imagegenConfirmationSupport.payloadHash(planId),
-                imagegenConfirmationSupport.expectedCount(planId));
-    }
-
-    private PendingProposal dagFacts(PendingPlan plan, PendingProposal base) {
-        long packageId = parsePackageId(base.packageId());
-        if (packageId <= 0L) {
-            return base;
-        }
-        var typedPlan = dagCompiler.compile(pendingPlanService.revalidate(plan.getDagJson()));
-        List<ImageDescriptor> images = packageReferenceResolver.listImages(base.packageId()).stream()
-                .map(PendingProposalRepository::toImageDescriptor)
-                .toList();
-        var countsByGroup = images.stream()
-                .filter(image -> image.groupKey() != null)
-                .collect(Collectors.groupingBy(ImageDescriptor::groupKey, Collectors.summingInt(ignored -> 1)));
-        var differences = groupPreflight.preflight(typedPlan, countsByGroup);
-        if (!differences.isEmpty()) {
-            throw new BusinessException(ConversationErrorCode.PROPOSAL_CHALLENGE_FAILED,
-                    differences.get(0).message());
-        }
-        // DAG 真实执行数量必须由当前提案和素材包事实重算，不能信任 note 或前端传入值。
-        int expectedCount = branchExpander.expand(typedPlan, images).size();
-        return PendingProposal.from(plan, plan.getPayloadHash(), expectedCount);
-    }
-
-    private static ImageDescriptor toImageDescriptor(ImageReference image) {
-        return new ImageDescriptor(
-                image.imageId(),
-                image.skuId(),
-                image.groupKey(),
-                image.viewId(),
-                image.objectKey(),
-                null);
-    }
-
-    private static Long parseId(String proposalId) {
-        try {
-            return Long.parseLong(proposalId);
-        } catch (RuntimeException ex) {
-            throw new BusinessException(ConversationErrorCode.PROPOSAL_NOT_FOUND,
-                    "proposal not found: " + proposalId);
+        proposals.computeIfPresent(proposal.proposalId(), (ignored, current) ->
+                current.status() == PendingProposalStatus.CONFIRMING
+                        ? copy(current, PendingProposalStatus.PENDING, null) : current);
+        CompletableFuture<String> result = confirmationResults.remove(proposal.proposalId());
+        if (result != null) {
+            result.completeExceptionally(stateConflict());
         }
     }
 
-    private static long parsePackageId(String packageId) {
-        try {
-            return Long.parseLong(packageId);
-        } catch (RuntimeException ex) {
-            return 0L;
+    public void reject(PendingProposal proposal) {
+        if (!proposals.remove(proposal.proposalId(), proposal)) {
+            throw stateConflict();
         }
+        proposalIdsByToolCall.values().removeIf(proposal.proposalId()::equals);
+    }
+
+    public void removeConfirmed(String proposalId) {
+        proposals.remove(proposalId);
+        proposalIdsByToolCall.values().removeIf(proposalId::equals);
+        confirmationResults.remove(proposalId);
+    }
+
+    private PendingProposal transition(
+            String proposalId,
+            PendingProposalStatus expected,
+            java.util.function.UnaryOperator<PendingProposal> update) {
+        AtomicReference<PendingProposal> result = new AtomicReference<>();
+        proposals.compute(proposalId, (ignored, current) -> {
+            if (current == null || current.status() != expected) {
+                throw stateConflict();
+            }
+            PendingProposal next = update.apply(current);
+            result.set(next);
+            return next;
+        });
+        return result.get();
+    }
+
+    private static PendingProposal copy(
+            PendingProposal proposal, PendingProposalStatus status, String taskId) {
+        return new PendingProposal(
+                proposal.proposalId(), proposal.conversationId(), proposal.type(), proposal.payload(),
+                proposal.packageId(), proposal.payloadHash(), proposal.expectedCount(),
+                proposal.referenceKeys(), status, proposal.createdAt(), taskId);
+    }
+
+    private static BusinessException stateConflict() {
+        return new BusinessException(
+                ConversationErrorCode.PROPOSAL_ALREADY_CONFIRMED, "proposal is not pending");
+    }
+
+    /** CAS 认领结果：只有 owner 可以创建 Task，竞争者只等待同一完成信号。 */
+    public record ConfirmationClaim(
+            PendingProposal proposal, CompletableFuture<String> result, boolean owner) {
     }
 }

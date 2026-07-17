@@ -18,7 +18,6 @@ class DagPropertiesTest {
         assertThat(props.getExecution().getSourceBytesLimit()).isEqualTo(209715200L);
         assertThat(props.getAssetCache().getMaxEntriesPerTask()).isEqualTo(5);
         assertThat(props.getAssetCache().isEnabled()).isTrue();
-        assertThat(props.getPendingPlan().getTtl().toMinutes()).isEqualTo(30);
         assertThat(props.getGroupCache().getRefTtl().toHours()).isEqualTo(2);
     }
 

@@ -18,8 +18,8 @@ import java.util.Objects;
  *   <li>{@code conversationId} / {@code packageId} 关联会话与素材包</li>
  * </ul>
  *
- * <p>本 record 是 imagegen 模块内的事实数据,序列化进 {@code PendingPlanProposal.payloadJson} 持久化;
- * 反序列化时也由 validator 路径重新生成(不会直接信任外部反序列化的产物)。
+ * <p>本 record 是 imagegen 模块内的事实数据，序列化进 ephemeral Proposal payload；
+ * 未确认内容不写业务数据库。
  */
 public record ImagegenPlan(
         List<String> sourceImageIds,

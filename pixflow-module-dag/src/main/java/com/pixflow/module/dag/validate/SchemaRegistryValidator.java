@@ -2,7 +2,6 @@ package com.pixflow.module.dag.validate;
 
 import com.pixflow.module.dag.ir.DagSchemaVersion;
 import com.pixflow.module.dag.ir.PixelTool;
-import com.pixflow.module.dag.propose.PendingPlanService;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -19,25 +18,21 @@ import org.springframework.stereotype.Component;
  *   <li>代码声明的当前大版本号 = 所有 schema 资源中声明的大版本号</li>
  * </ul>
  *
- * <p>启动期大版本升级时:调 {@link PendingPlanService#expireByOldSchema(String)}
- * 把所有 PENDING 的旧版本 plan 标 EXPIRED。
+ * <p>未确认 Proposal 只存在于进程内；schema 大版本升级后旧 Proposal 不会跨进程恢复。
  */
 @Component
 public class SchemaRegistryValidator {
 
-    private static final Logger log = LoggerFactory.getLogger(SchemaRegistryValidator.class);
+    private static final Logger LOG = LoggerFactory.getLogger(SchemaRegistryValidator.class);
 
     /** 当前大版本号(代码声明);启动期与 schema 资源 version 字段对齐校验。 */
     public static final String CURRENT_MAJOR_VERSION = "1";
 
     private final ParamSchemaRegistry schemaRegistry;
-    private final PendingPlanService pendingPlanService;
 
     @Autowired
-    public SchemaRegistryValidator(ParamSchemaRegistry schemaRegistry,
-                                    PendingPlanService pendingPlanService) {
+    public SchemaRegistryValidator(ParamSchemaRegistry schemaRegistry) {
         this.schemaRegistry = schemaRegistry;
-        this.pendingPlanService = pendingPlanService;
     }
 
     @PostConstruct
@@ -57,14 +52,7 @@ public class SchemaRegistryValidator {
                         + ";升级后请同步删除旧 schema 资源");
             }
         }
-        // 大版本升级时清旧版本 plan
-        int expired = pendingPlanService.expireByOldSchema(CURRENT_MAJOR_VERSION);
-        if (expired > 0) {
-            log.warn("Schema 大版本升级至 {}:已把 {} 条旧版本 PENDING plan 标记 EXPIRED",
-                CURRENT_MAJOR_VERSION, expired);
-        } else {
-            log.info("SchemaRegistryValidator: {} 个工具 schema 全部加载,当前大版本 {}",
+        LOG.info("SchemaRegistryValidator: {} 个工具 schema 全部加载,当前大版本 {}",
                 PixelTool.values().length, CURRENT_MAJOR_VERSION);
-        }
     }
 }

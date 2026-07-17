@@ -48,7 +48,8 @@ public class DefaultToolRegistry implements ToolRegistry {
             }
             if (context.permissionContext() != null
                     && permissionPolicy != null
-                    && !permissionPolicy.isToolVisible(descriptor.name(), context.permissionContext())) {
+                    && !permissionPolicy.isToolVisible(
+                            descriptor.name(), descriptor.readOnlyHint(), context.permissionContext())) {
                 continue;
             }
             if (context.planMode() && !descriptor.readOnlyHint() && !"plan_exit".equals(descriptor.name())) {

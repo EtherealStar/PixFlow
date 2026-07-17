@@ -19,6 +19,10 @@
         </dependency>
         <dependency>
             <groupId>com.pixflow</groupId>
+            <artifactId>pixflow-permission</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.pixflow</groupId>
             <artifactId>pixflow-infra-storage</artifactId>
         </dependency>
         <dependency>

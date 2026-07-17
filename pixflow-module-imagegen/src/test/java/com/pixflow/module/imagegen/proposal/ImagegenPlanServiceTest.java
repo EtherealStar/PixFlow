@@ -6,20 +6,20 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pixflow.common.error.PixFlowException;
 import com.pixflow.common.sanitize.Sanitizer;
-import com.pixflow.contracts.proposal.PendingPlanPort;
-import com.pixflow.contracts.proposal.PendingPlanProposal;
+import com.pixflow.contracts.proposal.ProposalDraft;
+import com.pixflow.contracts.proposal.ProposalPublicationPort;
 import com.pixflow.module.imagegen.confirm.ImagegenPayloadHasher;
 import com.pixflow.module.imagegen.config.ImagegenProperties;
 import com.pixflow.module.imagegen.error.ImagegenErrorCode;
 import com.pixflow.module.imagegen.metrics.ImagegenMetrics;
 import com.pixflow.module.imagegen.port.SourceImageInfo;
 import com.pixflow.module.imagegen.port.SourceImageReader;
+import com.pixflow.harness.permission.PermissionErrorCode;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -30,7 +30,7 @@ import org.junit.jupiter.api.Test;
  * <p>覆盖:
  * <ul>
  *   <li>正常入队 → 返回 planId + payload 包含 planType=IMAGEGEN + 工具无关字段</li>
- *   <li>同 toolCallId 重复调用 → 假 PendingPlanPort 只看到 1 次 enqueue(幂等由 port 接管)</li>
+ *   <li>同 toolCallId 重复调用 → fake publication port 只发布 1 个 Proposal</li>
  *   <li>校验失败 → IMAGEGEN_PROMPT_INVALID 等 5 条 tool 错误</li>
  *   <li>payloadHash 字段(供 handler 透出)</li>
  * </ul>
@@ -38,7 +38,7 @@ import org.junit.jupiter.api.Test;
 class ImagegenPlanServiceTest {
 
     private ImagegenProperties properties;
-    private FakePendingPlanPort port;
+    private FakeProposalPublicationPort port;
     private FakeSourceImageReader reader;
     private ImagegenPlanService service;
     private ObjectMapper objectMapper;
@@ -46,7 +46,7 @@ class ImagegenPlanServiceTest {
     @BeforeEach
     void setUp() {
         properties = new ImagegenProperties();
-        port = new FakePendingPlanPort();
+        port = new FakeProposalPublicationPort();
         reader = new FakeSourceImageReader();
         objectMapper = new ObjectMapper();
         ImagegenPlanValidator validator = new ImagegenPlanValidator(properties, reader);
@@ -66,32 +66,52 @@ class ImagegenPlanServiceTest {
             List.of("img-1", "img-2"), "用 A 风格重绘", "用户偏好测试",
             Map.of("style", "A"));
 
-        String planId = service.enqueue(inputs, "tc-1", "conv-1", "pkg-1");
+        String planId = service.enqueue(inputs, "tc-1", "conv-1", "pkg-1", allowPublication());
 
         assertThat(planId).isNotBlank();
         assertThat(port.enqueued).hasSize(1);
-        PendingPlanProposal proposal = port.enqueued.get(0);
-        assertThat(proposal.planType()).isEqualTo("IMAGEGEN");
+        ProposalDraft proposal = port.enqueued.get(0);
+        assertThat(proposal.proposalType()).isEqualTo("IMAGEGEN");
         assertThat(proposal.conversationId()).isEqualTo("conv-1");
         assertThat(proposal.packageId()).isEqualTo("pkg-1");
         assertThat(proposal.toolCallId()).isEqualTo("tc-1");
         assertThat(proposal.payloadJson()).contains("\"sourceImageIds\":[\"img-1\",\"img-2\"]");
         assertThat(proposal.payloadJson()).contains("\"prompt\":\"用 A 风格重绘\"");
+        assertThat(proposal.referenceKeys()).containsExactly(
+                "package:pkg-1/image:img-1", "package:pkg-1/image:img-2");
     }
 
     @Test
-    @DisplayName("同 toolCallId 重复入队:FakePendingPlanPort 模拟实现保证只 1 条 plan")
+    void authorizationDenialStopsBeforeProposalPublication() {
+        reader.byId.put("img-1", info("img-1"));
+        ImagegenPlanInputs inputs = new ImagegenPlanInputs(
+                List.of("img-1"), "x", null, Map.of());
+
+        assertThatThrownBy(() -> service.enqueue(
+                inputs, "tc-denied", "conv-1", "pkg-1",
+                (proposalType, referenceKeys, payloadHash) -> {
+                    throw new PixFlowException(
+                            PermissionErrorCode.PERMISSION_ASSET_DENIED, "denied");
+                }))
+                .isInstanceOf(PixFlowException.class)
+                .extracting(error -> ((PixFlowException) error).code())
+                .isEqualTo(PermissionErrorCode.PERMISSION_ASSET_DENIED);
+        assertThat(port.enqueued).isEmpty();
+    }
+
+    @Test
+    @DisplayName("同 toolCallId 重复发布:fake port 保证只有一个 Proposal")
     void enqueue_idempotent_byToolCallId() {
         reader.byId.put("img-1", info("img-1"));
         ImagegenPlanInputs inputs = new ImagegenPlanInputs(
             List.of("img-1"), "x", null, Map.of());
 
         // 第一次
-        String planId1 = service.enqueue(inputs, "tc-dup", "conv-1", "pkg-1");
+        String planId1 = service.enqueue(inputs, "tc-dup", "conv-1", "pkg-1", allowPublication());
         // 模拟 port 的幂等行为:同 toolCallId 返回已存在 planId
         port.simulateIdempotent("tc-dup", "conv-1", planId1);
         // 第二次
-        String planId2 = service.enqueue(inputs, "tc-dup", "conv-1", "pkg-1");
+        String planId2 = service.enqueue(inputs, "tc-dup", "conv-1", "pkg-1", allowPublication());
 
         assertThat(planId1).isEqualTo(planId2);
         // fake port 内部去重后只接受 1 条 plan,但 enqueue 方法本身被调用了 2 次
@@ -105,7 +125,8 @@ class ImagegenPlanServiceTest {
         ImagegenPlanInputs inputs = new ImagegenPlanInputs(
             List.of("img-1"), " ", null, Map.of());
 
-        assertThatThrownBy(() -> service.enqueue(inputs, "tc-1", "conv-1", "pkg-1"))
+        assertThatThrownBy(() -> service.enqueue(
+                inputs, "tc-1", "conv-1", "pkg-1", allowPublication()))
             .isInstanceOf(PixFlowException.class)
             .extracting(e -> ((PixFlowException) e).code())
             .isEqualTo(ImagegenErrorCode.IMAGEGEN_PROMPT_INVALID);
@@ -122,7 +143,8 @@ class ImagegenPlanServiceTest {
         ImagegenPlanInputs inputs = new ImagegenPlanInputs(
             List.of("img-1"), "x", null, badParams);
 
-        assertThatThrownBy(() -> service.enqueue(inputs, "tc-1", "conv-1", "pkg-1"))
+        assertThatThrownBy(() -> service.enqueue(
+                inputs, "tc-1", "conv-1", "pkg-1", allowPublication()))
             .isInstanceOf(PixFlowException.class)
             .extracting(e -> ((PixFlowException) e).code())
             .isEqualTo(ImagegenErrorCode.IMAGEGEN_PROMPT_INVALID);
@@ -143,9 +165,13 @@ class ImagegenPlanServiceTest {
             "packages/pkg-1/" + imageId, "image/png", null, null);
     }
 
-    /** 单测用 fake PendingPlanPort:把每次入队登记,并可模拟幂等。 */
-    static class FakePendingPlanPort implements PendingPlanPort {
-        final java.util.List<PendingPlanProposal> enqueued = new java.util.ArrayList<>();
+    private static com.pixflow.harness.tools.ProposalPublicationAuthorizer allowPublication() {
+        return (proposalType, referenceKeys, payloadHash) -> { };
+    }
+
+    /** 单测用 fake publication port：记录每次发布并模拟 toolCallId 幂等。 */
+    static class FakeProposalPublicationPort implements ProposalPublicationPort {
+        final java.util.List<ProposalDraft> enqueued = new java.util.ArrayList<>();
         int callCount = 0;
         private final Map<String, String> idempotentMap = new java.util.HashMap<>();
 
@@ -154,7 +180,7 @@ class ImagegenPlanServiceTest {
         }
 
         @Override
-        public synchronized String enqueue(PendingPlanProposal proposal) {
+        public synchronized String publish(ProposalDraft proposal) {
             callCount++;
             String key = proposal.conversationId() + ":" + proposal.toolCallId();
             String existing = idempotentMap.get(key);
@@ -168,10 +194,6 @@ class ImagegenPlanServiceTest {
             return planId;
         }
 
-        @Override
-        public Optional<PendingPlanProposal> find(String planId) {
-            return enqueued.stream().filter(p -> p.toolCallId().equals(planId)).findFirst();
-        }
     }
 
     /** 单测用 fake SourceImageReader。 */

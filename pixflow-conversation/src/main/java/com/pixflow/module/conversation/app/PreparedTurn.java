@@ -5,6 +5,7 @@ import com.pixflow.harness.loop.AgentTurnRequest;
 import com.pixflow.harness.loop.AgentTurnRunner;
 import com.pixflow.harness.loop.Attachment;
 import com.pixflow.harness.loop.event.AgentEventSink;
+import com.pixflow.harness.permission.PermissionPrincipal;
 import com.pixflow.module.conversation.lock.TurnLockHandle;
 import java.util.List;
 import java.util.Objects;
@@ -12,21 +13,31 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class PreparedTurn implements AutoCloseable {
     private final long ownerUserId;
+
+    private final String ownerUsername;
+
     private final String conversationId;
+
     private final String prompt;
+
     private final List<Attachment> attachments;
+
     private final AgentTurnRunner runner;
+
     private final TurnLockHandle lockHandle;
+
     private final AtomicBoolean closed = new AtomicBoolean();
 
     PreparedTurn(
             long ownerUserId,
+            String ownerUsername,
             String conversationId,
             String prompt,
             List<Attachment> attachments,
             AgentTurnRunner runner,
             TurnLockHandle lockHandle) {
         this.ownerUserId = ownerUserId;
+        this.ownerUsername = Objects.requireNonNull(ownerUsername, "ownerUsername");
         this.conversationId = Objects.requireNonNull(conversationId, "conversationId");
         this.prompt = prompt == null ? "" : prompt;
         this.attachments = attachments == null ? List.of() : List.copyOf(attachments);
@@ -38,7 +49,10 @@ public final class PreparedTurn implements AutoCloseable {
         if (closed.get()) {
             throw new IllegalStateException("prepared turn is already closed");
         }
-        return runner.stream(new AgentTurnRequest(conversationId, prompt, attachments, cancellation), sink);
+        PermissionPrincipal principal = new PermissionPrincipal(
+                Long.toString(ownerUserId), ownerUsername);
+        return runner.stream(
+                new AgentTurnRequest(conversationId, principal, prompt, attachments, cancellation), sink);
     }
 
     public String conversationId() {

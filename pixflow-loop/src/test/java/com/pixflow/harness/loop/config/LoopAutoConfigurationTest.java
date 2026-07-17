@@ -43,7 +43,12 @@ class LoopAutoConfigurationTest {
     static class CustomPermissionFactoryConfig {
         @Bean
         PermissionContextFactory customPermissionFactory() {
-            return state -> new PermissionContext("custom", null, null, java.util.Set.of(), java.util.Set.of());
+            return state -> new PermissionContext(
+                    null,
+                    com.pixflow.harness.permission.PermissionRuntimeScope.INTERNAL,
+                    com.pixflow.harness.permission.PermissionPlanMode.OFF,
+                    "custom",
+                    "test-call");
         }
     }
 

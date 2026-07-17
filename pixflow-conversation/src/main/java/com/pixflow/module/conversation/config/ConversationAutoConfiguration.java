@@ -2,9 +2,8 @@ package com.pixflow.module.conversation.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pixflow.common.progress.ProgressNotifier;
-import com.pixflow.harness.permission.token.ConfirmationTokenService;
 import com.pixflow.harness.session.persistence.MessageReadMapper;
-import com.pixflow.infra.cache.store.CacheStore;
+import com.pixflow.harness.permission.PermissionPolicy;
 import com.pixflow.harness.loop.AgentTurnRunner;
 import com.pixflow.module.conversation.app.AgentTurnRunnerRegistry;
 import com.pixflow.module.conversation.app.CancellationService;
@@ -21,18 +20,15 @@ import com.pixflow.module.conversation.api.SseTurnMetrics;
 import com.pixflow.module.conversation.api.SseTurnSessionFactory;
 import com.pixflow.module.conversation.attachment.AttachmentCollector;
 import com.pixflow.module.conversation.attachment.AttachmentMapper;
-import com.pixflow.module.conversation.error.ConversationErrorCode;
 import com.pixflow.module.conversation.lock.ConversationLock;
 import com.pixflow.module.conversation.persistence.ConversationMapper;
 import com.pixflow.module.conversation.progress.ConversationProgressBridge;
+import com.pixflow.module.conversation.permission.ConversationPermissionProofs;
 import com.pixflow.module.conversation.proposal.PendingProposalRepository;
-import com.pixflow.module.conversation.proposal.ProposalThreshold;
-import com.pixflow.module.dag.expand.BranchExpander;
+import com.pixflow.module.conversation.proposal.ProposalPayloadVerifier;
+import com.pixflow.module.imagegen.confirm.ImagegenPayloadHasher;
 import com.pixflow.module.dag.config.DagAutoConfiguration;
-import com.pixflow.module.dag.propose.PendingPlanMapper;
-import com.pixflow.module.dag.propose.PendingPlanService;
 import com.pixflow.module.file.pkg.PackageReferenceResolver;
-import com.pixflow.module.imagegen.confirm.ImagegenConfirmationSupport;
 import com.pixflow.module.imagegen.config.ImagegenAutoConfiguration;
 import com.pixflow.module.task.api.TaskCommandService;
 import java.time.Clock;
@@ -195,47 +191,35 @@ public class ConversationAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    @ConditionalOnBean({PendingPlanMapper.class, PendingPlanService.class, PackageReferenceResolver.class,
-            BranchExpander.class, com.pixflow.module.dag.expand.GroupPreflight.class})
-    public PendingProposalRepository pendingProposalRepository(
-            PendingPlanMapper pendingPlanMapper,
-            PendingPlanService pendingPlanService,
-            PackageReferenceResolver packageReferenceResolver,
-            BranchExpander branchExpander,
-            com.pixflow.module.dag.exec.DagCompiler dagCompiler,
-            com.pixflow.module.dag.expand.GroupPreflight groupPreflight,
-            ObjectProvider<ImagegenConfirmationSupport> imagegenConfirmationSupportProvider) {
-        return new PendingProposalRepository(pendingPlanMapper, pendingPlanService, packageReferenceResolver,
-                branchExpander, imagegenConfirmationSupportProvider.getIfAvailable(), dagCompiler, groupPreflight);
+    public PendingProposalRepository pendingProposalRepository() {
+        return new PendingProposalRepository();
     }
 
     @Bean
     @ConditionalOnMissingBean
-    public ProposalThreshold proposalThreshold(ConversationProperties properties) {
-        return new ProposalThreshold(properties);
+    @ConditionalOnBean(PendingProposalRepository.class)
+    public ConversationPermissionProofs conversationPermissionProofs(
+            ConversationService conversationService,
+            PendingProposalRepository pendingProposalRepository) {
+        return new ConversationPermissionProofs(conversationService, pendingProposalRepository);
     }
 
     @Bean
     @ConditionalOnMissingBean
-    @ConditionalOnBean({PendingProposalRepository.class, ConfirmationTokenService.class, TaskCommandService.class, CacheStore.class})
+    @ConditionalOnBean({PendingProposalRepository.class, PermissionPolicy.class, TaskCommandService.class})
     public ConfirmationService conversationConfirmationService(
             ConversationService conversationService,
             PendingProposalRepository proposalRepository,
-            ProposalThreshold proposalThreshold,
-            ConfirmationTokenService tokenService,
+            PermissionPolicy permissionPolicy,
             TaskCommandService taskCommandService,
-            ConversationProperties properties,
-            CacheStore cacheStore,
-            Clock clock) {
+            ObjectMapper objectMapper,
+            ImagegenPayloadHasher imagegenPayloadHasher) {
         return new ConfirmationService(
                 conversationService,
                 proposalRepository,
-                proposalThreshold,
-                tokenService,
+                permissionPolicy,
                 taskCommandService,
-                properties,
-                cacheStore,
-                clock);
+                new ProposalPayloadVerifier(objectMapper, imagegenPayloadHasher));
     }
 
     @Bean

@@ -2,6 +2,7 @@ package com.pixflow.module.conversation.app;
 
 import com.pixflow.common.error.PixFlowException;
 import com.pixflow.harness.loop.AgentTurnRunner;
+import com.pixflow.infra.auth.context.AuthPrincipal;
 import com.pixflow.module.conversation.attachment.Attachment;
 import com.pixflow.module.conversation.attachment.AttachmentCollector;
 import com.pixflow.module.conversation.attachment.AttachmentMapper;
@@ -14,9 +15,13 @@ import java.util.List;
 
 public final class TurnPreparationService {
     private final ConversationService conversationService;
+
     private final ConversationLock conversationLock;
+
     private final AttachmentCollector attachmentCollector;
+
     private final AttachmentMapper attachmentMapper;
+
     private final AgentTurnRunnerRegistry agentTurnRunnerRegistry;
 
     public TurnPreparationService(
@@ -32,7 +37,9 @@ public final class TurnPreparationService {
         this.agentTurnRunnerRegistry = agentTurnRunnerRegistry;
     }
 
-    public PreparedTurn prepare(long ownerUserId, String conversationId, MessageSubmitRequest request) {
+    public PreparedTurn prepare(
+            AuthPrincipal principal, String conversationId, MessageSubmitRequest request) {
+        long ownerUserId = principal.userId();
         // owner 校验必须在附件读取和加锁前完成，避免越权请求触碰关联资源。
         conversationService.requireActive(ownerUserId, conversationId);
         UserPrompt prompt = new UserPrompt(
@@ -48,6 +55,7 @@ public final class TurnPreparationService {
             AgentTurnRunner runner = agentTurnRunnerRegistry.resolve();
             return new PreparedTurn(
                     ownerUserId,
+                    principal.username(),
                     conversationId,
                     prompt.text(),
                     attachmentMapper.toLoopAttachments(attachments),
