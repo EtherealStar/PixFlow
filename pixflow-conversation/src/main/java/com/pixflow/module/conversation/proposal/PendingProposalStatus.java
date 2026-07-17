@@ -1,6 +1,6 @@
 package com.pixflow.module.conversation.proposal;
 
-public enum PendingProposalStatus {
+enum PendingProposalStatus {
     PENDING,
     CONFIRMING,
     CONFIRMED,

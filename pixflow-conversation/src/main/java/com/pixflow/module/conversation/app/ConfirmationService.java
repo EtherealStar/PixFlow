@@ -12,11 +12,10 @@ import com.pixflow.harness.permission.PermissionRuntimeScope;
 import com.pixflow.harness.permission.PermissionSubject;
 import com.pixflow.infra.auth.context.AuthPrincipal;
 import com.pixflow.module.conversation.error.ConversationErrorCode;
-import com.pixflow.module.conversation.proposal.PendingProposal;
-import com.pixflow.module.conversation.proposal.PendingProposalRepository;
-import com.pixflow.module.conversation.proposal.PendingProposalStatus;
+import com.pixflow.module.conversation.proposal.ProposalService;
 import com.pixflow.module.conversation.proposal.PendingProposalType;
 import com.pixflow.module.conversation.proposal.ProposalPayloadVerifier;
+import com.pixflow.module.conversation.proposal.ProposalSnapshot;
 import com.pixflow.module.task.api.TaskCommandService;
 import com.pixflow.module.task.api.command.CreateTaskCommand;
 import com.pixflow.module.task.api.command.TaskId;
@@ -27,7 +26,7 @@ import java.util.Map;
 public final class ConfirmationService {
     private final ConversationService conversationService;
 
-    private final PendingProposalRepository proposalRepository;
+    private final ProposalService proposalService;
 
     private final PermissionPolicy permissionPolicy;
 
@@ -37,12 +36,12 @@ public final class ConfirmationService {
 
     public ConfirmationService(
             ConversationService conversationService,
-            PendingProposalRepository proposalRepository,
+            ProposalService proposalService,
             PermissionPolicy permissionPolicy,
             TaskCommandService taskCommandService,
             ProposalPayloadVerifier payloadVerifier) {
         this.conversationService = conversationService;
-        this.proposalRepository = proposalRepository;
+        this.proposalService = proposalService;
         this.permissionPolicy = permissionPolicy;
         this.taskCommandService = taskCommandService;
         this.payloadVerifier = payloadVerifier;
@@ -62,56 +61,37 @@ public final class ConfirmationService {
             return new ConfirmationSubmitResponse(
                     proposalId, existingTask.orElseThrow().value(), "CONFIRMED");
         }
-        PendingProposal proposal = requireForConfirmation(conversationId, proposalId);
+        ProposalSnapshot proposal = requireForConfirmation(conversationId, proposalId);
         PermissionPrincipal principal = permissionPrincipal(authenticated);
 
-        if (proposal.status() == PendingProposalStatus.CONFIRMED) {
+        if (proposal.confirmed()) {
             authorizeConversationOnly(principal, conversationId, proposalId);
             return confirmedResponse(proposal);
         }
 
         authorizeProposal(principal, proposal);
-        PendingProposalRepository.ConfirmationClaim claim =
-                proposalRepository.claimConfirmation(proposal);
-        if (!claim.owner()) {
-            String taskId = claim.result().join();
-            return new ConfirmationSubmitResponse(proposalId, taskId, "CONFIRMED");
-        }
-        PendingProposal confirming = claim.proposal();
-
-        try {
-            String taskId = createTask(confirming);
-            PendingProposal confirmed = proposalRepository.markConfirmedWithTask(confirming, taskId);
-            ConfirmationSubmitResponse response = confirmedResponse(confirmed);
-            // Task 已持久化并以 proposalId 幂等后，临时 Proposal 不再保留。
-            proposalRepository.removeConfirmed(proposalId);
-            return response;
-        } catch (RuntimeException failure) {
-            proposalRepository.markConfirmationFailed(confirming);
-            throw failure;
-        }
+        String taskId = proposalService.confirm(proposal.proposalId(), this::createTask);
+        return new ConfirmationSubmitResponse(proposalId, taskId, "CONFIRMED");
     }
 
     public void reject(AuthPrincipal authenticated, String conversationId, String proposalId) {
         conversationService.requireActive(authenticated.userId(), conversationId);
-        PendingProposal proposal = proposalRepository.find(proposalId).orElse(null);
+        ProposalSnapshot proposal = proposalService.find(proposalId).orElse(null);
         if (proposal == null) {
             authorizeConversationOnly(permissionPrincipal(authenticated), conversationId, proposalId);
             return;
         }
         proposal = requirePending(conversationId, proposalId);
         authorizeProposal(permissionPrincipal(authenticated), proposal);
-        proposalRepository.reject(proposal);
+        proposalService.reject(proposal.proposalId());
     }
 
-    private PendingProposal requireForConfirmation(String conversationId, String proposalId) {
-        PendingProposal proposal = proposalRepository.require(proposalId);
+    private ProposalSnapshot requireForConfirmation(String conversationId, String proposalId) {
+        ProposalSnapshot proposal = proposalService.require(proposalId);
         if (!conversationId.equals(proposal.conversationId())) {
             throw proposalNotFound();
         }
-        if (proposal.status() != PendingProposalStatus.PENDING
-                && proposal.status() != PendingProposalStatus.CONFIRMING
-                && proposal.status() != PendingProposalStatus.CONFIRMED) {
+        if (!proposal.confirmable() && !proposal.confirmed()) {
             throw new BusinessException(
                     ConversationErrorCode.PROPOSAL_ALREADY_CONFIRMED,
                     "proposal is not pending");
@@ -119,12 +99,12 @@ public final class ConfirmationService {
         return proposal;
     }
 
-    private PendingProposal requirePending(String conversationId, String proposalId) {
-        PendingProposal proposal = proposalRepository.require(proposalId);
+    private ProposalSnapshot requirePending(String conversationId, String proposalId) {
+        ProposalSnapshot proposal = proposalService.require(proposalId);
         if (!conversationId.equals(proposal.conversationId())) {
             throw proposalNotFound();
         }
-        if (proposal.status() != PendingProposalStatus.PENDING) {
+        if (!proposal.rejectable()) {
             throw new BusinessException(
                     ConversationErrorCode.PROPOSAL_ALREADY_CONFIRMED,
                     "proposal is not pending");
@@ -132,7 +112,7 @@ public final class ConfirmationService {
         return proposal;
     }
 
-    private void authorizeProposal(PermissionPrincipal principal, PendingProposal proposal) {
+    private void authorizeProposal(PermissionPrincipal principal, ProposalSnapshot proposal) {
         if (!payloadVerifier.matches(proposal)) {
             throw new BusinessException(
                     ConversationErrorCode.PROPOSAL_PAYLOAD_MISMATCH,
@@ -182,20 +162,14 @@ public final class ConfirmationService {
         }
     }
 
-    private String createTask(PendingProposal proposal) {
-        long packageId = parsePackageId(proposal.packageId());
-        if (packageId <= 0L) {
-            throw new BusinessException(
-                    ConversationErrorCode.PACKAGE_REFERENCE_INVALID,
-                    "proposal package id is invalid");
-        }
+    private String createTask(ProposalSnapshot proposal) {
         TaskType type = proposal.type() == PendingProposalType.IMAGEGEN
                 ? TaskType.IMAGE_GEN
                 : TaskType.IMAGE_PROCESS;
         TaskId taskId = taskCommandService.createAndEnqueue(new CreateTaskCommand(
                 type,
                 proposal.conversationId(),
-                packageId,
+                proposal.packageId(),
                 idempotencyKey(proposal.proposalId()),
                 proposal.payload(),
                 0,
@@ -208,7 +182,7 @@ public final class ConfirmationService {
         return new PermissionPrincipal(Long.toString(principal.userId()), principal.username());
     }
 
-    private static ConfirmationSubmitResponse confirmedResponse(PendingProposal proposal) {
+    private static ConfirmationSubmitResponse confirmedResponse(ProposalSnapshot proposal) {
         return new ConfirmationSubmitResponse(proposal.proposalId(), proposal.taskId(), "CONFIRMED");
     }
 
@@ -216,14 +190,6 @@ public final class ConfirmationService {
         return new BusinessException(
                 ConversationErrorCode.PROPOSAL_NOT_FOUND,
                 "proposal not found in conversation");
-    }
-
-    private static long parsePackageId(String packageId) {
-        try {
-            return Long.parseLong(packageId);
-        } catch (RuntimeException invalid) {
-            return 0L;
-        }
     }
 
     private static String idempotencyKey(String proposalId) {

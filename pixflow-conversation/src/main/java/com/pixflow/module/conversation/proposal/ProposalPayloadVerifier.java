@@ -22,7 +22,7 @@ public final class ProposalPayloadVerifier {
                 imagegenPayloadHasher, "imagegenPayloadHasher");
     }
 
-    public boolean matches(PendingProposal proposal) {
+    public boolean matches(ProposalSnapshot proposal) {
         try {
             String actual = switch (proposal.type()) {
                 case DAG -> sha256(proposal.payload());

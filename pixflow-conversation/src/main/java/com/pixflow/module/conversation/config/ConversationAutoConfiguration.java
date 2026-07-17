@@ -24,7 +24,7 @@ import com.pixflow.module.conversation.lock.ConversationLock;
 import com.pixflow.module.conversation.persistence.ConversationMapper;
 import com.pixflow.module.conversation.progress.ConversationProgressBridge;
 import com.pixflow.module.conversation.permission.ConversationPermissionProofs;
-import com.pixflow.module.conversation.proposal.PendingProposalRepository;
+import com.pixflow.module.conversation.proposal.ProposalService;
 import com.pixflow.module.conversation.proposal.ProposalPayloadVerifier;
 import com.pixflow.module.imagegen.confirm.ImagegenPayloadHasher;
 import com.pixflow.module.dag.config.DagAutoConfiguration;
@@ -191,32 +191,32 @@ public class ConversationAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public PendingProposalRepository pendingProposalRepository() {
-        return new PendingProposalRepository();
+    public ProposalService proposalService() {
+        return new ProposalService();
     }
 
     @Bean
     @ConditionalOnMissingBean
-    @ConditionalOnBean(PendingProposalRepository.class)
+    @ConditionalOnBean(ProposalService.class)
     public ConversationPermissionProofs conversationPermissionProofs(
             ConversationService conversationService,
-            PendingProposalRepository pendingProposalRepository) {
-        return new ConversationPermissionProofs(conversationService, pendingProposalRepository);
+            ProposalService proposalService) {
+        return new ConversationPermissionProofs(conversationService, proposalService);
     }
 
     @Bean
     @ConditionalOnMissingBean
-    @ConditionalOnBean({PendingProposalRepository.class, PermissionPolicy.class, TaskCommandService.class})
+    @ConditionalOnBean({ProposalService.class, PermissionPolicy.class, TaskCommandService.class})
     public ConfirmationService conversationConfirmationService(
             ConversationService conversationService,
-            PendingProposalRepository proposalRepository,
+            ProposalService proposalService,
             PermissionPolicy permissionPolicy,
             TaskCommandService taskCommandService,
             ObjectMapper objectMapper,
             ImagegenPayloadHasher imagegenPayloadHasher) {
         return new ConfirmationService(
                 conversationService,
-                proposalRepository,
+                proposalService,
                 permissionPolicy,
                 taskCommandService,
                 new ProposalPayloadVerifier(objectMapper, imagegenPayloadHasher));
