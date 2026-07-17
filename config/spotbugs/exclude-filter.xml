@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<FindBugsFilter>
+    <!-- Intentionally empty: reviewed High-priority findings must be fixed in source. -->
+</FindBugsFilter>

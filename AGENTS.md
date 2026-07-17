@@ -17,3 +17,17 @@ For details about the `docs/design-docs/` folder structure and what each subfold
 3. Code implementation must follow the existing design documents and execution plans. If a requested change conflicts with the documentation, explain the conflict before proceeding and confirm the handling approach.
 4. Because this project is still in the development stage, keep changes clearly scoped and avoid introducing refactors or features unrelated to the current plan.
 5. When the user asks for a plan, write it by referring to [PLANS.md](PLANS.md) unless the user explicitly asks not to use that format for a lightweight plan.
+
+## Agent skills
+
+### Issue tracker
+
+Issues and specs are tracked as local Markdown files under `.scratch/<feature-slug>/`. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The canonical triage labels are `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, and `wontfix`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+This is a multi-context repository: `CONTEXT-MAP.md` directs agents to relevant module `CONTEXT.md` files, with system-wide ADRs in `docs/adr/`. See `docs/agents/domain.md`.

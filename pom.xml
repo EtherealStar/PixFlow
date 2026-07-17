@@ -50,6 +50,12 @@
 
     <properties>
         <java.version>21</java.version>
+        <checkstyle.version>13.8.0</checkstyle.version>
+        <maven-checkstyle-plugin.version>3.6.0</maven-checkstyle-plugin.version>
+        <spotbugs.version>4.10.3</spotbugs.version>
+        <spotbugs-maven-plugin.version>4.10.3.0</spotbugs-maven-plugin.version>
+        <checkstyle.fail-on-violation>true</checkstyle.fail-on-violation>
+        <spotbugs.skip>false</spotbugs.skip>
         <spring-ai.version>2.0.0</spring-ai.version>
         <mybatis-plus.version>3.5.7</mybatis-plus.version>
         <minio.version>8.5.11</minio.version>
@@ -267,11 +273,109 @@
                         </excludes>
                     </configuration>
                 </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-checkstyle-plugin</artifactId>
+                    <version>${maven-checkstyle-plugin.version}</version>
+                    <dependencies>
+                        <dependency>
+                            <groupId>com.puppycrawl.tools</groupId>
+                            <artifactId>checkstyle</artifactId>
+                            <version>${checkstyle.version}</version>
+                        </dependency>
+                    </dependencies>
+                    <configuration>
+                        <cacheFile>${project.build.directory}/checkstyle-cachefile</cacheFile>
+                        <configLocation>${maven.multiModuleProjectDirectory}/config/checkstyle/alibaba-checkstyle.xml</configLocation>
+                        <consoleOutput>true</consoleOutput>
+                        <failOnViolation>${checkstyle.fail-on-violation}</failOnViolation>
+                        <includeTestSourceDirectory>false</includeTestSourceDirectory>
+                        <outputFile>${project.build.directory}/checkstyle-result.xml</outputFile>
+                        <outputFileFormat>xml</outputFileFormat>
+                        <propertyExpansion>checkstyle.suppressions.file=${maven.multiModuleProjectDirectory}/config/checkstyle/suppressions.xml</propertyExpansion>
+                    </configuration>
+                </plugin>
+                <plugin>
+                    <groupId>com.github.spotbugs</groupId>
+                    <artifactId>spotbugs-maven-plugin</artifactId>
+                    <version>${spotbugs-maven-plugin.version}</version>
+                    <dependencies>
+                        <dependency>
+                            <groupId>com.github.spotbugs</groupId>
+                            <artifactId>spotbugs</artifactId>
+                            <version>${spotbugs.version}</version>
+                        </dependency>
+                    </dependencies>
+                    <configuration>
+                        <effort>Default</effort>
+                        <excludeFilterFile>${maven.multiModuleProjectDirectory}/config/spotbugs/exclude-filter.xml</excludeFilterFile>
+                        <failOnError>true</failOnError>
+                        <skip>${spotbugs.skip}</skip>
+                        <spotbugsXmlOutputFilename>spotbugsXml.xml</spotbugsXmlOutputFilename>
+                        <threshold>High</threshold>
+                        <xmlOutput>true</xmlOutput>
+                    </configuration>
+                </plugin>
             </plugins>
         </pluginManagement>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-checkstyle-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>checkstyle-verify</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>com.github.spotbugs</groupId>
+                <artifactId>spotbugs-maven-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>spotbugs-verify</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
     </build>
 
     <profiles>
+        <profile>
+            <id>linters-audit</id>
+            <properties>
+                <checkstyle.fail-on-violation>false</checkstyle.fail-on-violation>
+                <spotbugs.skip>true</spotbugs.skip>
+            </properties>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>com.github.spotbugs</groupId>
+                        <artifactId>spotbugs-maven-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>spotbugs-audit</id>
+                                <phase>verify</phase>
+                                <goals>
+                                    <goal>spotbugs</goal>
+                                </goals>
+                                <configuration>
+                                    <skip>false</skip>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
         <profile>
             <id>windows-docker-npipe</id>
             <build>
