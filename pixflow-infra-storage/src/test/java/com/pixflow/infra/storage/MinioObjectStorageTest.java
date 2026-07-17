@@ -2,7 +2,12 @@ package com.pixflow.infra.storage;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
+import io.minio.MinioClient;
+import java.io.IOException;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.net.URL;
@@ -31,6 +36,40 @@ class MinioObjectStorageTest {
 
         assertThat(storage.getBytes(ObjectLocation.of(BucketType.TOOL_RESULTS, "x.txt")))
                 .isEqualTo("abc".getBytes());
+    }
+
+    @Test
+    void copyMapsClientErrorsWithSourceAndTargetContext() throws Exception {
+        MinioClient client = mock(MinioClient.class);
+        when(client.copyObject(any())).thenThrow(new IOException("connection reset"));
+        MinioObjectStorage storage = new MinioObjectStorage(
+                client,
+                bucket -> "bucket-" + bucket.name().toLowerCase(),
+                new StorageProperties());
+        ObjectLocation source = ObjectLocation.of(BucketType.TMP, "candidate.webp");
+        ObjectLocation target = StorageKeys.generatedAsset(3, 9, "webp");
+
+        assertThatThrownBy(() -> storage.copy(source, target))
+                .isInstanceOfSatisfying(StorageException.class, exception -> {
+                    assertThat(exception.operation()).isEqualTo("COPY");
+                    assertThat(exception.bucket()).isEqualTo(BucketType.GENERATED);
+                    assertThat(exception.key()).isEqualTo(target.key());
+                    assertThat(exception.retryable()).isTrue();
+                    assertThat(exception.details())
+                            .containsEntry("sourceBucket", "TMP")
+                            .containsEntry("sourceKey", source.key())
+                            .containsEntry("targetKey", target.key());
+                });
+    }
+
+    @Test
+    void copyRejectsNullLocations() {
+        MinioObjectStorage storage = new MinioObjectStorage(null, bucket -> "unused", new StorageProperties());
+
+        assertThatThrownBy(() -> storage.copy(null, ObjectLocation.of(BucketType.TMP, "target")))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> storage.copy(ObjectLocation.of(BucketType.TMP, "source"), null))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 
     private static class FakeObjectStorage extends MinioObjectStorage {
@@ -68,6 +107,11 @@ class MinioObjectStorageTest {
 
         @Override
         public void deleteByPrefix(BucketType bucket, String prefix) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public ObjectRef copy(ObjectLocation source, ObjectLocation target) {
             throw new UnsupportedOperationException();
         }
 

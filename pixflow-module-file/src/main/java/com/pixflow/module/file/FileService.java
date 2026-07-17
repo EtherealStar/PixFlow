@@ -34,7 +34,6 @@ import java.io.InputStream;
 import java.net.URL;
 import java.time.Clock;
 import java.time.Duration;
-import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
 import org.springframework.web.multipart.MultipartFile;
@@ -43,14 +42,23 @@ public class FileService {
     private static final Duration IMAGE_PREVIEW_TTL = Duration.ofMinutes(15);
 
     private final AssetPackageService packageService;
+
     private final AssetPackageMapper packageMapper;
+
     private final AssetImageMapper imageMapper;
+
     private final AssetIngestErrorMapper errorMapper;
+
     private final AssetCopyMapper copyMapper;
+
     private final CsvCopyDocParser csvCopyDocParser;
+
     private final ExcelCopyDocParser excelCopyDocParser;
+
     private final ObjectStorage objectStorage;
+
     private final ExtractionPublisher extractionPublisher;
+
     private final Clock clock;
 
     public FileService(
@@ -79,13 +87,14 @@ public class FileService {
     public UploadPackageResponse upload(MultipartFile zip, MultipartFile doc) throws IOException {
         AssetPackage assetPackage = packageService.createUploadingPackage(zip.getOriginalFilename());
         long packageId = assetPackage.getId();
-        ObjectLocation zipLocation = StorageKeys.packageSource(packageId);
+        ObjectLocation zipLocation = StorageKeys.packageSource(packageId, "zip");
         objectStorage.put(zipLocation, zip.getInputStream(), zip.getSize(), contentType(zip, "application/zip"));
 
         String docKey = null;
         if (doc != null && !doc.isEmpty()) {
             ObjectLocation docLocation = StorageKeys.packageDoc(packageId, doc.getOriginalFilename());
-            objectStorage.put(docLocation, doc.getInputStream(), doc.getSize(), contentType(doc, "application/octet-stream"));
+            objectStorage.put(
+                    docLocation, doc.getInputStream(), doc.getSize(), contentType(doc, "application/octet-stream"));
             docKey = docLocation.key();
         }
         packageService.markSourceStored(packageId, zipLocation.key(), docKey);

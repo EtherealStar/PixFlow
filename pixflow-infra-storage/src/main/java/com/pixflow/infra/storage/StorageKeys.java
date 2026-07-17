@@ -10,8 +10,11 @@ public final class StorageKeys {
     private StorageKeys() {
     }
 
-    public static ObjectLocation packageSource(long packageId) {
-        return ObjectLocation.of(BucketType.PACKAGES, packageId + "/source.zip");
+    public static ObjectLocation packageSource(long packageId, String archiveExt) {
+        requirePositiveId(packageId, "packageId");
+        return ObjectLocation.of(
+                BucketType.PACKAGES,
+                packageId + "/source." + normalizeArchiveExtension(archiveExt));
     }
 
     public static ObjectLocation packageImage(long packageId, String relPath) {
@@ -30,6 +33,14 @@ public final class StorageKeys {
         return ObjectLocation.of(BucketType.GENERATED, unitOutputKey(taskId, unitKeyHash, runEpoch, ext));
     }
 
+    public static ObjectLocation resultAsset(long packageId, long imageId, String ext) {
+        return assetLocation(BucketType.RESULTS, packageId, imageId, ext);
+    }
+
+    public static ObjectLocation generatedAsset(long packageId, long imageId, String ext) {
+        return assetLocation(BucketType.GENERATED, packageId, imageId, ext);
+    }
+
     public static ObjectLocation runtimeGroup(String taskId, long runEpoch, String unitKeyHash,
                                               String memberId, String name) {
         requirePositiveEpoch(runEpoch);
@@ -45,6 +56,28 @@ public final class StorageKeys {
         requirePositiveEpoch(runEpoch);
         return "results/" + normalizeSegment(taskId) + "/units/" + normalizeSegment(unitKeyHash)
                 + "/epochs/" + runEpoch + "/output." + normalizeExtension(ext);
+    }
+
+    private static ObjectLocation assetLocation(BucketType bucket, long packageId, long imageId, String ext) {
+        requirePositiveId(packageId, "packageId");
+        requirePositiveId(imageId, "imageId");
+        return ObjectLocation.of(
+                bucket,
+                packageId + "/images/" + imageId + "/output." + normalizeExtension(ext));
+    }
+
+    private static String normalizeArchiveExtension(String ext) {
+        String normalized = normalizeExtension(ext);
+        if (!normalized.equals("zip") && !normalized.equals("rar") && !normalized.equals("7z")) {
+            throw new IllegalArgumentException("unsupported archive extension");
+        }
+        return normalized;
+    }
+
+    private static void requirePositiveId(long id, String name) {
+        if (id <= 0) {
+            throw new IllegalArgumentException(name + " must be positive");
+        }
     }
 
     private static void requirePositiveEpoch(long runEpoch) {

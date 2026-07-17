@@ -1,6 +1,7 @@
 package com.pixflow.infra.storage;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.io.ByteArrayInputStream;
 import java.net.URI;
@@ -95,5 +96,35 @@ class MinioObjectStorageIntegrationTest {
         assertThat(storage.exists(ObjectLocation.of(BucketType.TMP, "task-1/a.txt"))).isFalse();
         assertThat(storage.exists(ObjectLocation.of(BucketType.TMP, "task-1/b.txt"))).isFalse();
         assertThat(storage.exists(ObjectLocation.of(BucketType.TMP, "task-2/c.txt"))).isTrue();
+    }
+
+    @Test
+    void copyAcrossBucketsPreservesBytesMetadataAndSource() {
+        ObjectLocation source = ObjectLocation.of(BucketType.TMP, "copy/source.webp");
+        ObjectLocation target = StorageKeys.generatedAsset(7, 91, "webp");
+        byte[] payload = "candidate-image".getBytes();
+        storage.put(source, new ByteArrayInputStream(payload), payload.length, "image/webp");
+
+        ObjectRef copied = storage.copy(source, target);
+
+        assertThat(copied.bucket()).isEqualTo(BucketType.GENERATED);
+        assertThat(copied.key()).isEqualTo("7/images/91/output.webp");
+        assertThat(copied.size()).isEqualTo(payload.length);
+        assertThat(storage.getBytes(target)).isEqualTo(payload);
+        assertThat(storage.stat(target).contentType()).startsWith("image/webp");
+        assertThat(storage.exists(source)).isTrue();
+    }
+
+    @Test
+    void copyMissingSourceFailsDeterministically() {
+        ObjectLocation source = ObjectLocation.of(BucketType.TMP, "copy/missing.webp");
+        ObjectLocation target = StorageKeys.generatedAsset(7, 92, "webp");
+
+        assertThatThrownBy(() -> storage.copy(source, target))
+                .isInstanceOfSatisfying(StorageException.class, exception -> {
+                    assertThat(exception.operation()).isEqualTo("COPY");
+                    assertThat(exception.retryable()).isFalse();
+                    assertThat(exception.details()).containsEntry("sourceKey", source.key());
+                });
     }
 }

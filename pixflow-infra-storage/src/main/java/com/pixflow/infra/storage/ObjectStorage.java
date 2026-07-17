@@ -22,6 +22,8 @@ public interface ObjectStorage {
 
     void deleteByPrefix(BucketType bucket, String prefix);
 
+    ObjectRef copy(ObjectLocation source, ObjectLocation target);
+
     URL presignGet(ObjectLocation loc, Duration ttl);
 
     URL presignPut(ObjectLocation loc, Duration ttl);

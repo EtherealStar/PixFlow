@@ -1,5 +1,7 @@
 package com.pixflow.infra.storage;
 
+import io.minio.CopyObjectArgs;
+import io.minio.CopySource;
 import io.minio.GetObjectArgs;
 import io.minio.GetPresignedObjectUrlArgs;
 import io.minio.ListObjectsArgs;
@@ -36,6 +38,8 @@ public class MinioObjectStorage implements ObjectStorage {
     private static final String DELETE = "DELETE";
 
     private static final String DELETE_PREFIX = "DELETE_PREFIX";
+
+    private static final String COPY = "COPY";
 
     private static final String PRESIGN_GET = "PRESIGN_GET";
 
@@ -186,6 +190,40 @@ public class MinioObjectStorage implements ObjectStorage {
     }
 
     @Override
+    public ObjectRef copy(ObjectLocation source, ObjectLocation target) {
+        if (source == null || target == null) {
+            throw new IllegalArgumentException("source and target must not be null");
+        }
+        try {
+            ObjectWriteResponse response = minioClient.copyObject(
+                    CopyObjectArgs.builder()
+                            .bucket(resolveBucket(target.bucket()))
+                            .object(target.key())
+                            .source(CopySource.builder()
+                                    .bucket(resolveBucket(source.bucket()))
+                                    .object(source.key())
+                                    .build())
+                            .build());
+            StoredObjectMetadata metadata = stat(target);
+            return new ObjectRef(target.bucket(), target.key(), metadata.size(), response.etag());
+        } catch (Exception ex) {
+            throw new StorageException(
+                    COPY,
+                    target.bucket(),
+                    target.key(),
+                    isRetryable(ex),
+                    COPY + " failed from " + source.bucket() + "/" + source.key()
+                            + " to " + target.bucket() + "/" + target.key() + ": " + ex.getMessage(),
+                    ex,
+                    java.util.Map.of(
+                            "sourceBucket", source.bucket().name(),
+                            "sourceKey", source.key(),
+                            "targetBucket", target.bucket().name(),
+                            "targetKey", target.key()));
+        }
+    }
+
+    @Override
     public URL presignGet(ObjectLocation loc, Duration ttl) {
         return presign(loc, ttl, PRESIGN_GET, io.minio.http.Method.GET);
     }
@@ -272,6 +310,9 @@ public class MinioObjectStorage implements ObjectStorage {
     }
 
     private boolean isRetryable(Exception ex) {
+        if (ex instanceof StorageException storageException) {
+            return storageException.retryable();
+        }
         return !(ex instanceof ErrorResponseException errorResponseException
                 && errorResponseException.errorResponse() != null
                 && ("NoSuchKey".equalsIgnoreCase(errorResponseException.errorResponse().code())

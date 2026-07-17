@@ -9,8 +9,12 @@ class StorageKeysTest {
 
     @Test
     void buildsStablePackageKeys() {
-        assertThat(StorageKeys.packageSource(42))
+        assertThat(StorageKeys.packageSource(42, "zip"))
                 .isEqualTo(ObjectLocation.of(BucketType.PACKAGES, "42/source.zip"));
+        assertThat(StorageKeys.packageSource(42, "rar"))
+                .isEqualTo(ObjectLocation.of(BucketType.PACKAGES, "42/source.rar"));
+        assertThat(StorageKeys.packageSource(42, "7z"))
+                .isEqualTo(ObjectLocation.of(BucketType.PACKAGES, "42/source.7z"));
 
         assertThat(StorageKeys.packageImage(42, "folder/a.png"))
                 .isEqualTo(ObjectLocation.of(BucketType.PACKAGES, "42/images/folder/a.png"));
@@ -27,6 +31,10 @@ class StorageKeysTest {
         assertThat(StorageKeys.generatedUnit("1001", "def456", 8, "jpg"))
                 .isEqualTo(ObjectLocation.of(BucketType.GENERATED,
                         "results/1001/units/def456/epochs/8/output.jpg"));
+        assertThat(StorageKeys.resultAsset(42, 101, "webp"))
+                .isEqualTo(ObjectLocation.of(BucketType.RESULTS, "42/images/101/output.webp"));
+        assertThat(StorageKeys.generatedAsset(42, 102, "png"))
+                .isEqualTo(ObjectLocation.of(BucketType.GENERATED, "42/images/102/output.png"));
     }
 
     @Test
@@ -49,6 +57,12 @@ class StorageKeysTest {
         assertThatThrownBy(() -> StorageKeys.generatedUnit("1001", "abc", 1, ".jpg"))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> StorageKeys.runtimeGroup("1001", 0, "abc", "88", "x"))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> StorageKeys.packageSource(42, "tar.gz"))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> StorageKeys.packageSource(42, "../zip"))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> StorageKeys.resultAsset(42, 0, "png"))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 }
