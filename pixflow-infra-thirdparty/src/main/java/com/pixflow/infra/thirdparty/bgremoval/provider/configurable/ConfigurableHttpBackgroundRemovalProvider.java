@@ -4,7 +4,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pixflow.common.error.PixFlowException;
 import com.pixflow.common.error.RecoveryHint;
-import com.pixflow.infra.thirdparty.bgremoval.BackgroundRemovalOptions;
 import com.pixflow.infra.thirdparty.bgremoval.BackgroundRemovalRequest;
 import com.pixflow.infra.thirdparty.bgremoval.BackgroundRemovalResult;
 import com.pixflow.infra.thirdparty.bgremoval.ThirdPartyUsage;
@@ -32,19 +31,26 @@ import java.util.regex.Pattern;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
-import org.springframework.web.util.UriUtils;
 
 public final class ConfigurableHttpBackgroundRemovalProvider implements BackgroundRemovalProvider {
     private static final String API = "bg-removal";
+
     private static final Pattern SPLIT = Pattern.compile("\\.");
 
     private final String providerId;
+
     private final ThirdPartyProperties.Provider properties;
+
     private final ThirdPartyCallTemplate callTemplate;
+
     private final RestClientThirdPartyHttpInvoker httpInvoker;
+
     private final ThirdPartyAuthStrategy authStrategy;
+
     private final ThirdPartyErrorMapper errorMapper;
+
     private final ThirdPartyMetrics metrics;
+
     private final ObjectMapper objectMapper;
 
     public ConfigurableHttpBackgroundRemovalProvider(
@@ -105,7 +111,9 @@ public final class ConfigurableHttpBackgroundRemovalProvider implements Backgrou
         } else if ("json-base64".equalsIgnoreCase(mode)) {
             requireImage(request, mode);
             Map<String, Object> payload = new LinkedHashMap<>();
-            payload.put(firstNonNull(properties.request().imageField(), "image"), Base64.getEncoder().encodeToString(request.image()));
+            payload.put(
+                    firstNonNull(properties.request().imageField(), "image"),
+                    Base64.getEncoder().encodeToString(request.image()));
             payload.put("contentType", request.contentType());
             payload.put("crop", request.options().crop());
             body = writeJson(payload);
@@ -130,7 +138,11 @@ public final class ConfigurableHttpBackgroundRemovalProvider implements Backgrou
     private BackgroundRemovalResult extractResult(ThirdPartyHttpResponse response) {
         String mode = properties.response().mode();
         if ("binary-body".equalsIgnoreCase(mode)) {
-            return new BackgroundRemovalResult(response.body(), contentType(response), new ThirdPartyUsage(null, Map.of()), Map.of());
+            return new BackgroundRemovalResult(
+                    response.body(),
+                    contentType(response),
+                    new ThirdPartyUsage(null, Map.of()),
+                    Map.of());
         }
         try {
             JsonNode root = objectMapper.readTree(response.body());
@@ -138,12 +150,20 @@ public final class ConfigurableHttpBackgroundRemovalProvider implements Backgrou
                 String field = firstNonNull(properties.response().imageField(), "data.image");
                 String value = readText(root, field);
                 byte[] image = Base64.getDecoder().decode(value);
-                return new BackgroundRemovalResult(image, "image/png", new ThirdPartyUsage(null, Map.of()), Map.of("field", field));
+                return new BackgroundRemovalResult(
+                        image,
+                        "image/png",
+                        new ThirdPartyUsage(null, Map.of()),
+                        Map.of("field", field));
             }
             if ("json-result-url".equalsIgnoreCase(mode)) {
                 String field = firstNonNull(properties.response().resultUrlField(), "resultUrl");
                 String url = readText(root, field);
-                return new BackgroundRemovalResult(url.getBytes(StandardCharsets.UTF_8), "text/plain", new ThirdPartyUsage(null, Map.of()), Map.of("resultUrl", url));
+                return new BackgroundRemovalResult(
+                        url.getBytes(StandardCharsets.UTF_8),
+                        "text/plain",
+                        new ThirdPartyUsage(null, Map.of()),
+                        Map.of("resultUrl", url));
             }
             throw new IllegalArgumentException("unsupported response mode");
         } catch (Exception ex) {

@@ -10,9 +10,12 @@ import java.util.concurrent.atomic.AtomicLong;
 
 public class MicrometerMqMetrics implements MqMetrics {
     private final MeterRegistry meterRegistry;
+
     private final ConcurrentMap<String, AtomicLong> dlqDepthGauges = new ConcurrentHashMap<>();
 
-    public MicrometerMqMetrics(MeterRegistry meterRegistry) { this.meterRegistry = meterRegistry; }
+    public MicrometerMqMetrics(MeterRegistry meterRegistry) {
+        this.meterRegistry = meterRegistry;
+    }
 
     @Override
     public void recordPublishConfirmed(String topic, String tag) {
@@ -21,7 +24,11 @@ public class MicrometerMqMetrics implements MqMetrics {
 
     @Override
     public void recordPublishFailed(String topic, String tag, PublishFailureType failureType) {
-        meterRegistry.counter("pixflow.mq.publish", tags(topic, tag, null).and("result", "failed", "failureType", failureType.name())).increment();
+        meterRegistry.counter(
+                        "pixflow.mq.publish",
+                        tags(topic, tag, null).and(
+                                "result", "failed", "failureType", failureType.name()))
+                .increment();
     }
 
     @Override
@@ -31,18 +38,30 @@ public class MicrometerMqMetrics implements MqMetrics {
 
     @Override
     public void recordConsumeRetry(String topic, String consumerGroup, int retryCount) {
-        meterRegistry.counter("pixflow.mq.consume", tags(topic, null, consumerGroup).and("result", "retry")).increment();
-        DistributionSummary.builder("pixflow.mq.retry.count").tags(tags(topic, null, consumerGroup)).register(meterRegistry).record(Math.max(0, retryCount));
+        meterRegistry.counter(
+                        "pixflow.mq.consume",
+                        tags(topic, null, consumerGroup).and("result", "retry"))
+                .increment();
+        DistributionSummary.builder("pixflow.mq.retry.count")
+                .tags(tags(topic, null, consumerGroup))
+                .register(meterRegistry)
+                .record(Math.max(0, retryCount));
     }
 
     @Override
     public void recordConsumeDeadLetter(String topic, String consumerGroup) {
-        meterRegistry.counter("pixflow.mq.consume", tags(topic, null, consumerGroup).and("result", "dead_letter")).increment();
+        meterRegistry.counter(
+                        "pixflow.mq.consume",
+                        tags(topic, null, consumerGroup).and("result", "dead_letter"))
+                .increment();
     }
 
     @Override
     public void recordConsumeAckDrop(String topic, String consumerGroup) {
-        meterRegistry.counter("pixflow.mq.consume", tags(topic, null, consumerGroup).and("result", "ack_drop")).increment();
+        meterRegistry.counter(
+                        "pixflow.mq.consume",
+                        tags(topic, null, consumerGroup).and("result", "ack_drop"))
+                .increment();
     }
 
     @Override
@@ -58,9 +77,15 @@ public class MicrometerMqMetrics implements MqMetrics {
 
     private Tags tags(String topic, String tag, String consumerGroup) {
         Tags tags = Tags.empty();
-        if (topic != null) tags = tags.and("topic", topic);
-        if (tag != null) tags = tags.and("tag", tag);
-        if (consumerGroup != null) tags = tags.and("consumerGroup", consumerGroup);
+        if (topic != null) {
+            tags = tags.and("topic", topic);
+        }
+        if (tag != null) {
+            tags = tags.and("tag", tag);
+        }
+        if (consumerGroup != null) {
+            tags = tags.and("consumerGroup", consumerGroup);
+        }
         return tags;
     }
 }

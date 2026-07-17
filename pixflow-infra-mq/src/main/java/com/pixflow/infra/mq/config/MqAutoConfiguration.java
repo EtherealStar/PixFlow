@@ -37,11 +37,15 @@ public class MqAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public TraceHeaderPropagator traceHeaderPropagator() { return new MdcTraceHeaderPropagator(); }
+    public TraceHeaderPropagator traceHeaderPropagator() {
+        return new MdcTraceHeaderPropagator();
+    }
 
     @Bean
     @ConditionalOnMissingBean
-    public RocketMessageCodec rocketMessageCodec(ObjectMapper objectMapper, TraceHeaderPropagator traceHeaderPropagator) {
+    public RocketMessageCodec rocketMessageCodec(
+            ObjectMapper objectMapper,
+            TraceHeaderPropagator traceHeaderPropagator) {
         return new RocketMessageCodec(objectMapper, traceHeaderPropagator);
     }
 
@@ -60,17 +64,26 @@ public class MqAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public DestinationRegistrar destinationRegistrar(MqProperties properties) { return new RocketDestinationRegistrar(properties); }
+    public DestinationRegistrar destinationRegistrar(MqProperties properties) {
+        return new RocketDestinationRegistrar(properties);
+    }
 
     @Bean
     @ConditionalOnMissingBean
-    public ErrorNormalizer errorNormalizer() { return new ErrorNormalizer(); }
+    public ErrorNormalizer errorNormalizer() {
+        return new ErrorNormalizer();
+    }
 
     @Bean
     @ConditionalOnMissingBean
-    public ManagedListenerContainerFactory managedListenerContainerFactory(MqProperties properties, RocketMessageCodec codec,
-            ErrorNormalizer errorNormalizer, TraceHeaderPropagator traceHeaderPropagator, MqMetrics metrics) {
-        return new RocketManagedListenerContainerFactory(properties, codec, errorNormalizer, traceHeaderPropagator, metrics);
+    public ManagedListenerContainerFactory managedListenerContainerFactory(
+            MqProperties properties,
+            RocketMessageCodec codec,
+            ErrorNormalizer errorNormalizer,
+            TraceHeaderPropagator traceHeaderPropagator,
+            MqMetrics metrics) {
+        return new RocketManagedListenerContainerFactory(
+                properties, codec, errorNormalizer, traceHeaderPropagator, metrics);
     }
 
     private static final class NoopMqMetrics implements MqMetrics {

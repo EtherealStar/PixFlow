@@ -8,20 +8,33 @@ import java.util.Map;
 
 public final class RetryHeaders {
     public static final String RETRY_COUNT = "x-retry-count";
+
     public static final String ORIGINAL_TOPIC = "x-original-topic";
+
     public static final String ORIGINAL_TAG = "x-original-tag";
+
     public static final String FIRST_FAILURE_AT = "x-first-failure-at";
+
     public static final String LAST_ERROR_CODE = "x-last-error-code";
+
     public static final String LAST_ERROR_MESSAGE = "x-last-error-message";
+
     public static final String TRACE_ID = "x-trace-id";
 
-    private RetryHeaders() {}
+    private RetryHeaders() {
+    }
 
     public static int retryCount(Map<String, Object> headers) {
         Object raw = headers == null ? null : headers.get(RETRY_COUNT);
-        if (raw instanceof Number number) return number.intValue();
+        if (raw instanceof Number number) {
+            return number.intValue();
+        }
         if (raw instanceof String value) {
-            try { return Integer.parseInt(value); } catch (NumberFormatException ignored) { return 0; }
+            try {
+                return Integer.parseInt(value);
+            } catch (NumberFormatException ignored) {
+                return 0;
+            }
         }
         return 0;
     }

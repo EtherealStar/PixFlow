@@ -6,7 +6,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 public final class RasterImage implements AutoCloseable {
     private final SharedRaster shared;
+
     private final ImageFormat sourceFormat;
+
     private boolean closed;
 
     private RasterImage(SharedRaster shared, ImageFormat sourceFormat) {
@@ -15,7 +17,9 @@ public final class RasterImage implements AutoCloseable {
     }
 
     public static RasterImage takeOwnership(BufferedImage buffer, ImageFormat sourceFormat) {
-        return new RasterImage(new SharedRaster(Objects.requireNonNull(buffer, "buffer must not be null")), sourceFormat);
+        return new RasterImage(
+                new SharedRaster(Objects.requireNonNull(buffer, "buffer must not be null")),
+                sourceFormat);
     }
 
     public synchronized RasterImage retain() {
@@ -61,14 +65,23 @@ public final class RasterImage implements AutoCloseable {
 
     private static final class SharedRaster {
         private final BufferedImage buffer;
+
         private final AtomicInteger references = new AtomicInteger(1);
 
-        private SharedRaster(BufferedImage buffer) { this.buffer = buffer; }
-        private void retain() {
-            if (references.incrementAndGet() <= 1) throw new IllegalStateException("RasterImage is released");
+        private SharedRaster(BufferedImage buffer) {
+            this.buffer = buffer;
         }
+
+        private void retain() {
+            if (references.incrementAndGet() <= 1) {
+                throw new IllegalStateException("RasterImage is released");
+            }
+        }
+
         private void release() {
-            if (references.decrementAndGet() == 0) buffer.flush();
+            if (references.decrementAndGet() == 0) {
+                buffer.flush();
+            }
         }
     }
 }

@@ -17,8 +17,11 @@ public class ImageProcessingException extends RuntimeException {
     }
 
     private final Reason reason;
+
     private final ImageFormat format;
+
     private final Integer width;
+
     private final Integer height;
 
     public ImageProcessingException(Reason reason, ImageFormat format, Integer width, Integer height, String message) {

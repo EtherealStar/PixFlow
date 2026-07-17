@@ -9,13 +9,21 @@ import java.time.Instant;
 public class UserAccountEntity {
     @TableId(type = IdType.AUTO)
     private Long id;
+
     private String username;
+
     private String passwordHash;
+
     private String displayName;
+
     private String status;
+
     private Instant createdAt;
+
     private Instant updatedAt;
+
     private Instant lastLoginAt;
+
     private Instant passwordUpdatedAt;
 
     public Long getId() {

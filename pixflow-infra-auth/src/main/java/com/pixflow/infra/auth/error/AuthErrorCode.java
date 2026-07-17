@@ -20,7 +20,9 @@ public enum AuthErrorCode implements ErrorCode {
     AUTH_PASSWORD_INVALID("AUTH_PASSWORD_INVALID", ErrorCategory.VALIDATION, HttpStatus.BAD_REQUEST);
 
     private final String code;
+
     private final ErrorCategory category;
+
     private final HttpStatus httpStatus;
 
     AuthErrorCode(String code, ErrorCategory category, HttpStatus httpStatus) {

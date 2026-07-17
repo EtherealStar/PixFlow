@@ -17,15 +17,24 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public class ManagedMessageListener<T> {
-    private static final Logger log = LoggerFactory.getLogger(ManagedMessageListener.class);
+    private static final Logger LOGGER = LoggerFactory.getLogger(ManagedMessageListener.class);
+
     private final ConsumerBinding binding;
+
     private final Class<T> payloadType;
+
     private final ManagedMessageHandler<T> handler;
+
     private final ConsumerErrorHandler errorHandler;
+
     private final RocketMessageCodec codec;
+
     private final ErrorNormalizer errorNormalizer;
+
     private final TraceHeaderPropagator traceHeaderPropagator;
+
     private final MqMetrics metrics;
+
     private final MqProperties properties;
 
     public ManagedMessageListener(ConsumerBinding binding, Class<T> payloadType, ManagedMessageHandler<T> handler,
@@ -47,14 +56,18 @@ public class ManagedMessageListener<T> {
         try {
             envelope = codec.decode(message.body(), message.headers(), payloadType);
         } catch (Exception ex) {
-            log.warn("RocketMQ message deserialization failed, topic={}, group={}, messageId={}, reason={}",
-                    binding.topic(), binding.consumerGroup(), message.messageId(), Sanitizer.sanitizeMessage(ex.getMessage()));
+            LOGGER.warn(
+                    "RocketMQ message deserialization failed, topic={}, group={}, messageId={}, reason={}",
+                    binding.topic(),
+                    binding.consumerGroup(),
+                    message.messageId(),
+                    Sanitizer.sanitizeMessage(ex.getMessage()));
             metrics.recordConsumeDeadLetter(binding.topic(), binding.consumerGroup());
             return ListenerResult.SUCCESS;
         }
         try (TraceScope ignored = traceHeaderPropagator.restore(envelope.headers())) {
             if (!envelope.supportedVersion()) {
-                log.warn("RocketMQ message schema unsupported, topic={}, group={}, schemaVersion={}",
+                LOGGER.warn("RocketMQ message schema unsupported, topic={}, group={}, schemaVersion={}",
                         binding.topic(), binding.consumerGroup(), envelope.schemaVersion());
                 metrics.recordConsumeDeadLetter(binding.topic(), binding.consumerGroup());
                 return ListenerResult.SUCCESS;
@@ -81,8 +94,10 @@ public class ManagedMessageListener<T> {
             metrics.recordConsumeAckDrop(binding.topic(), binding.consumerGroup());
             return ListenerResult.SUCCESS;
         }
-        String reason = decision instanceof RetryDecision.DeadLetter deadLetter ? deadLetter.reason() : normalized.getMessage();
-        log.error("RocketMQ message moved to terminal failure path, topic={}, group={}, reason={}",
+        String reason = decision instanceof RetryDecision.DeadLetter deadLetter
+                ? deadLetter.reason()
+                : normalized.getMessage();
+        LOGGER.error("RocketMQ message moved to terminal failure path, topic={}, group={}, reason={}",
                 binding.topic(), binding.consumerGroup(), Sanitizer.sanitizeMessage(reason));
         metrics.recordConsumeDeadLetter(binding.topic(), binding.consumerGroup());
         return ListenerResult.SUCCESS;
@@ -92,17 +107,37 @@ public class ManagedMessageListener<T> {
         int attempts = Math.max(0, properties.getInProcessRetries()) + 1;
         Exception last = null;
         for (int i = 0; i < attempts; i++) {
-            try { handler.handle(envelope); return; }
-            catch (Exception ex) { last = ex; if (i + 1 >= attempts) break; sleepQuietly(Duration.ofMillis(50L * (i + 1))); }
+            try {
+                handler.handle(envelope);
+                return;
+            } catch (Exception ex) {
+                last = ex;
+                if (i + 1 >= attempts) {
+                    break;
+                }
+                sleepQuietly(Duration.ofMillis(50L * (i + 1)));
+            }
         }
         throw last;
     }
 
     private void sleepQuietly(Duration delay) {
-        try { Thread.sleep(delay.toMillis()); }
-        catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); }
+        try {
+            Thread.sleep(delay.toMillis());
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+        }
     }
 
-    public enum ListenerResult { SUCCESS, RECONSUME_LATER }
-    public record InboundMessage(byte[] body, Map<String, Object> headers, int brokerRetryCount, String messageId) {}
+    public enum ListenerResult {
+        SUCCESS,
+        RECONSUME_LATER
+    }
+
+    public record InboundMessage(
+            byte[] body,
+            Map<String, Object> headers,
+            int brokerRetryCount,
+            String messageId) {
+    }
 }

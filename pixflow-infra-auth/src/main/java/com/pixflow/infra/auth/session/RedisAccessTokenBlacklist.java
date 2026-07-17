@@ -6,6 +6,7 @@ import java.time.Duration;
 
 public class RedisAccessTokenBlacklist implements AccessTokenBlacklist {
     private final CacheStore cacheStore;
+
     private final CacheNamespace namespace;
 
     public RedisAccessTokenBlacklist(CacheStore cacheStore, CacheNamespace namespace) {

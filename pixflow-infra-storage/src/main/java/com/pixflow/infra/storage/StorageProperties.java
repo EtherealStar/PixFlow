@@ -10,14 +10,23 @@ import org.springframework.util.unit.DataSize;
 @ConfigurationProperties(prefix = "pixflow.storage")
 public class StorageProperties {
     private String endpoint;
+
     private String accessKey;
+
     private String secretKey;
+
     private String region = "us-east-1";
+
     private boolean autoCreateBucket = true;
+
     private Duration presignTtl = Duration.ofMinutes(15);
+
     private DataSize uploadPartSize = DataSize.ofMegabytes(5);
+
     private DataSize maxBytesReadSize = DataSize.ofMegabytes(5);
+
     private int tmpExpiryDays = 1;
+
     private Buckets buckets = new Buckets();
 
     public String getEndpoint() {
@@ -102,9 +111,13 @@ public class StorageProperties {
 
     public static class Buckets {
         private String packages = "pixflow-packages";
+
         private String results = "pixflow-results";
+
         private String generated = "pixflow-generated";
+
         private String toolResults = "pixflow-tool-results";
+
         private String tmp = "pixflow-tmp";
 
         public String getPackages() {

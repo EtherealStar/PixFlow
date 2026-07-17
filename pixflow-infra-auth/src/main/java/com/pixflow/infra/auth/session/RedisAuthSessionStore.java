@@ -8,6 +8,7 @@ import java.util.Optional;
 
 public class RedisAuthSessionStore implements AuthSessionStore {
     private final CacheStore cacheStore;
+
     private final CacheNamespace namespace;
 
     public RedisAuthSessionStore(CacheStore cacheStore, CacheNamespace namespace) {

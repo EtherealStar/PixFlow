@@ -69,7 +69,11 @@ public final class StorageKeys {
         while (normalized.startsWith("/")) {
             normalized = normalized.substring(1);
         }
-        if (normalized.isBlank() || normalized.startsWith("../") || normalized.contains("/../") || normalized.endsWith("/..") || normalized.equals("..")) {
+        if (normalized.isBlank()
+                || normalized.startsWith("../")
+                || normalized.contains("/../")
+                || normalized.endsWith("/..")
+                || normalized.equals("..")) {
             throw new IllegalArgumentException("path must be relative");
         }
         if (!allowPath && normalized.contains("/")) {
@@ -89,7 +93,10 @@ public final class StorageKeys {
             throw new IllegalArgumentException("segment must not be blank");
         }
         String normalized = value.trim().replace('\\', '/');
-        if (normalized.startsWith("/") || normalized.contains("/") || normalized.contains("..") || normalized.contains(":")) {
+        if (normalized.startsWith("/")
+                || normalized.contains("/")
+                || normalized.contains("..")
+                || normalized.contains(":")) {
             throw new IllegalArgumentException("segment contains invalid characters");
         }
         return normalized;

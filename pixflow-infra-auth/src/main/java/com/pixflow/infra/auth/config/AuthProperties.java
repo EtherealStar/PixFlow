@@ -6,8 +6,8 @@ import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
-import java.time.Duration;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.validation.annotation.Validated;
 
@@ -16,10 +16,13 @@ import org.springframework.validation.annotation.Validated;
 public class AuthProperties {
     @Valid
     private final Jwt jwt = new Jwt();
+
     @Valid
     private final Refresh refresh = new Refresh();
+
     @Valid
     private final Password password = new Password();
+
     @Valid
     private final Throttle throttle = new Throttle();
 
@@ -42,10 +45,13 @@ public class AuthProperties {
     public static class Jwt {
         @NotBlank
         private String issuer = "pixflow";
+
         @NotBlank
         private String secret;
+
         @NotNull
         private Duration accessTtl = Duration.ofMinutes(15);
+
         @NotNull
         private Duration clockSkew = Duration.ofSeconds(30);
 
@@ -100,12 +106,16 @@ public class AuthProperties {
     public static class Refresh {
         @NotNull
         private Duration ttl = Duration.ofDays(30);
+
         @NotBlank
         private String cookieName = "PIXFLOW_REFRESH";
+
         @NotBlank
         private String cookiePath = "/";
+
         @NotBlank
         private String cookieSameSite = "Lax";
+
         private boolean cookieSecure = true;
 
         public Duration getTtl() {
@@ -171,8 +181,10 @@ public class AuthProperties {
     public static class Throttle {
         @Min(1)
         private int maxFailures = 5;
+
         @NotNull
         private Duration window = Duration.ofMinutes(10);
+
         @NotNull
         private Duration blockTtl = Duration.ofMinutes(10);
 

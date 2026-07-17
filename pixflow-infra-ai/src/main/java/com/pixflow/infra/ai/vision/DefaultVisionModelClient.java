@@ -3,7 +3,6 @@ package com.pixflow.infra.ai.vision;
 import com.pixflow.infra.ai.chat.ChatModelClient;
 import com.pixflow.infra.ai.chat.ChatRequest;
 import com.pixflow.infra.ai.chat.ChatResult;
-import com.pixflow.infra.ai.model.ModelRole;
 import java.util.Objects;
 
 /**

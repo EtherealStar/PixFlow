@@ -6,6 +6,7 @@ import java.util.Objects;
 
 public final class DefaultPixelBudget implements PixelBudget {
     private final long capacity;
+
     private long available;
 
     public DefaultPixelBudget(long capacity) {
@@ -58,6 +59,7 @@ public final class DefaultPixelBudget implements PixelBudget {
 
     private final class BudgetPermit implements Permit {
         private final long weightedPixels;
+
         private boolean closed;
 
         private BudgetPermit(long weightedPixels) {

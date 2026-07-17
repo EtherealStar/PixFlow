@@ -41,9 +41,14 @@ public class DefaultImageCodec implements ImageCodec {
     public ImageProbe probe(InputStream data) {
         Objects.requireNonNull(data, "data must not be null");
         try (InputStream bounded = new BoundedInputStream(data, properties.getMaxSourceBytes());
-             ImageInputStream imageInput = ImageIO.createImageInputStream(bounded)) {
+            ImageInputStream imageInput = ImageIO.createImageInputStream(bounded)) {
             if (imageInput == null) {
-                throw new ImageProcessingException(ImageProcessingException.Reason.DECODE_FAILED, null, null, null, "无法创建图片输入流");
+                throw new ImageProcessingException(
+                        ImageProcessingException.Reason.DECODE_FAILED,
+                        null,
+                        null,
+                        null,
+                        "无法创建图片输入流");
             }
             ImageReader reader = nextReader(imageInput);
             try {
@@ -57,7 +62,13 @@ public class DefaultImageCodec implements ImageCodec {
         } catch (ImageProcessingException ex) {
             throw ex;
         } catch (IOException | RuntimeException ex) {
-            throw new ImageProcessingException(ImageProcessingException.Reason.CORRUPTED_IMAGE, null, null, null, "图片探测失败", ex);
+            throw new ImageProcessingException(
+                    ImageProcessingException.Reason.CORRUPTED_IMAGE,
+                    null,
+                    null,
+                    null,
+                    "图片探测失败",
+                    ex);
         }
     }
 
@@ -73,7 +84,12 @@ public class DefaultImageCodec implements ImageCodec {
                 guardSize(probe);
                 BufferedImage decoded = reader.read(0);
                 if (decoded == null) {
-                    throw new ImageProcessingException(ImageProcessingException.Reason.CORRUPTED_IMAGE, probe.format(), probe.width(), probe.height(), "图片首帧为空");
+                    throw new ImageProcessingException(
+                            ImageProcessingException.Reason.CORRUPTED_IMAGE,
+                            probe.format(),
+                            probe.width(),
+                            probe.height(),
+                            "图片首帧为空");
                 }
                 BufferedImage oriented = null;
                 BufferedImage srgb = null;
@@ -86,12 +102,22 @@ public class DefaultImageCodec implements ImageCodec {
                     return result;
                 } finally {
                     if (!ownershipTransferred) {
-                        if (srgb != null) srgb.flush();
-                        if (oriented != null && oriented != srgb) oriented.flush();
-                        if (decoded != oriented && decoded != srgb) decoded.flush();
+                        if (srgb != null) {
+                            srgb.flush();
+                        }
+                        if (oriented != null && oriented != srgb) {
+                            oriented.flush();
+                        }
+                        if (decoded != oriented && decoded != srgb) {
+                            decoded.flush();
+                        }
                     } else {
-                        if (oriented != decoded) decoded.flush();
-                        if (srgb != oriented) oriented.flush();
+                        if (oriented != decoded) {
+                            decoded.flush();
+                        }
+                        if (srgb != oriented) {
+                            oriented.flush();
+                        }
                     }
                 }
             } finally {
@@ -100,9 +126,13 @@ public class DefaultImageCodec implements ImageCodec {
         } catch (ImageProcessingException ex) {
             throw ex;
         } catch (IOException | RuntimeException ex) {
-            throw new ImageProcessingException(ImageProcessingException.Reason.DECODE_FAILED,
-                    probe == null ? null : probe.format(), probe == null ? null : probe.width(),
-                    probe == null ? null : probe.height(), "图片解码失败", ex);
+            throw new ImageProcessingException(
+                    ImageProcessingException.Reason.DECODE_FAILED,
+                    probe == null ? null : probe.format(),
+                    probe == null ? null : probe.width(),
+                    probe == null ? null : probe.height(),
+                    "图片解码失败",
+                    ex);
         }
     }
 
@@ -127,7 +157,13 @@ public class DefaultImageCodec implements ImageCodec {
         } catch (ImageProcessingException ex) {
             throw ex;
         } catch (RuntimeException ex) {
-            throw new ImageProcessingException(ImageProcessingException.Reason.ENCODE_FAILED, format, image.width(), image.height(), "图片编码失败", ex);
+            throw new ImageProcessingException(
+                    ImageProcessingException.Reason.ENCODE_FAILED,
+                    format,
+                    image.width(),
+                    image.height(),
+                    "图片编码失败",
+                    ex);
         }
     }
 
@@ -162,17 +198,27 @@ public class DefaultImageCodec implements ImageCodec {
                 case JPEG, PNG, BMP -> encodeWithImageIo(output, spec.targetFormat(), quality);
                 default -> throw new ImageProcessingException(
                         ImageProcessingException.Reason.UNSUPPORTED_ENCODE_FORMAT,
-                        spec.targetFormat(), image.width(), image.height(), "目标格式无法编码: " + spec.targetFormat());
+                        spec.targetFormat(),
+                        image.width(),
+                        image.height(),
+                        "目标格式无法编码: " + spec.targetFormat());
             };
         } finally {
-            if (output != input) output.flush();
+            if (output != input) {
+                output.flush();
+            }
         }
     }
 
     private byte[] encodeWithImageIo(BufferedImage output, ImageFormat format, int quality) {
         Iterator<ImageWriter> writers = ImageIO.getImageWritersByFormatName(format.writerName());
         if (!writers.hasNext()) {
-            throw new ImageProcessingException(ImageProcessingException.Reason.UNSUPPORTED_ENCODE_FORMAT, format, output.getWidth(), output.getHeight(), "没有可用写出器: " + format);
+            throw new ImageProcessingException(
+                    ImageProcessingException.Reason.UNSUPPORTED_ENCODE_FORMAT,
+                    format,
+                    output.getWidth(),
+                    output.getHeight(),
+                    "没有可用写出器: " + format);
         }
         ImageWriter writer = writers.next();
         try (ByteArrayOutputStream baos = new ByteArrayOutputStream();
@@ -187,7 +233,13 @@ public class DefaultImageCodec implements ImageCodec {
             imageOutput.flush();
             return baos.toByteArray();
         } catch (IOException ex) {
-            throw new ImageProcessingException(ImageProcessingException.Reason.ENCODE_FAILED, format, output.getWidth(), output.getHeight(), "ImageIO 写出失败", ex);
+            throw new ImageProcessingException(
+                    ImageProcessingException.Reason.ENCODE_FAILED,
+                    format,
+                    output.getWidth(),
+                    output.getHeight(),
+                    "ImageIO 写出失败",
+                    ex);
         } finally {
             writer.dispose();
         }
@@ -199,7 +251,13 @@ public class DefaultImageCodec implements ImageCodec {
                     .forWriter(WebpWriter.DEFAULT.withQ(quality))
                     .bytes();
         } catch (IOException | RuntimeException ex) {
-            throw new ImageProcessingException(ImageProcessingException.Reason.ENCODE_FAILED, ImageFormat.WEBP, output.getWidth(), output.getHeight(), "WebP 写出失败", ex);
+            throw new ImageProcessingException(
+                    ImageProcessingException.Reason.ENCODE_FAILED,
+                    ImageFormat.WEBP,
+                    output.getWidth(),
+                    output.getHeight(),
+                    "WebP 写出失败",
+                    ex);
         }
     }
 
@@ -212,7 +270,9 @@ public class DefaultImageCodec implements ImageCodec {
             return toSrgb(input);
         }
         // JPEG/BMP 没有 alpha 通道，透明图必须先铺到底色上，避免黑底或脏边。
-        Color background = spec.flattenBackground() != null ? spec.flattenBackground() : properties.flattenBackgroundColor();
+        Color background = spec.flattenBackground() != null
+                ? spec.flattenBackground()
+                : properties.flattenBackgroundColor();
         BufferedImage flattened = new BufferedImage(input.getWidth(), input.getHeight(), BufferedImage.TYPE_INT_RGB);
         Graphics2D g = flattened.createGraphics();
         try {
@@ -232,7 +292,9 @@ public class DefaultImageCodec implements ImageCodec {
                 && input.getType() == BufferedImage.TYPE_INT_RGB) {
             return input;
         }
-        int type = input.getColorModel().hasAlpha() ? BufferedImage.TYPE_INT_ARGB : BufferedImage.TYPE_INT_RGB;
+        int type = input.getColorModel().hasAlpha()
+                ? BufferedImage.TYPE_INT_ARGB
+                : BufferedImage.TYPE_INT_RGB;
         BufferedImage converted = new BufferedImage(input.getWidth(), input.getHeight(), type);
         Graphics2D g = converted.createGraphics();
         try {
@@ -259,7 +321,10 @@ public class DefaultImageCodec implements ImageCodec {
         int width = input.getWidth();
         int height = input.getHeight();
         boolean swap = orientation == 5 || orientation == 6 || orientation == 7 || orientation == 8;
-        BufferedImage output = new BufferedImage(swap ? height : width, swap ? width : height, input.getType() == 0 ? BufferedImage.TYPE_INT_RGB : input.getType());
+        BufferedImage output = new BufferedImage(
+                swap ? height : width,
+                swap ? width : height,
+                input.getType() == 0 ? BufferedImage.TYPE_INT_RGB : input.getType());
         Graphics2D g = output.createGraphics();
         try {
             AffineTransform transform = new AffineTransform();
@@ -402,7 +467,12 @@ public class DefaultImageCodec implements ImageCodec {
     private ImageReader nextReader(ImageInputStream imageInput) {
         Iterator<ImageReader> readers = ImageIO.getImageReaders(imageInput);
         if (!readers.hasNext()) {
-            throw new ImageProcessingException(ImageProcessingException.Reason.UNSUPPORTED_DECODE_FORMAT, null, null, null, "没有可用读取器");
+            throw new ImageProcessingException(
+                    ImageProcessingException.Reason.UNSUPPORTED_DECODE_FORMAT,
+                    null,
+                    null,
+                    null,
+                    "没有可用读取器");
         }
         return readers.next();
     }
@@ -417,7 +487,10 @@ public class DefaultImageCodec implements ImageCodec {
         ImageFormat format = ImageFormat.fromName(formatName)
                 .orElseThrow(() -> new ImageProcessingException(
                         ImageProcessingException.Reason.UNSUPPORTED_DECODE_FORMAT,
-                        null, null, null, "不支持的图片格式: " + formatName));
+                        null,
+                        null,
+                        null,
+                        "不支持的图片格式: " + formatName));
         return new ImageProbe(format, reader.getWidth(0), reader.getHeight(0), hasAlpha(reader));
     }
 
@@ -439,13 +512,21 @@ public class DefaultImageCodec implements ImageCodec {
             }
             return output.toByteArray();
         } catch (IOException ex) {
-            throw new ImageProcessingException(ImageProcessingException.Reason.DECODE_FAILED, null, null, null, "读取图片字节失败", ex);
+            throw new ImageProcessingException(
+                    ImageProcessingException.Reason.DECODE_FAILED,
+                    null,
+                    null,
+                    null,
+                    "读取图片字节失败",
+                    ex);
         }
     }
 
     private static final class BoundedInputStream extends InputStream {
         private final InputStream delegate;
+
         private final long limit;
+
         private long count;
 
         private BoundedInputStream(InputStream delegate, long limit) {
@@ -477,7 +558,9 @@ public class DefaultImageCodec implements ImageCodec {
         }
 
         @Override
-        public void close() throws IOException { delegate.close(); }
+        public void close() throws IOException {
+            delegate.close();
+        }
     }
 
     static void applyQualityHints(Graphics2D g) {

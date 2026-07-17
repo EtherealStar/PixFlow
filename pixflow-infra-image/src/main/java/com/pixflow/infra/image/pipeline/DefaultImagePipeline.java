@@ -14,8 +14,8 @@ import com.pixflow.infra.image.op.MultiImageOp;
 import com.pixflow.infra.image.op.impl.CompressOp;
 import com.pixflow.infra.image.op.impl.ConvertFormatOp;
 import com.pixflow.infra.image.op.impl.ResizeOp;
-import java.io.InputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -23,10 +23,15 @@ import java.util.Objects;
 
 public class DefaultImagePipeline implements ImagePipeline {
     private final ImageCodec codec;
+
     private final PixelBudget pixelBudget;
+
     private final long maxSourcePixels;
+
     private final int maxDimension;
+
     private final double targetHeadroomFactor;
+
     private final Duration acquireTimeout;
 
     public DefaultImagePipeline(ImageCodec codec, PixelBudget pixelBudget, long maxSourcePixels,
@@ -75,7 +80,8 @@ public class DefaultImagePipeline implements ImagePipeline {
         long composeUpperBound = Math.multiplyExact(maxMemberPixels, probes.size());
         long memberTargetPixels = members.size() * targetPixels(maxMemberPixels, perMemberOps);
         long admissionPixels = Math.addExact(sourcePixels, Math.max(composeUpperBound, memberTargetPixels));
-        try (PixelBudget.Permit ignored = pixelBudget.acquire(weightedPixels(sourcePixels, admissionPixels), acquireTimeout)) {
+        try (PixelBudget.Permit ignored = pixelBudget.acquire(
+                weightedPixels(sourcePixels, admissionPixels), acquireTimeout)) {
             List<RasterImage> processed = new ArrayList<>();
             RasterImage composed = null;
             PipelineResult result = null;
@@ -104,8 +110,12 @@ public class DefaultImagePipeline implements ImagePipeline {
                 return codec.encode(result.image(), result.encodeSpec(encode));
             } finally {
                 closeAll(processed);
-                if (composed != null) composed.close();
-                if (result != null) result.image().close();
+                if (composed != null) {
+                    composed.close();
+                }
+                if (result != null) {
+                    result.image().close();
+                }
             }
         }
     }

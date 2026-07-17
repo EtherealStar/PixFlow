@@ -23,7 +23,11 @@ public class WatermarkOp implements ImageOp {
             try {
                 g.drawImage(src.borrowBuffer(), 0, 0, null);
                 int watermarkWidth = Math.max(1, (int) Math.round(src.width() * spec.scale()));
-                int watermarkHeight = Math.max(1, (int) Math.round(spec.watermark().height() * (watermarkWidth / (double) spec.watermark().width())));
+                int watermarkHeight = Math.max(
+                        1,
+                        (int) Math.round(
+                                spec.watermark().height()
+                                        * (watermarkWidth / (double) spec.watermark().width())));
                 Point point = point(src.width(), src.height(), watermarkWidth, watermarkHeight);
                 g.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, spec.opacity()));
                 g.drawImage(spec.watermark().borrowBuffer(), point.x, point.y, watermarkWidth, watermarkHeight, null);
@@ -32,7 +36,13 @@ public class WatermarkOp implements ImageOp {
             }
             return RasterImage.takeOwnership(output, src.sourceFormat());
         } catch (RuntimeException ex) {
-            throw new ImageProcessingException(ImageProcessingException.Reason.INVALID_OP_PARAM, src.sourceFormat(), src.width(), src.height(), "水印操作失败", ex);
+            throw new ImageProcessingException(
+                    ImageProcessingException.Reason.INVALID_OP_PARAM,
+                    src.sourceFormat(),
+                    src.width(),
+                    src.height(),
+                    "水印操作失败",
+                    ex);
         }
     }
 

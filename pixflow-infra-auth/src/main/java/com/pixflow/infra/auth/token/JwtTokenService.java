@@ -20,15 +20,22 @@ import org.springframework.util.StringUtils;
 
 public class JwtTokenService {
     private static final Base64.Encoder URL_ENCODER = Base64.getUrlEncoder().withoutPadding();
+
     private static final Base64.Decoder URL_DECODER = Base64.getUrlDecoder();
+
     private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {
     };
 
     private final ObjectMapper objectMapper;
+
     private final Clock clock;
+
     private final String issuer;
+
     private final byte[] secretBytes;
+
     private final Duration accessTtl;
+
     private final Duration clockSkew;
 
     public JwtTokenService(AuthProperties properties, ObjectMapper objectMapper, Clock clock) {

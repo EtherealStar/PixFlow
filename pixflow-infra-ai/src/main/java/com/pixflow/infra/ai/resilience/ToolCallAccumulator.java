@@ -6,7 +6,6 @@ import com.pixflow.common.error.RecoveryHint;
 import com.pixflow.infra.ai.chat.ToolCall;
 import com.pixflow.infra.ai.error.AiErrorCode;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -17,6 +16,7 @@ import java.util.Objects;
  */
 public final class ToolCallAccumulator {
     private final ObjectMapper objectMapper;
+
     private final Map<Integer, MutableToolCall> calls = new LinkedHashMap<>();
 
     public ToolCallAccumulator(ObjectMapper objectMapper) {
@@ -38,8 +38,11 @@ public final class ToolCallAccumulator {
 
     private static final class MutableToolCall {
         private final int index;
+
         private String id;
+
         private String name;
+
         private final StringBuilder arguments = new StringBuilder();
 
         private MutableToolCall(int index) {

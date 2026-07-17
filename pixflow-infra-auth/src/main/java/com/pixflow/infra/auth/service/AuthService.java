@@ -32,13 +32,21 @@ public class AuthService {
     private static final Pattern USERNAME_PATTERN = Pattern.compile("^[a-z0-9_]{3,32}$");
 
     private final UserAccountMapper userMapper;
+
     private final PasswordHasher passwordHasher;
+
     private final JwtTokenService jwtTokenService;
+
     private final RefreshTokenGenerator refreshTokenGenerator;
+
     private final AuthSessionStore sessionStore;
+
     private final AccessTokenBlacklist blacklist;
+
     private final LoginThrottleService throttleService;
+
     private final AuthProperties properties;
+
     private final Clock clock;
 
     public AuthService(

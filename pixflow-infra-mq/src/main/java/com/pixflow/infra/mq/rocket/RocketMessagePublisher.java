@@ -16,7 +16,9 @@ import org.apache.rocketmq.remoting.exception.RemotingException;
 
 public class RocketMessagePublisher implements MessagePublisher {
     private final DefaultMQProducer producer;
+
     private final RocketMessageCodec codec;
+
     private final MqMetrics metrics;
 
     public RocketMessagePublisher(DefaultMQProducer producer, RocketMessageCodec codec, MqMetrics metrics) {
@@ -30,8 +32,11 @@ public class RocketMessagePublisher implements MessagePublisher {
         try {
             SendResult sendResult = producer.send(codec.encode(request), request.sendTimeout().toMillis());
             if (sendResult.getSendStatus() != SendStatus.SEND_OK) {
-                PublishFailure failure = new PublishFailure(PublishFailureType.BROKER_REJECTED,
-                        "RocketMQ send status: " + sendResult.getSendStatus(), null, sendResult.getSendStatus().name());
+                PublishFailure failure = new PublishFailure(
+                        PublishFailureType.BROKER_REJECTED,
+                        "RocketMQ send status: " + sendResult.getSendStatus(),
+                        null,
+                        sendResult.getSendStatus().name());
                 return failed(request, sendResult.getMsgId(), failure);
             }
             String brokerQueue = sendResult.getMessageQueue() == null ? "" : sendResult.getMessageQueue().toString();
@@ -39,18 +44,59 @@ public class RocketMessagePublisher implements MessagePublisher {
             return PublishResult.confirmed(request.topic(), request.tag(), sendResult.getMsgId(), brokerQueue);
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
-            return failed(request, "", new PublishFailure(PublishFailureType.SEND_TIMEOUT, "RocketMQ send interrupted", null, null));
+            return failed(
+                    request,
+                    "",
+                    new PublishFailure(
+                            PublishFailureType.SEND_TIMEOUT,
+                            "RocketMQ send interrupted",
+                            null,
+                            null));
         } catch (MQBrokerException ex) {
-            return failed(request, "", new PublishFailure(PublishFailureType.BROKER_REJECTED,
-                    Sanitizer.sanitizeMessage(ex.getErrorMessage()), ex.getResponseCode(), ex.getErrorMessage()));
+            return failed(
+                    request,
+                    "",
+                    new PublishFailure(
+                            PublishFailureType.BROKER_REJECTED,
+                            Sanitizer.sanitizeMessage(ex.getErrorMessage()),
+                            ex.getResponseCode(),
+                            ex.getErrorMessage()));
         } catch (RemotingException ex) {
-            return failed(request, "", new PublishFailure(PublishFailureType.SEND_TIMEOUT, Sanitizer.sanitizeMessage(ex.getMessage()), null, null));
+            return failed(
+                    request,
+                    "",
+                    new PublishFailure(
+                            PublishFailureType.SEND_TIMEOUT,
+                            Sanitizer.sanitizeMessage(ex.getMessage()),
+                            null,
+                            null));
         } catch (MQClientException ex) {
-            return failed(request, "", new PublishFailure(PublishFailureType.BROKER_UNAVAILABLE, Sanitizer.sanitizeMessage(ex.getMessage()), null, null));
+            return failed(
+                    request,
+                    "",
+                    new PublishFailure(
+                            PublishFailureType.BROKER_UNAVAILABLE,
+                            Sanitizer.sanitizeMessage(ex.getMessage()),
+                            null,
+                            null));
         } catch (RuntimeException ex) {
-            return failed(request, "", new PublishFailure(PublishFailureType.SERIALIZATION_FAILED, Sanitizer.sanitizeMessage(ex.getMessage()), null, null));
+            return failed(
+                    request,
+                    "",
+                    new PublishFailure(
+                            PublishFailureType.SERIALIZATION_FAILED,
+                            Sanitizer.sanitizeMessage(ex.getMessage()),
+                            null,
+                            null));
         } catch (Exception ex) {
-            return failed(request, "", new PublishFailure(PublishFailureType.UNKNOWN, Sanitizer.sanitizeMessage(ex.getMessage()), null, null));
+            return failed(
+                    request,
+                    "",
+                    new PublishFailure(
+                            PublishFailureType.UNKNOWN,
+                            Sanitizer.sanitizeMessage(ex.getMessage()),
+                            null,
+                            null));
         }
     }
 

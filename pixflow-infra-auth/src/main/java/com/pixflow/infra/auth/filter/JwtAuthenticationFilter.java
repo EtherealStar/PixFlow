@@ -17,10 +17,13 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
     public static final String BEARER_PREFIX = "Bearer ";
+
     public static final String AUTHORIZATION = "Authorization";
+
     public static final String X_AUTH_TOKEN = "X-Auth-Token";
 
     private final AuthService authService;
+
     private final SecurityErrorWriter errorWriter;
 
     public JwtAuthenticationFilter(AuthService authService, SecurityErrorWriter errorWriter) {

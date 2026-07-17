@@ -28,18 +28,29 @@ import java.util.concurrent.TimeUnit;
  */
 public class MinioObjectStorage implements ObjectStorage {
     private static final String PUT = "PUT";
+
     private static final String GET = "GET";
+
     private static final String STAT = "STAT";
+
     private static final String DELETE = "DELETE";
+
     private static final String DELETE_PREFIX = "DELETE_PREFIX";
+
     private static final String PRESIGN_GET = "PRESIGN_GET";
+
     private static final String PRESIGN_PUT = "PRESIGN_PUT";
 
     private final MinioClient minioClient;
+
     private final StorageBucketResolver bucketResolver;
+
     private final StorageProperties properties;
 
-    public MinioObjectStorage(MinioClient minioClient, StorageBucketResolver bucketResolver, StorageProperties properties) {
+    public MinioObjectStorage(
+            MinioClient minioClient,
+            StorageBucketResolver bucketResolver,
+            StorageProperties properties) {
         this.minioClient = minioClient;
         this.bucketResolver = bucketResolver;
         this.properties = properties;
@@ -84,13 +95,15 @@ public class MinioObjectStorage implements ObjectStorage {
             byte[] buffer = new byte[8192];
             long remaining = maxBytes;
             int read;
-            while (remaining > 0 && (read = inputStream.read(buffer, 0, (int) Math.min(buffer.length, remaining))) != -1) {
+            while (remaining > 0
+                    && (read = inputStream.read(buffer, 0, (int) Math.min(buffer.length, remaining))) != -1) {
                 outputStream.write(buffer, 0, read);
                 remaining -= read;
             }
             // getBytes 只服务小对象预览，超过上限时明确要求调用方改用流式读取。
             if (inputStream.read() != -1) {
-                throw new StorageException(GET, loc.bucket(), loc.key(), false, "object is larger than maxBytesReadSize", null);
+                throw new StorageException(
+                        GET, loc.bucket(), loc.key(), false, "object is larger than maxBytesReadSize", null);
             }
             return outputStream.toByteArray();
         } catch (StorageException ex) {
@@ -109,7 +122,8 @@ public class MinioObjectStorage implements ObjectStorage {
                     .build());
             return true;
         } catch (ErrorResponseException ex) {
-            if ("NoSuchKey".equalsIgnoreCase(ex.errorResponse().code()) || "NoSuchObject".equalsIgnoreCase(ex.errorResponse().code())) {
+            if ("NoSuchKey".equalsIgnoreCase(ex.errorResponse().code())
+                    || "NoSuchObject".equalsIgnoreCase(ex.errorResponse().code())) {
                 return false;
             }
             throw wrap(STAT, loc, ex, isRetryable(ex));
@@ -166,7 +180,8 @@ public class MinioObjectStorage implements ObjectStorage {
                 removeBatch(resolvedBucket, objects, bucket, safePrefix);
             }
         } catch (Exception ex) {
-            throw new StorageException(DELETE_PREFIX, bucket, safePrefix, isRetryable(ex), "failed to delete by prefix", ex);
+            throw new StorageException(
+                    DELETE_PREFIX, bucket, safePrefix, isRetryable(ex), "failed to delete by prefix", ex);
         }
     }
 
@@ -196,7 +211,8 @@ public class MinioObjectStorage implements ObjectStorage {
         }
     }
 
-    private void removeBatch(String resolvedBucket, List<DeleteObject> objects, BucketType bucket, String prefix) {
+    private void removeBatch(
+            String resolvedBucket, List<DeleteObject> objects, BucketType bucket, String prefix) {
         List<String> failedKeys = new ArrayList<>();
         try {
             for (var result : minioClient.removeObjects(RemoveObjectsArgs.builder()
@@ -207,10 +223,18 @@ public class MinioObjectStorage implements ObjectStorage {
                 failedKeys.add(error.objectName());
             }
         } catch (Exception ex) {
-            throw new StorageException(DELETE_PREFIX, bucket, prefix, isRetryable(ex), "failed to delete by prefix", ex);
+            throw new StorageException(
+                    DELETE_PREFIX, bucket, prefix, isRetryable(ex), "failed to delete by prefix", ex);
         }
         if (!failedKeys.isEmpty()) {
-            throw new StorageException(DELETE_PREFIX, bucket, prefix, false, "failed to delete objects by prefix", null, java.util.Map.of("failedKeys", failedKeys));
+            throw new StorageException(
+                    DELETE_PREFIX,
+                    bucket,
+                    prefix,
+                    false,
+                    "failed to delete objects by prefix",
+                    null,
+                    java.util.Map.of("failedKeys", failedKeys));
         }
     }
 

@@ -13,11 +13,17 @@ import org.apache.rocketmq.common.message.MessageExt;
 
 public class RocketManagedMessageContainer implements ManagedMessageContainer {
     private final DefaultMQPushConsumer consumer;
+
     private final ConsumerBinding binding;
+
     private final ManagedMessageListener<?> listener;
+
     private final AtomicBoolean running = new AtomicBoolean(false);
 
-    public RocketManagedMessageContainer(DefaultMQPushConsumer consumer, ConsumerBinding binding, ManagedMessageListener<?> listener) {
+    public RocketManagedMessageContainer(
+            DefaultMQPushConsumer consumer,
+            ConsumerBinding binding,
+            ManagedMessageListener<?> listener) {
         this.consumer = consumer;
         this.binding = binding;
         this.listener = listener;
@@ -25,13 +31,17 @@ public class RocketManagedMessageContainer implements ManagedMessageContainer {
 
     @Override
     public void start() {
-        if (!running.compareAndSet(false, true)) return;
+        if (!running.compareAndSet(false, true)) {
+            return;
+        }
         try {
             consumer.subscribe(binding.topic(), binding.tagExpression());
             consumer.registerMessageListener((MessageListenerConcurrently) (messages, context) -> {
                 for (MessageExt message : messages) {
                     ManagedMessageListener.ListenerResult result = listener.onMessage(toInbound(message));
-                    if (result == ManagedMessageListener.ListenerResult.RECONSUME_LATER) return ConsumeConcurrentlyStatus.RECONSUME_LATER;
+                    if (result == ManagedMessageListener.ListenerResult.RECONSUME_LATER) {
+                        return ConsumeConcurrentlyStatus.RECONSUME_LATER;
+                    }
                 }
                 return ConsumeConcurrentlyStatus.CONSUME_SUCCESS;
             });
@@ -44,15 +54,22 @@ public class RocketManagedMessageContainer implements ManagedMessageContainer {
 
     @Override
     public void stop() {
-        if (running.compareAndSet(true, false)) consumer.shutdown();
+        if (running.compareAndSet(true, false)) {
+            consumer.shutdown();
+        }
     }
 
     @Override
-    public boolean isRunning() { return running.get(); }
+    public boolean isRunning() {
+        return running.get();
+    }
 
     private ManagedMessageListener.InboundMessage toInbound(MessageExt message) {
         Map<String, Object> headers = new LinkedHashMap<>();
-        if (message.getProperties() != null) headers.putAll(message.getProperties());
-        return new ManagedMessageListener.InboundMessage(message.getBody(), headers, message.getReconsumeTimes(), message.getMsgId());
+        if (message.getProperties() != null) {
+            headers.putAll(message.getProperties());
+        }
+        return new ManagedMessageListener.InboundMessage(
+                message.getBody(), headers, message.getReconsumeTimes(), message.getMsgId());
     }
 }

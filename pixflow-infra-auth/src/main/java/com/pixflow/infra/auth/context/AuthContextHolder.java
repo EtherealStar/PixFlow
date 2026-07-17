@@ -19,6 +19,7 @@ public final class AuthContextHolder {
     }
 
     public static AuthPrincipal requireCurrent() {
-        return current().orElseThrow(() -> new IllegalStateException("No authenticated PixFlow user in current context"));
+        return current().orElseThrow(
+                () -> new IllegalStateException("No authenticated PixFlow user in current context"));
     }
 }

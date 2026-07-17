@@ -13,7 +13,6 @@ import com.pixflow.infra.thirdparty.error.ThirdPartyErrorCode;
 import com.pixflow.infra.thirdparty.error.ThirdPartyErrorMapper;
 import com.pixflow.infra.thirdparty.http.RestClientThirdPartyHttpInvoker;
 import com.pixflow.infra.thirdparty.http.ThirdPartyAuthStrategy;
-import com.pixflow.infra.thirdparty.http.ThirdPartyHttpRequest;
 import com.pixflow.infra.thirdparty.http.ThirdPartyHttpResponse;
 import com.pixflow.infra.thirdparty.http.ThirdPartyMutableRequest;
 import com.pixflow.infra.thirdparty.observability.ThirdPartyMetrics;
@@ -34,17 +33,27 @@ import org.springframework.http.MediaType;
 
 public final class AliyunMarketBackgroundRemovalProvider implements BackgroundRemovalProvider {
     private static final String API = "bg-removal";
+
     private static final String DEFAULT_SUBMIT_PATH = "/api/v1/bg-remove/submit";
+
     private static final String DEFAULT_QUERY_PATH = "/api/v1/bg-remove/query";
+
     private static final String DEFAULT_MODEL_TYPE = "general";
 
     private final String providerId;
+
     private final ThirdPartyProperties.Provider properties;
+
     private final ThirdPartyCallTemplate callTemplate;
+
     private final RestClientThirdPartyHttpInvoker httpInvoker;
+
     private final ThirdPartyAuthStrategy authStrategy;
+
     private final ThirdPartyErrorMapper errorMapper;
+
     private final ThirdPartyMetrics metrics;
+
     private final ObjectMapper objectMapper;
 
     public AliyunMarketBackgroundRemovalProvider(

@@ -12,9 +12,13 @@ public enum ImageFormat {
     GIF(true, false, true, "gif");
 
     private final boolean canDecode;
+
     private final boolean canEncode;
+
     private final boolean supportsAlpha;
+
     private final String writerName;
+
     private final String[] aliases;
 
     ImageFormat(boolean canDecode, boolean canEncode, boolean supportsAlpha, String writerName, String... aliases) {

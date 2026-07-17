@@ -12,7 +12,9 @@ import java.util.HexFormat;
 
 public class LoginThrottleService {
     private final AtomicCounter counter;
+
     private final CacheNamespace namespace;
+
     private final AuthProperties properties;
 
     public LoginThrottleService(AtomicCounter counter, CacheNamespace namespace, AuthProperties properties) {
@@ -24,8 +26,12 @@ public class LoginThrottleService {
     public void assertAllowed(String username, String ipAddress) {
         long userFailures = counter.get(namespace.key("auth", "fail", username));
         long ipFailures = counter.get(namespace.key("auth", "fail-ip", keySafe(ipAddress)));
-        if (userFailures >= properties.getThrottle().getMaxFailures() || ipFailures >= properties.getThrottle().getMaxFailures()) {
-            throw new AuthException(AuthErrorCode.AUTH_TOO_MANY_ATTEMPTS, "登录失败次数过多，请稍后再试", properties.getThrottle().getBlockTtl());
+        if (userFailures >= properties.getThrottle().getMaxFailures()
+                || ipFailures >= properties.getThrottle().getMaxFailures()) {
+            throw new AuthException(
+                    AuthErrorCode.AUTH_TOO_MANY_ATTEMPTS,
+                    "登录失败次数过多，请稍后再试",
+                    properties.getThrottle().getBlockTtl());
         }
     }
 
@@ -33,8 +39,12 @@ public class LoginThrottleService {
         Duration ttl = properties.getThrottle().getBlockTtl();
         long userFailures = counter.incrementBy(namespace.key("auth", "fail", username), 1, ttl);
         long ipFailures = counter.incrementBy(namespace.key("auth", "fail-ip", keySafe(ipAddress)), 1, ttl);
-        if (userFailures >= properties.getThrottle().getMaxFailures() || ipFailures >= properties.getThrottle().getMaxFailures()) {
-            throw new AuthException(AuthErrorCode.AUTH_TOO_MANY_ATTEMPTS, "登录失败次数过多，请稍后再试", properties.getThrottle().getBlockTtl());
+        if (userFailures >= properties.getThrottle().getMaxFailures()
+                || ipFailures >= properties.getThrottle().getMaxFailures()) {
+            throw new AuthException(
+                    AuthErrorCode.AUTH_TOO_MANY_ATTEMPTS,
+                    "登录失败次数过多，请稍后再试",
+                    properties.getThrottle().getBlockTtl());
         }
     }
 

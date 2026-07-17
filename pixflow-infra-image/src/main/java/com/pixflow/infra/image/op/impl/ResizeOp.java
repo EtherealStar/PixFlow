@@ -26,7 +26,10 @@ public class ResizeOp implements ImageOp {
             Dimensions dims = dimensions(src);
             BufferedImage resized = switch (spec.mode()) {
                 case EXACT -> Thumbnails.of(src.borrowBuffer()).forceSize(dims.width, dims.height).asBufferedImage();
-                case FIT -> Thumbnails.of(src.borrowBuffer()).size(dims.width, dims.height).keepAspectRatio(true).asBufferedImage();
+                case FIT -> Thumbnails.of(src.borrowBuffer())
+                        .size(dims.width, dims.height)
+                        .keepAspectRatio(true)
+                        .asBufferedImage();
                 case FILL -> fill(src, dims.width, dims.height);
             };
             return RasterImage.takeOwnership(resized, src.sourceFormat());
@@ -42,8 +45,12 @@ public class ResizeOp implements ImageOp {
     }
 
     private Dimensions dimensions(RasterImage src) {
-        int targetWidth = spec.width() != null ? spec.width() : Math.round(src.width() * (spec.height() / (float) src.height()));
-        int targetHeight = spec.height() != null ? spec.height() : Math.round(src.height() * (spec.width() / (float) src.width()));
+        int targetWidth = spec.width() != null
+                ? spec.width()
+                : Math.round(src.width() * (spec.height() / (float) src.height()));
+        int targetHeight = spec.height() != null
+                ? spec.height()
+                : Math.round(src.height() * (spec.width() / (float) src.width()));
         if (!spec.upscale()) {
             targetWidth = Math.min(targetWidth, src.width());
             targetHeight = Math.min(targetHeight, src.height());
@@ -55,12 +62,21 @@ public class ResizeOp implements ImageOp {
         double scale = Math.max(targetWidth / (double) src.width(), targetHeight / (double) src.height());
         int scaledWidth = Math.max(1, (int) Math.round(src.width() * scale));
         int scaledHeight = Math.max(1, (int) Math.round(src.height() * scale));
-        BufferedImage scaled = Thumbnails.of(src.borrowBuffer()).forceSize(scaledWidth, scaledHeight).asBufferedImage();
+        BufferedImage scaled = Thumbnails.of(src.borrowBuffer())
+                .forceSize(scaledWidth, scaledHeight)
+                .asBufferedImage();
         try {
             int x = Math.max(0, (scaledWidth - targetWidth) / 2);
             int y = Math.max(0, (scaledHeight - targetHeight) / 2);
-            BufferedImage cropped = scaled.getSubimage(x, y, Math.min(targetWidth, scaledWidth - x), Math.min(targetHeight, scaledHeight - y));
-            BufferedImage copy = new BufferedImage(targetWidth, targetHeight, src.hasAlpha() ? BufferedImage.TYPE_INT_ARGB : BufferedImage.TYPE_INT_RGB);
+            BufferedImage cropped = scaled.getSubimage(
+                    x,
+                    y,
+                    Math.min(targetWidth, scaledWidth - x),
+                    Math.min(targetHeight, scaledHeight - y));
+            BufferedImage copy = new BufferedImage(
+                    targetWidth,
+                    targetHeight,
+                    src.hasAlpha() ? BufferedImage.TYPE_INT_ARGB : BufferedImage.TYPE_INT_RGB);
             Graphics2D g = copy.createGraphics();
             try {
                 g.drawImage(cropped, 0, 0, null);

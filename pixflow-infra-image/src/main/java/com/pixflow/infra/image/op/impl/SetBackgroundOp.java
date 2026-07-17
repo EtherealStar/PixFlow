@@ -27,7 +27,13 @@ public class SetBackgroundOp implements ImageOp {
             }
             return RasterImage.takeOwnership(output, src.sourceFormat());
         } catch (RuntimeException ex) {
-            throw new ImageProcessingException(ImageProcessingException.Reason.INVALID_OP_PARAM, src.sourceFormat(), src.width(), src.height(), "背景合成失败", ex);
+            throw new ImageProcessingException(
+                    ImageProcessingException.Reason.INVALID_OP_PARAM,
+                    src.sourceFormat(),
+                    src.width(),
+                    src.height(),
+                    "背景合成失败",
+                    ex);
         }
     }
 

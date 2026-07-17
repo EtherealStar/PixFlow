@@ -27,7 +27,10 @@ public record ObjectLocation(BucketType bucket, String key) {
         if (normalized.isBlank()) {
             throw new IllegalArgumentException("key must not be blank");
         }
-        if (normalized.startsWith("../") || normalized.contains("/../") || normalized.endsWith("/..") || normalized.equals("..")) {
+        if (normalized.startsWith("../")
+                || normalized.contains("/../")
+                || normalized.endsWith("/..")
+                || normalized.equals("..")) {
             throw new IllegalArgumentException("key must not contain path traversal");
         }
         if (normalized.contains("..")) {

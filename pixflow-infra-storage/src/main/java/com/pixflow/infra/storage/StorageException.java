@@ -9,12 +9,17 @@ import java.util.Map;
  */
 public class StorageException extends RuntimeException {
     private final String operation;
+
     private final BucketType bucket;
+
     private final String key;
+
     private final boolean retryable;
+
     private final Map<String, Object> details;
 
-    public StorageException(String operation, BucketType bucket, String key, boolean retryable, String message, Throwable cause) {
+    public StorageException(
+            String operation, BucketType bucket, String key, boolean retryable, String message, Throwable cause) {
         this(operation, bucket, key, retryable, message, cause, Map.of());
     }
 

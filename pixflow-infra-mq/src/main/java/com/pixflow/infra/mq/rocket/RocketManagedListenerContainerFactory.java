@@ -14,13 +14,21 @@ import org.apache.rocketmq.client.consumer.DefaultMQPushConsumer;
 
 public class RocketManagedListenerContainerFactory implements ManagedListenerContainerFactory {
     private final MqProperties properties;
+
     private final RocketMessageCodec codec;
+
     private final ErrorNormalizer errorNormalizer;
+
     private final TraceHeaderPropagator traceHeaderPropagator;
+
     private final MqMetrics metrics;
 
-    public RocketManagedListenerContainerFactory(MqProperties properties, RocketMessageCodec codec, ErrorNormalizer errorNormalizer,
-            TraceHeaderPropagator traceHeaderPropagator, MqMetrics metrics) {
+    public RocketManagedListenerContainerFactory(
+            MqProperties properties,
+            RocketMessageCodec codec,
+            ErrorNormalizer errorNormalizer,
+            TraceHeaderPropagator traceHeaderPropagator,
+            MqMetrics metrics) {
         this.properties = properties;
         this.codec = codec;
         this.errorNormalizer = errorNormalizer;
@@ -29,7 +37,10 @@ public class RocketManagedListenerContainerFactory implements ManagedListenerCon
     }
 
     @Override
-    public ManagedMessageContainer create(ConsumerBinding binding, ManagedMessageHandler<?> handler, ConsumerErrorHandler errorHandler) {
+    public ManagedMessageContainer create(
+            ConsumerBinding binding,
+            ManagedMessageHandler<?> handler,
+            ConsumerErrorHandler errorHandler) {
         DefaultMQPushConsumer consumer = new DefaultMQPushConsumer(binding.consumerGroup());
         consumer.setNamesrvAddr(properties.getNamesrvAddr());
         consumer.setConsumeThreadMin(properties.getConsumer().getConsumeThreadMin());
@@ -38,9 +49,23 @@ public class RocketManagedListenerContainerFactory implements ManagedListenerCon
         return new RocketManagedMessageContainer(consumer, binding, newListener(binding, handler, errorHandler));
     }
 
-    private <T> ManagedMessageListener<T> newListener(ConsumerBinding binding, ManagedMessageHandler<?> handler, ConsumerErrorHandler errorHandler) {
-        @SuppressWarnings("unchecked") Class<T> typedPayloadType = (Class<T>) binding.payloadType();
-        @SuppressWarnings("unchecked") ManagedMessageHandler<T> typedHandler = (ManagedMessageHandler<T>) handler;
-        return new ManagedMessageListener<>(binding, typedPayloadType, typedHandler, errorHandler, codec, errorNormalizer, traceHeaderPropagator, metrics, properties);
+    private <T> ManagedMessageListener<T> newListener(
+            ConsumerBinding binding,
+            ManagedMessageHandler<?> handler,
+            ConsumerErrorHandler errorHandler) {
+        @SuppressWarnings("unchecked")
+        Class<T> typedPayloadType = (Class<T>) binding.payloadType();
+        @SuppressWarnings("unchecked")
+        ManagedMessageHandler<T> typedHandler = (ManagedMessageHandler<T>) handler;
+        return new ManagedMessageListener<>(
+                binding,
+                typedPayloadType,
+                typedHandler,
+                errorHandler,
+                codec,
+                errorNormalizer,
+                traceHeaderPropagator,
+                metrics,
+                properties);
     }
 }

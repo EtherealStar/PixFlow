@@ -21,10 +21,15 @@ public class StorageInitializer implements ApplicationRunner {
     private static final String TMP_LIFECYCLE_RULE_ID = "pixflow-tmp-expire";
 
     private final MinioClient minioClient;
+
     private final StorageBucketResolver bucketResolver;
+
     private final StorageProperties properties;
 
-    public StorageInitializer(MinioClient minioClient, StorageBucketResolver bucketResolver, StorageProperties properties) {
+    public StorageInitializer(
+            MinioClient minioClient,
+            StorageBucketResolver bucketResolver,
+            StorageProperties properties) {
         this.minioClient = minioClient;
         this.bucketResolver = bucketResolver;
         this.properties = properties;
@@ -47,12 +52,14 @@ public class StorageInitializer implements ApplicationRunner {
                 return;
             }
             if (!exists) {
-                throw new StorageException("CHECK_BUCKET", bucket, null, false, "bucket does not exist: " + bucketName, null);
+                throw new StorageException(
+                        "CHECK_BUCKET", bucket, null, false, "bucket does not exist: " + bucketName, null);
             }
         } catch (StorageException ex) {
             throw ex;
         } catch (Exception ex) {
-            throw new StorageException("MAKE_BUCKET", bucket, null, true, "failed to initialize bucket: " + bucketName, ex);
+            throw new StorageException(
+                    "MAKE_BUCKET", bucket, null, true, "failed to initialize bucket: " + bucketName, ex);
         }
     }
 
@@ -78,7 +85,8 @@ public class StorageInitializer implements ApplicationRunner {
                     .config(configuration)
                     .build());
         } catch (Exception ex) {
-            throw new StorageException("SET_LIFECYCLE", BucketType.TMP, null, true, "failed to set tmp bucket lifecycle", ex);
+            throw new StorageException(
+                    "SET_LIFECYCLE", BucketType.TMP, null, true, "failed to set tmp bucket lifecycle", ex);
         }
     }
 }

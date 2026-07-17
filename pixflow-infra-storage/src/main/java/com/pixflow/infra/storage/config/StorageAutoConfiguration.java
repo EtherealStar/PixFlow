@@ -44,7 +44,10 @@ public class StorageAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public ObjectStorage objectStorage(MinioClient minioClient, StorageBucketResolver bucketResolver, StorageProperties properties) {
+    public ObjectStorage objectStorage(
+            MinioClient minioClient,
+            StorageBucketResolver bucketResolver,
+            StorageProperties properties) {
         return new MinioObjectStorage(minioClient, bucketResolver, properties);
     }
 
@@ -56,7 +59,10 @@ public class StorageAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public StorageInitializer storageInitializer(MinioClient minioClient, StorageBucketResolver bucketResolver, StorageProperties properties) {
+    public StorageInitializer storageInitializer(
+            MinioClient minioClient,
+            StorageBucketResolver bucketResolver,
+            StorageProperties properties) {
         return new StorageInitializer(minioClient, bucketResolver, properties);
     }
 }

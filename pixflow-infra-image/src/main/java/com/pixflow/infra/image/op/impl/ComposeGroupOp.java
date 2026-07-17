@@ -20,7 +20,12 @@ public class ComposeGroupOp implements MultiImageOp {
     @Override
     public RasterImage apply(List<RasterImage> members) {
         if (members == null || members.isEmpty()) {
-            throw new ImageProcessingException(ImageProcessingException.Reason.INVALID_OP_PARAM, null, null, null, "合成图片列表不能为空");
+            throw new ImageProcessingException(
+                    ImageProcessingException.Reason.INVALID_OP_PARAM,
+                    null,
+                    null,
+                    null,
+                    "合成图片列表不能为空");
         }
         List<RasterImage> ordered = ordered(members);
         return switch (spec.layout()) {
@@ -63,7 +68,12 @@ public class ComposeGroupOp implements MultiImageOp {
         return draw(members, width, height, points, members.get(0).sourceFormat());
     }
 
-    private RasterImage draw(List<RasterImage> members, int width, int height, List<Point> points, ImageFormat sourceFormat) {
+    private RasterImage draw(
+            List<RasterImage> members,
+            int width,
+            int height,
+            List<Point> points,
+            ImageFormat sourceFormat) {
         BufferedImage output = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
         Graphics2D g = output.createGraphics();
         try {
@@ -106,12 +116,22 @@ public class ComposeGroupOp implements MultiImageOp {
             return List.copyOf(members);
         }
         if (spec.order().size() != members.size()) {
-            throw new ImageProcessingException(ImageProcessingException.Reason.INVALID_OP_PARAM, null, null, null, "合成排序数量与图片数量不一致");
+            throw new ImageProcessingException(
+                    ImageProcessingException.Reason.INVALID_OP_PARAM,
+                    null,
+                    null,
+                    null,
+                    "合成排序数量与图片数量不一致");
         }
         return spec.order().stream()
                 .map(index -> {
                     if (index < 0 || index >= members.size()) {
-                        throw new ImageProcessingException(ImageProcessingException.Reason.INVALID_OP_PARAM, null, null, null, "合成排序索引越界");
+                        throw new ImageProcessingException(
+                                ImageProcessingException.Reason.INVALID_OP_PARAM,
+                                null,
+                                null,
+                                null,
+                                "合成排序索引越界");
                     }
                     return members.get(index);
                 })

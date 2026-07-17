@@ -31,7 +31,8 @@ public record PublishRequest(
     }
 
     public static PublishRequest of(String topic, String tag, Object payload) {
-        return new PublishRequest(topic, tag, List.of(), payload, Map.of(), MessageEnvelope.CURRENT_SCHEMA_VERSION, null);
+        return new PublishRequest(
+                topic, tag, List.of(), payload, Map.of(), MessageEnvelope.CURRENT_SCHEMA_VERSION, null);
     }
 
     public PublishRequest withKey(String key) {

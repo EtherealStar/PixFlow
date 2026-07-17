@@ -1,7 +1,6 @@
 package com.pixflow.infra.thirdparty.http;
 
 import java.util.Objects;
-import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -24,16 +23,22 @@ public final class RestClientThirdPartyHttpInvoker implements ThirdPartyHttpInvo
             headers.setContentType(request.contentType());
         }
         try {
-            ResponseEntity<byte[]> entity = restClient.method(request.method())
+            ResponseEntity<byte[]> entity = restClient
+                    .method(request.method())
                     .uri(request.uri())
                     .headers(httpHeaders -> httpHeaders.addAll(headers))
-                    .contentType(request.contentType() == null ? MediaType.APPLICATION_OCTET_STREAM : request.contentType())
+                    .contentType(request.contentType() == null
+                            ? MediaType.APPLICATION_OCTET_STREAM
+                            : request.contentType())
                     .body(request.body())
                     .retrieve()
                     .toEntity(byte[].class);
             return new ThirdPartyHttpResponse(entity.getStatusCode().value(), entity.getHeaders(), entity.getBody());
         } catch (RestClientResponseException ex) {
-            return new ThirdPartyHttpResponse(ex.getRawStatusCode(), ex.getResponseHeaders(), ex.getResponseBodyAsByteArray());
+            return new ThirdPartyHttpResponse(
+                    ex.getRawStatusCode(),
+                    ex.getResponseHeaders(),
+                    ex.getResponseBodyAsByteArray());
         } catch (RestClientException ex) {
             throw ex;
         }

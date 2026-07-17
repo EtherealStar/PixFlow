@@ -10,6 +10,8 @@ public class RefreshTokenGenerator {
     public RefreshToken generate() {
         byte[] bytes = new byte[32];
         random.nextBytes(bytes);
-        return new RefreshToken(Base64.getUrlEncoder().withoutPadding().encodeToString(bytes), UUID.randomUUID().toString());
+        return new RefreshToken(
+                Base64.getUrlEncoder().withoutPadding().encodeToString(bytes),
+                UUID.randomUUID().toString());
     }
 }
