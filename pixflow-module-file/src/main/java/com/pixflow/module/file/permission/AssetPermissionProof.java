@@ -2,6 +2,10 @@ package com.pixflow.module.file.permission;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.pixflow.common.error.PixFlowException;
+import com.pixflow.contracts.asset.AssetReferenceKey;
+import com.pixflow.contracts.asset.CanonicalAssetReferenceCodec;
+import com.pixflow.contracts.asset.ImageAssetReferenceKey;
+import com.pixflow.contracts.asset.SkuAssetReferenceKey;
 import com.pixflow.harness.permission.AssetAccessMode;
 import com.pixflow.harness.permission.PermissionPrincipal;
 import com.pixflow.harness.permission.proof.AssetAuthorizationPort;
@@ -11,11 +15,12 @@ import com.pixflow.module.file.image.AssetImageMapper;
 import com.pixflow.module.file.pkg.AssetPackage;
 import com.pixflow.module.file.pkg.AssetPackageService;
 import com.pixflow.module.file.pkg.PackageStatus;
-import java.net.URLDecoder;
-import java.nio.charset.StandardCharsets;
 
 /** 由 File 当前数据库事实证明 canonical Asset Reference 可用于指定动作。 */
 public final class AssetPermissionProof implements AssetAuthorizationPort {
+    private static final CanonicalAssetReferenceCodec REFERENCE_CODEC =
+            new CanonicalAssetReferenceCodec();
+
     private final AssetPackageService packageService;
 
     private final AssetImageMapper imageMapper;
@@ -33,15 +38,15 @@ public final class AssetPermissionProof implements AssetAuthorizationPort {
             return ProofResult.DENIED;
         }
         try {
-            Reference reference = Reference.parse(referenceKey);
+            AssetReferenceKey reference = REFERENCE_CODEC.parse(referenceKey);
             AssetPackage assetPackage = packageService.require(reference.packageId());
             if (assetPackage.getDeletedAt() != null || !processable(assetPackage.getStatus())) {
                 return ProofResult.DENIED;
             }
             return switch (reference.kind()) {
                 case PACKAGE -> ProofResult.PROVED;
-                case IMAGE -> proveImage(reference, mode);
-                case SKU -> proveSku(reference, mode);
+                case IMAGE -> proveImage((ImageAssetReferenceKey) reference, mode);
+                case SKU -> proveSku((SkuAssetReferenceKey) reference, mode);
             };
         } catch (PixFlowException | IllegalArgumentException denied) {
             return ProofResult.DENIED;
@@ -50,8 +55,9 @@ public final class AssetPermissionProof implements AssetAuthorizationPort {
         }
     }
 
-    private ProofResult proveImage(Reference reference, AssetAccessMode mode) {
-        AssetImage image = imageMapper.selectById(reference.childId());
+    private ProofResult proveImage(
+            ImageAssetReferenceKey reference, AssetAccessMode mode) {
+        AssetImage image = imageMapper.selectById(reference.imageId());
         return image != null
                 && reference.packageId() == image.getPackageId()
                 && image.getDeletedAt() == null
@@ -61,10 +67,10 @@ public final class AssetPermissionProof implements AssetAuthorizationPort {
                 : ProofResult.DENIED;
     }
 
-    private ProofResult proveSku(Reference reference, AssetAccessMode mode) {
+    private ProofResult proveSku(SkuAssetReferenceKey reference, AssetAccessMode mode) {
         LambdaQueryWrapper<AssetImage> query = new LambdaQueryWrapper<AssetImage>()
                 .eq(AssetImage::getPackageId, reference.packageId())
-                .eq(AssetImage::getSkuId, reference.childId())
+                .eq(AssetImage::getSkuId, reference.skuId())
                 .isNull(AssetImage::getDeletedAt);
         if (mode == AssetAccessMode.PROCESS) {
             query.isNotNull(AssetImage::getMinioKey);
@@ -75,47 +81,5 @@ public final class AssetPermissionProof implements AssetAuthorizationPort {
 
     private static boolean processable(PackageStatus status) {
         return status == PackageStatus.READY || status == PackageStatus.PARTIAL;
-    }
-
-    private enum Kind {
-        PACKAGE,
-        SKU,
-        IMAGE
-    }
-
-    private record Reference(long packageId, Kind kind, String childId) {
-        private static Reference parse(String key) {
-            String[] segments = key.split("/");
-            if (segments.length < 1 || segments.length > 2
-                    || !segments[0].startsWith("package:")) {
-                throw new IllegalArgumentException("invalid reference");
-            }
-            long packageId = positiveLong(segments[0].substring("package:".length()));
-            if (segments.length == 1) {
-                return new Reference(packageId, Kind.PACKAGE, "");
-            }
-            if (segments[1].startsWith("image:")) {
-                String imageId = segments[1].substring("image:".length());
-                positiveLong(imageId);
-                return new Reference(packageId, Kind.IMAGE, imageId);
-            }
-            if (segments[1].startsWith("sku:")) {
-                String skuId = URLDecoder.decode(
-                        segments[1].substring("sku:".length()), StandardCharsets.UTF_8);
-                if (skuId.isBlank()) {
-                    throw new IllegalArgumentException("invalid sku reference");
-                }
-                return new Reference(packageId, Kind.SKU, skuId);
-            }
-            throw new IllegalArgumentException("invalid reference kind");
-        }
-
-        private static long positiveLong(String value) {
-            long parsed = Long.parseLong(value);
-            if (parsed <= 0) {
-                throw new IllegalArgumentException("reference id must be positive");
-            }
-            return parsed;
-        }
     }
 }
