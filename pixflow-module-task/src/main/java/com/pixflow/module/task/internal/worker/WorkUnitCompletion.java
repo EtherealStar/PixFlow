@@ -28,9 +28,13 @@ public sealed interface WorkUnitCompletion
 
     record Failed(WorkUnit unit, long runEpoch, Instant startedAt, Instant finishedAt,
                   String code, String category, String recovery, String safeMessage,
+                  String failedNodeId, String failedTool, int attemptCount,
                   Map<String, Object> details) implements WorkUnitCompletion {
         public Failed {
             Objects.requireNonNull(unit, "unit");
+            if (attemptCount < 1) {
+                throw new IllegalArgumentException("attemptCount must be positive");
+            }
             details = details == null ? Map.of() : Map.copyOf(details);
         }
     }

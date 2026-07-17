@@ -23,7 +23,7 @@ public class WorkerRouter {
                     task.getUnitSelectionJson());
         }
         if (task.getTaskType() == TaskType.IMAGE_GEN) {
-            return imageGenWorker.plan(taskId, task.getPackageId(), task.getRunEpoch(), task.getDagJson());
+            return imageGenWorker.plan(taskId, task.getRunEpoch(), task.getDagJson(), task.getUnitSelectionJson());
         }
         throw new PixFlowException(TaskErrorCode.TASK_DAG_PAYLOAD_INVALID,
                 "unknown task type: " + task.getTaskType());

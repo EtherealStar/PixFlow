@@ -27,3 +27,19 @@ _Avoid_: reopened task, resumed terminal task
 **Execution Epoch**:
 A monotonically increasing ownership generation that prevents an obsolete worker from committing work-unit outcomes or task terminal state.
 _Avoid_: lock token, task attempt count
+
+**Business Idempotency Identity**:
+The stable domain identity that ensures one authorized action creates at most one task, such as a Proposal identity or a source-task retry identity.
+_Avoid_: random HTTP idempotency key
+
+**Published Asset**:
+A successful task image result that the Asset Library has accepted as a Generated Image with its own identity.
+_Avoid_: process result, temporary output
+
+**Activity Record**:
+The user-facing projection of a task's lifecycle, removable independently of a Published Asset.
+_Avoid_: task aggregate, generated image
+
+**Retention Cleanup**:
+Lifecycle deletion of terminal execution records and unconsumed temporary outputs without reopening or rewriting the task's recorded outcome.
+_Avoid_: retry, terminal-state mutation

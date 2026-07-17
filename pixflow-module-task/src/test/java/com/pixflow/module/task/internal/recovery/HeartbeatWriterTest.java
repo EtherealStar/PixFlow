@@ -8,6 +8,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.pixflow.module.task.infra.persistence.ProcessTaskMapper;
+import com.pixflow.module.task.infra.metrics.TaskMetrics;
 import com.pixflow.module.task.internal.worker.ExecutionRun;
 import java.time.Clock;
 import java.time.Duration;
@@ -20,7 +21,7 @@ class HeartbeatWriterTest {
         when(mapper.heartbeatEpoch(anyLong(), anyLong(), any())).thenReturn(0);
         ExecutionRun run = new ExecutionRun("1", 4, () -> true);
 
-        try (HeartbeatWriter writer = new HeartbeatWriter(mapper, Clock.systemUTC());
+        try (HeartbeatWriter writer = new HeartbeatWriter(mapper, Clock.systemUTC(), mock(TaskMetrics.class));
              HeartbeatWriter.HeartbeatSession ignored = writer.start(run, Duration.ofMillis(5))) {
             await().atMost(Duration.ofSeconds(1)).untilAsserted(() ->
                     assertThatThrownBy(run::assertCommitAllowed)

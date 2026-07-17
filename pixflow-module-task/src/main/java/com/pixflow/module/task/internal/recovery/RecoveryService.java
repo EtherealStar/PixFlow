@@ -34,9 +34,13 @@ public class RecoveryService {
         List<ProcessTask> running = taskMapper.findStaleRunning(staleBefore,
                 properties.getRecovery().getScanLimit());
         for (ProcessTask task : running) {
-            publisher.publish(new TaskMessage(task.getId().toString(), task.getTaskType(),
-                    task.getPriority() == null ? 0 : task.getPriority(), task.getSchemaVersion()));
-            metrics.recordTerminal(com.pixflow.module.task.domain.model.TaskStatus.RUNNING);
+            try {
+                publisher.publish(new TaskMessage(task.getId().toString(), task.getTaskType(),
+                        task.getPriority() == null ? 0 : task.getPriority(), task.getSchemaVersion()));
+                metrics.recordRecovery("requeued");
+            } catch (RuntimeException failure) {
+                metrics.recordRecovery("error");
+            }
         }
     }
 }

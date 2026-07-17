@@ -15,6 +15,9 @@ public interface ProcessTaskMapper extends BaseMapper<ProcessTask> {
     @Select("select * from process_task where idempotency_key = #{key} limit 1")
     ProcessTask findByIdempotencyKey(@Param("key") String key);
 
+    @Select("select * from process_task where id = #{taskId} for update")
+    ProcessTask lockById(@Param("taskId") long taskId);
+
     @Select("""
             select * from process_task
             where id = #{taskId} and conversation_id = #{conversationId}
@@ -52,6 +55,13 @@ public interface ProcessTaskMapper extends BaseMapper<ProcessTask> {
             """)
     int transit(@Param("taskId") long taskId, @Param("from") TaskStatus from,
                 @Param("to") TaskStatus to, @Param("now") Instant now);
+
+    @Update("""
+            update process_task
+            set status = 'PENDING', updated_at = #{now}
+            where id = #{taskId} and status = 'QUEUED' and run_epoch = 0
+            """)
+    int resetFailedEnqueue(@Param("taskId") long taskId, @Param("now") Instant now);
 
     @Update("""
             update process_task

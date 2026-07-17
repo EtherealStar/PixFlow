@@ -22,5 +22,6 @@ public record TaskResultView(
         URL url,
         Instant createdAt,
         Instant finishedAt,
-        String errorMsg) {
+        String errorMsg,
+        TaskFailureView failure) {
 }

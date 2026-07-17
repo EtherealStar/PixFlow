@@ -98,6 +98,9 @@ public class WorkUnitResultRepository {
             row.setFailureCode(failure.code());
             row.setFailureCategory(failure.category());
             row.setFailureRecovery(failure.recovery());
+            row.setFailedNodeId(failure.failedNodeId());
+            row.setFailedTool(failure.failedTool());
+            row.setAttemptCount(failure.attemptCount());
             row.setErrorMsg(failure.safeMessage());
             try {
                 row.setFailureDetailsJson(objectMapper.writeValueAsString(failure.details()));

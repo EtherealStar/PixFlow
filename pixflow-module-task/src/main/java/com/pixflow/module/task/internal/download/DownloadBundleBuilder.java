@@ -8,10 +8,12 @@ import com.pixflow.infra.storage.ObjectStorage;
 import com.pixflow.module.task.config.TaskProperties;
 import com.pixflow.module.task.domain.error.TaskErrorCode;
 import com.pixflow.module.task.domain.model.ProcessResult;
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
+import java.io.FilterOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
@@ -39,8 +41,12 @@ public class DownloadBundleBuilder {
 
     public ObjectRef build(String archiveKey, List<BundleSource> sources) {
         long maxBytes = properties.getDownload().getMaxBundleBytes();
-        try (ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-             ZipOutputStream zip = new ZipOutputStream(bytes)) {
+        Path temporary = null;
+        try {
+            temporary = Files.createTempFile("pixflow-task-bundle-", ".zip");
+            try (OutputStream file = Files.newOutputStream(temporary);
+                 LimitedOutputStream limited = new LimitedOutputStream(file, maxBytes);
+                 ZipOutputStream zip = new ZipOutputStream(limited)) {
             int index = 0;
             for (BundleSource source : sources) {
                 if (source == null || source.location() == null) {
@@ -51,19 +57,27 @@ public class DownloadBundleBuilder {
                     in.transferTo(zip);
                     zip.closeEntry();
                 }
-                if (bytes.size() > maxBytes) {
-                    throw tooLarge(maxBytes);
-                }
             }
             zip.finish();
-            if (bytes.size() > maxBytes) {
-                throw tooLarge(maxBytes);
             }
+            long archiveSize = Files.size(temporary);
             ObjectLocation location = ObjectLocation.of(BucketType.TMP, archiveKey);
-            return objectStorage.put(location, new ByteArrayInputStream(bytes.toByteArray()),
-                    bytes.size(), "application/zip");
+            // ObjectStorage.put 需要已知长度，因此使用受限临时文件承接 ZIP，避免整包驻留 JVM 堆。
+            try (InputStream archive = Files.newInputStream(temporary)) {
+                return objectStorage.put(location, archive, archiveSize, "application/zip");
+            }
+        } catch (BundleTooLargeException e) {
+            throw tooLarge(maxBytes);
         } catch (IOException e) {
             throw new PixFlowException(TaskErrorCode.TASK_RESULT_WRITE_FAILED, "build download bundle failed", e);
+        } finally {
+            if (temporary != null) {
+                try {
+                    Files.deleteIfExists(temporary);
+                } catch (IOException ignored) {
+                    // 临时目录由操作系统兜底清理；主下载结果不因清理失败而回滚。
+                }
+            }
         }
     }
 
@@ -94,5 +108,38 @@ public class DownloadBundleBuilder {
     }
 
     public record BundleSource(String entryName, ObjectLocation location) {
+    }
+
+    private static final class LimitedOutputStream extends FilterOutputStream {
+        private final long maxBytes;
+        private long written;
+
+        private LimitedOutputStream(OutputStream delegate, long maxBytes) {
+            super(delegate);
+            this.maxBytes = maxBytes;
+        }
+
+        @Override
+        public void write(int value) throws IOException {
+            ensureCapacity(1);
+            out.write(value);
+            written++;
+        }
+
+        @Override
+        public void write(byte[] bytes, int offset, int length) throws IOException {
+            ensureCapacity(length);
+            out.write(bytes, offset, length);
+            written += length;
+        }
+
+        private void ensureCapacity(int additional) throws BundleTooLargeException {
+            if (additional < 0 || written > maxBytes - additional) {
+                throw new BundleTooLargeException();
+            }
+        }
+    }
+
+    private static final class BundleTooLargeException extends IOException {
     }
 }

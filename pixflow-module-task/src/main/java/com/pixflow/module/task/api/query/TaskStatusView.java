@@ -11,6 +11,7 @@ public record TaskStatusView(
         Progress progress,
         int skipped,
         String lastError,
+        String retryOfTaskId,
         Instant createdAt,
         Instant startedAt,
         Instant finishedAt) {

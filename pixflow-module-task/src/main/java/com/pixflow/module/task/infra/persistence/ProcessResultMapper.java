@@ -44,8 +44,9 @@ public interface ProcessResultMapper extends BaseMapper<ProcessResult> {
                 output_minio_key = #{row.outputMinioKey}, generated_copy = #{row.generatedCopy},
                 bytes_out = #{row.bytesOut}, failure_code = #{row.failureCode},
                 failure_category = #{row.failureCategory}, failure_recovery = #{row.failureRecovery},
+                failed_node_id = #{row.failedNodeId}, failed_tool = #{row.failedTool},
                 failure_details_json = #{row.failureDetailsJson}, error_msg = #{row.errorMsg},
-                attempt_count = attempt_count + 1, started_at = #{row.startedAt}, finished_at = #{row.finishedAt}
+                attempt_count = #{row.attemptCount}, started_at = #{row.startedAt}, finished_at = #{row.finishedAt}
             where r.task_id = #{taskId} and r.unit_key = #{unitKey}
               and r.status <> 'SUCCESS' and r.run_epoch < #{epoch}
               and exists (

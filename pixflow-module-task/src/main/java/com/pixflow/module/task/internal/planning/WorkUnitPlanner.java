@@ -42,12 +42,18 @@ public final class WorkUnitPlanner {
         }
     }
 
-    public WorkUnitSelection planGenerative(String imagegenPlanJson) {
+    public WorkUnitSelection planGenerative(long packageId, String imagegenPlanJson) {
         try {
             ImagegenPlan plan = objectMapper.readValue(imagegenPlanJson, ImagegenPlan.class);
             return new WorkUnitSelection(plan.sourceImageIds().stream()
-                    .map(imageId -> new WorkUnitSelection.Item(
-                            UnitKind.GENERATIVE, imageId, "GENERATIVE", List.of()))
+                    .map(imageId -> {
+                        TaskAssetReader.GenerativeSource source = assets.sourceImage(packageId, imageId);
+                        // 生成式任务同样冻结源图对象 key；恢复时不能重新读取可变的 asset_image 行。
+                        ImageDescriptor image = new ImageDescriptor(source.sourceImageId(), source.skuId(),
+                                null, null, source.location().key(), null);
+                        return new WorkUnitSelection.Item(UnitKind.GENERATIVE, source.sourceImageId(),
+                                "GENERATIVE", List.of(image));
+                    })
                     .toList());
         } catch (Exception e) {
             throw new IllegalArgumentException("无法从 Imagegen Plan 生成冻结执行选择", e);

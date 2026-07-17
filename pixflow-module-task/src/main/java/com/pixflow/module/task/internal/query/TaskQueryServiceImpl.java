@@ -3,6 +3,7 @@ package com.pixflow.module.task.internal.query;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.pixflow.common.error.PixFlowException;
+import com.pixflow.common.sanitize.Sanitizer;
 import com.pixflow.module.task.api.TaskQueryService;
 import com.pixflow.module.task.api.command.TaskId;
 import com.pixflow.module.task.api.event.ProgressEvent;
@@ -11,6 +12,7 @@ import com.pixflow.module.task.api.query.PageQuery;
 import com.pixflow.module.task.api.query.PageResult;
 import com.pixflow.module.task.api.query.ResultSelector;
 import com.pixflow.module.task.api.query.TaskResultView;
+import com.pixflow.module.task.api.query.TaskFailureView;
 import com.pixflow.module.task.api.query.TaskStatusView;
 import com.pixflow.module.task.api.query.TaskSummary;
 import com.pixflow.module.task.domain.error.TaskErrorCode;
@@ -24,6 +26,8 @@ import java.time.Clock;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import reactor.core.publisher.Flux;
 
 public class TaskQueryServiceImpl implements TaskQueryService {
@@ -31,15 +35,18 @@ public class TaskQueryServiceImpl implements TaskQueryService {
     private final ProcessResultMapper resultMapper;
     private final DownloadService downloadService;
     private final Clock clock;
+    private final ObjectMapper objectMapper;
 
     public TaskQueryServiceImpl(ProcessTaskMapper taskMapper,
                                 ProcessResultMapper resultMapper,
                                 DownloadService downloadService,
-                                Clock clock) {
+                                Clock clock,
+                                ObjectMapper objectMapper) {
         this.taskMapper = taskMapper;
         this.resultMapper = resultMapper;
         this.downloadService = downloadService;
         this.clock = clock;
+        this.objectMapper = objectMapper;
     }
 
     @Override
@@ -53,7 +60,8 @@ public class TaskQueryServiceImpl implements TaskQueryService {
         int done = success + failed + skipped;
         return new TaskStatusView(taskId.value(), task.getTaskType(), task.getStatus(),
                 new TaskStatusView.Progress(done, total, failed), skipped,
-                task.getLastError(), task.getCreatedAt(), task.getStartedAt(), task.getFinishedAt());
+                task.getLastError(), task.getRetryOfTaskId() == null ? null : task.getRetryOfTaskId().toString(),
+                task.getCreatedAt(), task.getStartedAt(), task.getFinishedAt());
     }
 
     @Override
@@ -166,7 +174,28 @@ public class TaskQueryServiceImpl implements TaskQueryService {
                 handle == null ? null : handle.url(),
                 result.getCreatedAt(),
                 result.getFinishedAt(),
-                result.getErrorMsg());
+                result.getErrorMsg(),
+                failureView(result));
+    }
+
+    private TaskFailureView failureView(ProcessResult result) {
+        if (result.getStatus() != ResultStatus.FAILED) {
+            return null;
+        }
+        Map<String, Object> details = Map.of();
+        if (result.getFailureDetailsJson() != null && !result.getFailureDetailsJson().isBlank()) {
+            try {
+                details = objectMapper.readValue(result.getFailureDetailsJson(), new TypeReference<>() {});
+                @SuppressWarnings("unchecked")
+                Map<String, Object> sanitized = (Map<String, Object>) Sanitizer.sanitizeTraceValue("details", details);
+                details = sanitized;
+            } catch (com.fasterxml.jackson.core.JsonProcessingException ignored) {
+                // 历史详情损坏时仍返回稳定的失败摘要，避免整个结果列表不可用。
+            }
+        }
+        return new TaskFailureView(result.getFailureCode(), result.getFailureCategory(),
+                result.getFailureRecovery(), result.getFailedNodeId(), result.getFailedTool(),
+                result.getAttemptCount() == null ? 0 : result.getAttemptCount(), result.getErrorMsg(), details);
     }
 
     private static long parseLong(String value) {

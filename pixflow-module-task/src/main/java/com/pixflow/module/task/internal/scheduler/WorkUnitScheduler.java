@@ -3,6 +3,7 @@ package com.pixflow.module.task.internal.scheduler;
 import com.pixflow.module.task.config.TaskProperties;
 import com.pixflow.module.task.domain.model.TaskType;
 import com.pixflow.module.task.domain.model.WorkUnit;
+import com.pixflow.module.task.infra.metrics.TaskMetrics;
 import com.pixflow.module.task.internal.worker.WorkUnitCompletion;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -12,13 +13,17 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 
-public class WorkUnitScheduler {
-    private final Executor processExecutor;
-    private final Executor imagegenExecutor;
+public class WorkUnitScheduler implements AutoCloseable {
+    private final ThreadPoolExecutor processExecutor;
+    private final ThreadPoolExecutor imagegenExecutor;
 
-    public WorkUnitScheduler(TaskProperties properties) {
-        this.processExecutor = executor("pixflow-task-process-", properties.getWorker().getProcessPool());
-        this.imagegenExecutor = executor("pixflow-task-imagegen-", properties.getWorker().getImagegenPool());
+    public WorkUnitScheduler(TaskProperties properties, TaskMetrics metrics) {
+        this.processExecutor = executor("process", "pixflow-task-process-",
+                properties.getWorker().getProcessPool(), metrics);
+        this.imagegenExecutor = executor("imagegen", "pixflow-task-imagegen-",
+                properties.getWorker().getImagegenPool(), metrics);
+        metrics.bindPool("process", processExecutor);
+        metrics.bindPool("imagegen", imagegenExecutor);
     }
 
     public List<CompletableFuture<WorkUnitCompletion>> submitAll(
@@ -32,7 +37,8 @@ public class WorkUnitScheduler {
         return type == TaskType.IMAGE_GEN ? imagegenExecutor : processExecutor;
     }
 
-    private static Executor executor(String name, TaskProperties.Pool pool) {
+    private static ThreadPoolExecutor executor(String poolName, String name, TaskProperties.Pool pool,
+                                               TaskMetrics metrics) {
         ThreadPoolExecutor executor = new ThreadPoolExecutor(
                 pool.getCoreSize(), pool.getMaxSize(), 60, TimeUnit.SECONDS,
                 new LinkedBlockingQueue<>(pool.getQueueCapacity()),
@@ -42,7 +48,17 @@ public class WorkUnitScheduler {
                     thread.setDaemon(true);
                     return thread;
                 });
-        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
+        var callerRuns = new ThreadPoolExecutor.CallerRunsPolicy();
+        executor.setRejectedExecutionHandler((task, rejectedExecutor) -> {
+            metrics.recordPoolRejected(poolName);
+            callerRuns.rejectedExecution(task, rejectedExecutor);
+        });
         return executor;
+    }
+
+    @Override
+    public void close() {
+        processExecutor.shutdown();
+        imagegenExecutor.shutdown();
     }
 }

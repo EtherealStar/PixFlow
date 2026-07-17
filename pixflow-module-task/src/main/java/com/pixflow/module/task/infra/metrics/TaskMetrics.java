@@ -4,9 +4,11 @@ import com.pixflow.common.error.ErrorCode;
 import com.pixflow.module.task.domain.model.TaskStatus;
 import com.pixflow.module.task.domain.model.TaskType;
 import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import java.time.Duration;
+import java.util.concurrent.ThreadPoolExecutor;
 
 public class TaskMetrics {
     private final MeterRegistry registry;
@@ -81,6 +83,36 @@ public class TaskMetrics {
                 .tag("lock", "task_execution")
                 .register(registry)
                 .increment();
+    }
+
+    public void recordHeartbeat(String result) {
+        Counter.builder("pixflow.task.heartbeat")
+                .tag("result", result)
+                .register(registry)
+                .increment();
+    }
+
+    public void recordRecovery(String result) {
+        Counter.builder("pixflow.task.recovery.scan")
+                .tag("result", result)
+                .register(registry)
+                .increment();
+    }
+
+    public void recordPoolRejected(String pool) {
+        Counter.builder("pixflow.task.worker.pool.rejected")
+                .tag("pool", pool)
+                .register(registry)
+                .increment();
+    }
+
+    public void bindPool(String pool, ThreadPoolExecutor executor) {
+        Gauge.builder("pixflow.task.worker.pool.active", executor, ThreadPoolExecutor::getActiveCount)
+                .tag("pool", pool)
+                .register(registry);
+        Gauge.builder("pixflow.task.worker.pool.queued", executor, value -> value.getQueue().size())
+                .tag("pool", pool)
+                .register(registry);
     }
 
     public void recordRejectedTransition(String from, String to) {

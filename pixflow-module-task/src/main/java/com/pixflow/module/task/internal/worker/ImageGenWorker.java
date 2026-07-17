@@ -9,19 +9,22 @@ import com.pixflow.module.imagegen.proposal.ImagegenPlan;
 import com.pixflow.module.task.domain.error.TaskErrorCode;
 import com.pixflow.module.task.domain.model.WorkUnit;
 import com.pixflow.module.task.infra.metrics.TaskMetrics;
-import com.pixflow.module.task.api.port.TaskAssetReader;
 import com.pixflow.module.task.internal.cancel.CancellationService;
 import com.pixflow.module.task.internal.failure.FailureIsolator;
+import com.pixflow.module.task.internal.planning.WorkUnitSelection;
 import com.pixflow.harness.state.model.UnitKey;
 import com.pixflow.harness.state.model.UnitKeyCodec;
+import com.pixflow.harness.state.model.UnitKind;
+import com.pixflow.infra.storage.BucketType;
+import com.pixflow.infra.storage.ObjectLocation;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.List;
+import java.util.HashSet;
 
 public class ImageGenWorker {
     private final ObjectMapper objectMapper;
     private final ImageGenExecutor executor;
-    private final TaskAssetReader assetReader;
     private final FailureIsolator failureIsolator;
     private final CancellationService cancellationService;
     private final TaskMetrics metrics;
@@ -29,30 +32,39 @@ public class ImageGenWorker {
 
     public ImageGenWorker(ObjectMapper objectMapper,
                           ImageGenExecutor executor,
-                          TaskAssetReader assetReader,
                           FailureIsolator failureIsolator,
                           CancellationService cancellationService,
                           TaskMetrics metrics,
                           Clock clock) {
         this.objectMapper = objectMapper;
         this.executor = executor;
-        this.assetReader = assetReader;
         this.failureIsolator = failureIsolator;
         this.cancellationService = cancellationService;
         this.metrics = metrics;
         this.clock = clock;
     }
 
-    public List<WorkUnit> plan(String taskId, long packageId, long runEpoch, String payload) {
+    public List<WorkUnit> plan(String taskId, long runEpoch, String payload, String selectionJson) {
         try {
             ImagegenPlan plan = objectMapper.readValue(payload, ImagegenPlan.class);
-            return plan.sourceImageIds().stream()
-                    .map(imageId -> {
-                        TaskAssetReader.GenerativeSource source = assetReader.sourceImage(packageId, imageId);
-                        UnitKey unitKey = UnitKey.generative(taskId, source.sourceImageId());
+            WorkUnitSelection selection = objectMapper.readValue(selectionJson, WorkUnitSelection.class);
+            var plannedSourceIds = new HashSet<>(plan.sourceImageIds());
+            return selection.items().stream()
+                    .map(item -> {
+                        if (item.kind() != UnitKind.GENERATIVE || !"GENERATIVE".equals(item.branchId())
+                                || !plannedSourceIds.contains(item.memberId()) || item.images().size() != 1) {
+                            throw new IllegalStateException("冻结的生成式 selection 与 Imagegen Plan 不一致");
+                        }
+                        var source = item.images().getFirst();
+                        if (!item.memberId().equals(source.imageId()) || source.skuId() == null
+                                || source.skuId().isBlank()) {
+                            throw new IllegalStateException("冻结的生成式源图快照不完整");
+                        }
+                        UnitKey unitKey = UnitKey.generative(taskId, source.imageId());
                         GenerativeUnitSpec spec = new GenerativeUnitSpec(taskId, UnitKeyCodec.sha256(unitKey), runEpoch,
-                                source.skuId(),
-                                source.sourceImageId(), source.location(), plan.prompt(), plan.params(), "png");
+                                source.skuId(), source.imageId(),
+                                ObjectLocation.of(BucketType.PACKAGES, source.objectKey()),
+                                plan.prompt(), plan.params(), "png");
                         return WorkUnit.generative(taskId, spec);
                     })
                     .toList();

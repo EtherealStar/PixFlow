@@ -73,13 +73,13 @@ public class ProcessWorker {
             var branches = branchExpander.expand(plan, frozenImages);
             Map<UnitIdentity, WorkUnitSelection.Item> selectedByIdentity = uniqueSelection(selection.items());
             Map<UnitIdentity, ExecutableBranch> branchesByIdentity = uniqueBranches(branches);
-            // selection 是创建时冻结的执行事实；除了 identity 集合，输入图片快照也必须逐项一致。
-            if (!branchesByIdentity.keySet().equals(selectedByIdentity.keySet())) {
-                throw new IllegalStateException("重建单元 identity 与冻结 selection 不一致");
+            // selection 是执行事实；派生重试只包含原任务失败项，因此允许它是完整计划的严格子集。
+            if (!branchesByIdentity.keySet().containsAll(selectedByIdentity.keySet())) {
+                throw new IllegalStateException("冻结 selection 包含重建计划中不存在的单元 identity");
             }
-            return branches.stream()
-                    .map(branch -> {
-                        var selected = selectedByIdentity.get(UnitIdentity.of(branch));
+            return selection.items().stream()
+                    .map(selected -> {
+                        var branch = branchesByIdentity.get(UnitIdentity.of(selected));
                         if (!selected.images().equals(inputImages(branch, frozenImages))) {
                             throw new IllegalStateException(
                                     "重建单元图片快照与冻结 selection 不一致: " + branch.branchId());
