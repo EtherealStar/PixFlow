@@ -32,6 +32,10 @@ This ExecPlan is a living document. The sections `Progress`, `Surprises & Discov
 - [x] (2026-07-17 00:57+08:00) Milestone 4/5 第八批：完整清空 infra-storage 模块的 10 个 suppression，修复严格检查报告的 44 个问题，剩余 534；3 模块严格 verify 成功，storage/common 共 38 项测试通过。
 - [x] (2026-07-17 01:29+08:00) Milestone 4/5 第九批：完整清空 agent 模块的 58 个 suppression，修复严格检查报告的 285 个问题，剩余 476；19 模块严格 verify 成功，agent 40 项测试通过。
 - [x] (2026-07-17 01:47+08:00) Milestone 4/5 第十批：完整清空 eval 模块的 16 个 suppression，修复 45 个历史违规行，剩余 460；4 模块严格 verify 成功，eval/storage/common 共 44 项测试通过。
+- [x] (2026-07-17 11:52+08:00) Milestone 4/5 第十一批：完整清空 infra-vector 模块的 6 个 suppression，修复 18 个历史违规行，剩余 454；3 模块严格 verify 成功，vector/common 共 34 项测试零失败，其中 2 项 Qdrant Testcontainers 测试因本机无 Docker 环境跳过。
+- [x] (2026-07-17 12:12+08:00) Milestone 4/5 第十二批：完整清空 common 模块的 8 个 suppression，修复 22 个历史违规行，剩余 446；模块严格 verify 成功，clean test 23 项全部通过。
+- [x] (2026-07-17 12:34+08:00) Milestone 4/5 第十三批：完整清空 file 模块的 33 个 suppression，修复严格检查报告的 135 个问题，剩余 413；File 模块 Checkstyle 严格门禁与 32 项测试全部通过。
+- [x] (2026-07-17 12:45+08:00) Milestone 4/5 第十四批：原子清理 rubrics 的 `RubricsRunEntity`，删除 2 个 suppression 并修复 59 个历史违规行，剩余 411；Rubrics 模块严格 verify 与 12 项测试全部通过。
 - [ ] Milestone 5：按模块和文件批次清理后端布局问题并清空 Checkstyle suppression。
 - [ ] Milestone 6：完成文档、全仓验证和基线不可回增检查。
 
@@ -109,6 +113,15 @@ This ExecPlan is a living document. The sections `Progress`, `Surprises & Discov
 - Observation: eval 的 16 个 suppression 精确覆盖 45 个历史违规行，全部属于连续字段缺少空行和超长构造、查询、轮询或布尔表达式；无需改变 trace 缓冲、回放、保留清理或外置存储语义即可完整清零。
   Evidence: 移除模块全部 suppression 并完成等价布局整理后，`mvn -pl pixflow-eval -am -DskipTests verify` 的 root/common/storage/eval 四模块 Checkstyle 与 SpotBugs 均为零；随后 eval 6、storage 15、common 23 项测试全部通过。
 
+- Observation: infra-vector 的 6 个 suppression 覆盖 18 个历史布局问题；删除后首次严格 verify 还准确暴露了因前面字段换行而移动到新行号的 122 字符调用，证明文件级清理不能只依赖旧 suppression 行号。
+  Evidence: 拆分 `collectionExistsAsync` 调用后，`mvn -pl pixflow-infra-vector -am -DskipTests verify` 在 root/common/vector 三模块报告零 Checkstyle 和零 SpotBugs；随后 common 23 项与 vector 11 项测试零失败，但 `QdrantVectorStoreIntegrationTest` 的 2 项因 Testcontainers 找不到有效 Docker 环境而跳过。
+
+- Observation: common 的 8 个 suppression 覆盖 22 个历史布局问题；删除并初步整理后，严格 Checkstyle 继续指出 `ApiResponse` 另一个 123 字符构造调用，说明同文件原子清理必须以空 suppression 的真实报告收尾。
+  Evidence: 补齐该构造调用的参数换行后，`mvn -pl pixflow-common -DskipTests verify` 报告零 Checkstyle 与零 SpotBugs；随后 `mvn -pl pixflow-common clean test` 强制重编译 22 个生产源文件和 8 个测试源文件，23 项测试全部通过。
+
+- Observation: Rubrics 的 `RubricsRunEntity` 单一文件的 2 个 suppression 覆盖 59 个历史违规行，均为连续字段与单行 accessor 的布局问题；无需改变 Evaluation Run 的持久化字段、访问器或 MyBatis 映射即可清理。
+  Evidence: 删除两项精确 suppression 并展开字段、getter、setter 后，`mvn -pl pixflow-module-rubrics -DskipTests verify` 报告零 Checkstyle 与零 SpotBugs；`mvn -pl pixflow-module-rubrics test` 的 12 项测试零失败、零错误、零跳过。
+
 ## Decision Log
 
 - Decision: 最终清空三种基线，不把“减少一定比例”作为完成条件。
@@ -175,6 +188,21 @@ This ExecPlan is a living document. The sections `Progress`, `Surprises & Discov
   Rationale: eval 位于计划规定的低冲突清理顺序，除已完成批次中的 `EvalErrorRecorder` 外没有活动业务修改；完整清除 16 个 suppression 形成了满足测试前边界的独立模块成果，且修改只涉及布局。
   Date/Author: 2026-07-17 / Codex
 
+- Decision: 第十一批选择完整清空 infra-vector，并在严格 verify 清零后才运行模块测试。
+  Rationale: infra-vector 生产源码没有既有修改，位于计划规定的低冲突 infra 顺序，也不与 Task、DAG、Rubrics 或 App 活跃计划重叠；虽然只有 18 个历史问题，但完整模块清零满足用户要求的测试前边界，且修改只涉及字段间隔和长行拆分。
+  Date/Author: 2026-07-17 / Codex
+
+- Decision: 第十二批选择完整清空 common，并保留不在 suppression 清单内的既有 `ErrorNormalizer` 修改。
+  Rationale: common 的剩余问题只涉及字段分隔与长行，完整模块清零满足用户要求的测试前边界；本批次不覆盖或重排工作树中已有的 `ErrorNormalizer` 变更，也不改变错误、脱敏、响应或分页合同。
+  Date/Author: 2026-07-17 / Codex
+
+- Decision: 第十三批选择完整清空 file，并避开已由其他工作移动的 active execution/rubrics plans。
+  Rationale: file 的 33 个精确 suppression 覆盖的 135 个问题均可通过 import 删除、字段间隔、等价换行和 braces 清零，不改变上传、解压、素材身份或删除合同；完成一个模块后才运行该模块测试，符合用户指定的验证边界。
+
+- Decision: 第十四批选择 Rubrics 模块中未触及的 `RubricsRunEntity` 作为单文件原子批次。
+  Rationale: 两项 suppression 覆盖 59 条违规，已达到用户的测试前修复阈值；字段和 accessor 的格式化不会改变 Evaluation Run 的数据库或 JavaBean 合同，且避免与仍在演进的 Rubrics 迁移计划重叠。
+  Date/Author: 2026-07-17 / Codex
+
 ## Outcomes & Retrospective
 
 Milestone 1 和 2 已完成。SpotBugs filter 从 2 个 Match 降为空，三处无效自赋值已删除，nullable `CopyContext` 组件、`ImagegenPlan.prompt` 保留和 null 拒绝均有定向测试证据；严格 verify 成功且两个目标模块的 SpotBugs 均为零。完整 DAG/Imagegen 测试集按用户指示跳过。
@@ -202,6 +230,14 @@ Milestone 4 第二批从 infra-thirdparty 的 Aliyun Market provider、可配置
 第九批完整清空了 agent 模块的 Checkstyle 基线。32 个文件只做无用 import 删除、logger 常量命名、字段与方法分隔、单行访问器和控制流展开、长行与 SQL 文本换行，58 个 suppression 对应的 285 个实际违规全部归零，基线从 534 降到 476。包含 19 个项目的严格 reactor 编译、Checkstyle 与 SpotBugs 全部成功；agent 40 项测试零失败、零错误、零跳过。
 
 第十批完整清空了 eval 模块的 Checkstyle 基线。10 个文件只做字段分隔、import 顺序和长表达式换行，16 个 suppression 覆盖的 45 个历史违规行全部归零，基线从 476 降到 460。root/common/storage/eval 四模块严格 reactor 的 Checkstyle 与 SpotBugs 均为零；eval 6、storage 15（含真实 MinIO Testcontainers）、common 23 项合计 44 项，零失败、零错误、零跳过。
+
+第十一批完整清空了 infra-vector 模块的 Checkstyle 基线。5 个文件只做字段分隔和长行拆分，6 个 suppression 覆盖的 18 个历史违规行全部归零，基线从 460 降到 454。root/common/vector 三模块严格 reactor 的 Checkstyle 与 SpotBugs 均为零；common 23 项与 vector 11 项合计 34 项零失败、零错误，vector 中 2 项真实 Qdrant Testcontainers 集成测试因本机找不到有效 Docker 环境而跳过。
+
+第十二批完整清空了 common 模块的 Checkstyle 基线。7 个文件只做字段分隔与长构造/正则表达式换行，8 个 suppression 覆盖的 22 个历史违规行全部归零，基线从 454 降到 446；工作树中既有的 `ErrorNormalizer` 修改保持原样。模块严格 verify 报告零 Checkstyle 与零 SpotBugs，clean test 强制重编译当前源码后 23 项全部通过。
+
+第十三批完整清空了 file 模块的 Checkstyle 基线。20 个文件只做无用 import 删除、字段/常量间隔、长表达式换行和既有单语句控制流的大括号展开，33 个 suppression 对应的 135 个严格检查问题全部归零，基线从 446 降到 413。独立绑定的 Checkstyle 严格门禁为零；`mvn -pl pixflow-module-file test` 的 32 项测试零失败、零错误、零跳过。完整 12 模块 `-am -DskipTests verify` 在当前桌面工具的 124 秒进程上限中未取得结果，遗留的两条 Maven Java 进程已停止，未将超时计为通过。
+
+第十四批原子清理了 Rubrics 的 `RubricsRunEntity`。该文件只做字段间隔和 getter/setter 的等价展开，2 个 suppression 覆盖的 59 个严格检查问题全部归零，基线从 413 降到 411。首次带 `-am` 的 reactor 达到桌面 124 秒命令上限，短暂遗留的 Maven 进程使结果 XML 损坏；进程退出后串行 `mvn -pl pixflow-module-rubrics -DskipTests verify` 成功，随后 12 项模块测试零失败、零错误、零跳过。
 
 ## Context and Orientation
 
@@ -456,6 +492,14 @@ Java public interface、数据库 schema、REST API 和 Maven 依赖不因本计
 ESLint、Checkstyle 与 SpotBugs 的版本、规则、threshold 和 lifecycle 保持 `linter-adoption-plan.md` 定义。audit 与严格命令必须继续使用同一规则集；本计划不能通过降低 severity、改变 threshold 或跳过模块来达成空基线。
 
 ## Revision Notes
+
+2026-07-17 / Codex: 按用户要求先修复至少 50 条问题再运行测试。选择工作树未触及的 rubrics `RubricsRunEntity` 做原子清理，删除 2 个 suppression 并修复 59 个历史违规行，剩余 411；修改只包含字段和 accessor 的等价布局整理，不改变 Evaluation Run 持久化合同。首次 `-am` reactor 在桌面 124 秒命令上限中断且遗留 Maven 进程短暂竞争导致 Checkstyle 结果 XML 损坏，进程退出后串行模块严格 verify 成功；随后模块 12 项测试全部通过。
+
+2026-07-17 / Codex: 按用户要求先完整解决一个模块再运行测试。选择未与当前业务修改重叠的 file，删除该模块全部 33 个 suppression 并修复严格检查报告的 135 个问题，剩余 413；修改仅包含无用 import、字段/常量间隔、长表达式换行和控制流大括号，不改变上传、解压、素材身份或删除合同。绑定的 File Checkstyle 严格门禁零违规；模块 32 项测试零失败、零错误、零跳过。完整 `-am -DskipTests verify` 两次受桌面命令 124 秒上限阻断，未记作成功，残留 Maven 进程已清理。
+
+2026-07-17 / Codex: 按用户要求先完整解决一个模块再运行测试。选择 common，删除该模块全部 8 个 suppression 并修复 22 个历史违规行，剩余 446；修改仅包含字段间隔与长表达式换行，并保留既有 `ErrorNormalizer` 工作树修改。严格 verify 清零后才运行 clean test，23 项零失败、零错误、零跳过。
+
+2026-07-17 / Codex: 按用户要求先完整解决一个模块再运行测试。选择生产源码无既有修改且不与活跃业务计划重叠的 infra-vector，删除 6 个 suppression 并修复 18 个历史违规行，剩余 454；修改仅包含字段间隔和长行拆分。3 模块严格 verify 成功后才运行测试，vector/common 共 34 项零失败，其中 2 项 Qdrant Testcontainers 集成测试因本机无有效 Docker 环境跳过。
 
 2026-07-17 / Codex: 按用户要求先完整解决一个模块再运行测试。选择位于低冲突顺序且没有活动业务修改的 eval，删除 16 个 suppression 并修复 45 个历史违规行，剩余 460；修改仅包含字段间隔、import 顺序和长行拆分。4 模块严格 verify 成功后才运行测试，eval/storage/common 共 44 项全部通过，其中包含真实 MinIO Testcontainers 集成测试。
 

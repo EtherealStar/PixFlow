@@ -126,7 +126,7 @@ pixflow-app ──► infra/ai + infra/cache（组合根提供 Redis adapters）
 module/{memory,dag,vision,imagegen,rubrics} ──► infra/ai
 ```
 
-infra/ai **不依赖** `infra/cache`（全局并发经 SPI 倒置）、**不依赖** `infra/storage`（图片内容由调用方传入）、**不依赖** `infra/vector`（向量存取归 vector）、**不依赖任何 harness/module/agent**。
+infra/ai **不依赖** `infra/cache`（全局并发经 SPI 倒置）、**不依赖** `infra/storage`（图片内容由调用方传入）、**不依赖** `infra/vector`（向量只读检索归 vector）、**不依赖任何 harness/module/agent**。
 
 新增 Maven 依赖（版本由 Spring AI BOM 统一管理，此处不锁定具体版本，呼应 design「模型型号/能力由配置承载」）：
 
@@ -447,7 +447,7 @@ flowchart LR
 
 ## 十一、嵌入与重排边界
 
-- **ai 只做「文本 → 向量」**（`EmbeddingClient`）和「query + 候选 → 重排序」（`RerankClient`）；**Qdrant 读写检索归 `infra/vector`**，`module/memory` 编排两者（向量化 → 写/检索 Qdrant → 重排）。
+- **ai 只做「文本 → 向量」**（`EmbeddingClient`）和「query + 候选 → 重排序」（`RerankClient`）；**Qdrant 在线只读检索归 `infra/vector`**，`module/memory` 编排查询向量化、检索与重排。
 - **不使用 Spring AI 的 `VectorStore`**：该抽象把嵌入与存储耦合。infra/ai 只暴露查询嵌入能力，`infra/vector` 只暴露在线只读检索；管理员数据导入/重建位于应用运行边界之外。
 - **reranker**：DashScope 若直供则走其能力；否则 `RerankClient` 实现侧直连对应 SDK，接口不变。`module/memory` 召回「分析结论记忆」（Qdrant 语义召回）后可选重排提升精度。
 
@@ -522,7 +522,7 @@ pixflow:
 | `module/dag` | 提供 `DagValidator` 与执行引擎；Agent 通过 `ChatModelClient` 产出的 DAG JSON 会作为 `submit_image_plan` 入参进入 tools 管线，ai 不理解 DAG 语义 |
 | `module/vision` | 经 `VisionModelClient` 传入已解析图片内容；ai 不碰 MinIO |
 | `module/imagegen` | 经 `ImageGenClient` 源图重绘；结果字节由 imagegen 落 `GENERATED` 桶；HITL 令牌在 permission |
-| `module/memory` | 经 `EmbeddingClient` 向量化、`RerankClient` 重排；Qdrant 存取走 `infra/vector` |
+| `module/memory` | 经 `EmbeddingClient` 向量化、`RerankClient` 重排；Qdrant 在线只读检索走 `infra/vector` |
 | `module/rubrics` | 经 `ChatModelClient`/`VisionModelClient` 做文案/图片质量评估（指定对应 role） |
 | `infra/cache` | 提供通用 `DistributedSemaphore`/`DistributedTokenBucket`；`pixflow-app` 实现 AI 自有 SPI 并注入，ai 不反向依赖 cache |
 | `pixflow-app` | 组合根：提供 `GlobalConcurrencyLimiter` 与 `ModelQuotaLimiter` 的 Redis adapters；生产缺失时启动失败 |
