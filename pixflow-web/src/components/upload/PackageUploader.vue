@@ -32,24 +32,34 @@ function pickFiles(files: File[]): void {
 <template>
   <section class="package-uploader flex flex-col gap-3">
     <header class="flex items-center justify-between px-4 pt-3">
-      <h3 class="text-sm font-medium text-fg-primary">上传素材</h3>
+      <h3 class="text-sm font-medium text-fg-primary">
+        上传素材
+      </h3>
       <button
         type="button"
         class="text-fg-muted hover:text-fg-primary"
         :aria-label="compact ? '展开' : '收起'"
         @click="compact = !compact"
       >
-        <IconPlus :size="16" :class="compact ? 'rotate-45 transition-transform' : 'transition-transform'" />
+        <IconPlus
+          :size="16"
+          :class="compact ? 'rotate-45 transition-transform' : 'transition-transform'"
+        />
       </button>
     </header>
 
-    <UploadDropzone v-if="!compact" @select="pickFiles" />
+    <UploadDropzone
+      v-if="!compact"
+      @select="pickFiles"
+    />
 
     <div class="flex flex-col gap-2 px-4 pb-4">
       <UploadJobCard
         v-for="job in uploadJobs.activeJobs"
         :key="job.jobId"
         :job="job"
+        @pause="(id: string) => uploadJobs.pause(id)"
+        @resume="(id: string) => uploadJobs.resume(id)"
         @cancel="(id: string) => uploadJobs.cancel(id)"
         @retry="(id: string) => uploadJobs.retry(id)"
       />

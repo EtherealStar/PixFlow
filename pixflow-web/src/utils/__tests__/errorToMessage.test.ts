@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import { errorToMessage, categorize, isRetryable, redactToken } from '@/utils/error'
-import type { ApiError } from '@/types/api'
+import { ApiError, type ApiErrorInit } from '@/types/api'
 
-const make = (over: Partial<ApiError> = {}): ApiError => ({
+const make = (over: Partial<ApiErrorInit> = {}): ApiError => new ApiError({
   status: 500,
   errorCode: 'INTERNAL_ERROR',
   message: 'x',

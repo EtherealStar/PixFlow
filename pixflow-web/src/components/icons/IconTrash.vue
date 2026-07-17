@@ -6,5 +6,9 @@ import { Trash2 } from 'lucide-vue-next'
 defineProps<{ size?: number; class?: string }>()
 </script>
 <template>
-  <Trash2 :size="size ?? 24" :stroke-width="1.75" :class="$props.class" />
+  <Trash2
+    :size="size ?? 24"
+    :stroke-width="1.75"
+    :class="$props.class"
+  />
 </template>

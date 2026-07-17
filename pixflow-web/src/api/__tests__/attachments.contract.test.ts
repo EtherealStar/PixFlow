@@ -14,7 +14,7 @@ describe('attachment upload compatibility adapter', () => {
   })
 
   it('reuses package upload endpoint and returns top-level package binding payload', async () => {
-    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
+    const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit) =>
       jsonResponse({ packageId: 123, status: 'UPLOADED', messageConfirmed: true })
     )
     vi.stubGlobal('fetch', fetchMock)

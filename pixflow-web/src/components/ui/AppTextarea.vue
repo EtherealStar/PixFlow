@@ -7,7 +7,7 @@ import IconAlertCircle from '@/components/icons/IconAlertCircle.vue'
  * 视觉与 AppInput 一致（边框 / focus / 圆角 / padding 同款 token）。
  * Composer 用。
  */
-const props = withDefaults(
+withDefaults(
   defineProps<{
     modelValue?: string
     placeholder?: string
@@ -16,7 +16,10 @@ const props = withDefaults(
     disabled?: boolean
   }>(),
   {
+    modelValue: undefined,
+    placeholder: undefined,
     rows: 3,
+    error: undefined,
     disabled: false,
   }
 )
@@ -47,7 +50,10 @@ defineEmits<{
       ]"
       @input="(ev: Event) => $emit('update:modelValue', (ev.target as HTMLTextAreaElement).value)"
     />
-    <p v-if="error" class="error-text flex items-center gap-1 text-xs text-danger mt-1">
+    <p
+      v-if="error"
+      class="error-text flex items-center gap-1 text-xs text-danger mt-1"
+    >
       <IconAlertCircle :size="12" />
       {{ error }}
     </p>

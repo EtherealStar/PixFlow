@@ -25,7 +25,6 @@ defineEmits<{
   <SwitchRoot
     :model-value="modelValue"
     :disabled="disabled"
-    @update:model-value="(v: boolean) => $emit('update:modelValue', v)"
     :class="[
       'inline-flex items-center h-5 w-9 rounded-full p-0.5',
       'transition-colors',
@@ -33,6 +32,7 @@ defineEmits<{
       'disabled:opacity-50 disabled:cursor-not-allowed',
       'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/20'
     ]"
+    @update:model-value="(v: boolean) => $emit('update:modelValue', v)"
   >
     <SwitchThumb
       class="block w-4 h-4 rounded-full bg-bg-panel shadow-sm transition-transform data-[state=checked]:translate-x-4 translate-x-0"

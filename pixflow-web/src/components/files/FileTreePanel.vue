@@ -27,10 +27,14 @@ const nodes = computed(() => (props.section === 'upload' ? fileIndex.uploadNodes
 
 function onSelect(node: FileIndexNode): void {
   if (node.type === 'package') {
-    router.push(`/files?folder=${node.refId}`)
+    void router.push(`/files?folder=${node.refId}`).catch(showNavigationError)
   } else {
-    router.push(`/chat/${node.refId}`)
+    void router.push(`/chat/${node.refId}`).catch(showNavigationError)
   }
+}
+
+function showNavigationError(error: unknown): void {
+  toast.push({ variant: 'danger', message: error instanceof Error ? error.message : '导航失败' })
 }
 
 function onRename(node: FileIndexNode): void {

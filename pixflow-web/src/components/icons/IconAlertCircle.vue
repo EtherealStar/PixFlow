@@ -6,5 +6,9 @@ import { AlertCircle } from 'lucide-vue-next'
 defineProps<{ size?: number; class?: string }>()
 </script>
 <template>
-  <AlertCircle :size="size ?? 24" :stroke-width="1.75" :class="$props.class" />
+  <AlertCircle
+    :size="size ?? 24"
+    :stroke-width="1.75"
+    :class="$props.class"
+  />
 </template>

@@ -1,13 +1,13 @@
 import { request } from './client'
 import type { Page } from '@/types/api'
-import type { ImageItem } from '@/types/upload'
+import type { PackageImageItem } from '@/types/upload'
 
 export interface ConversationSummary {
   conversationId: string
   title?: string
   updatedAt: string
   packageId?: string | null
-  images?: ImageItem[]
+  images?: PackageImageItem[]
 }
 
 export interface ConversationDetail {
@@ -16,7 +16,7 @@ export interface ConversationDetail {
   createdAt: string
   updatedAt: string
   packageId?: string | null
-  images?: ImageItem[]
+  images?: PackageImageItem[]
 }
 
 interface BackendConversationView {
@@ -26,7 +26,7 @@ interface BackendConversationView {
   createdAt?: string
   updatedAt?: string
   packageId?: string | number | null
-  images?: ImageItem[]
+  images?: PackageImageItem[]
 }
 
 function normalizeConversation(raw: BackendConversationView): ConversationDetail {
@@ -37,7 +37,7 @@ function normalizeConversation(raw: BackendConversationView): ConversationDetail
     title: raw.title,
     createdAt: raw.createdAt ?? '',
     updatedAt: raw.updatedAt ?? '',
-    packageId: raw.packageId == null ? null : String(raw.packageId),
+    packageId: raw.packageId === null || raw.packageId === undefined ? null : String(raw.packageId),
     images: raw.images
   }
 }

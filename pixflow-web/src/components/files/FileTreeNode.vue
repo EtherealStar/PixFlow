@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import IconPackage from '@/components/icons/IconPackage.vue'
-import IconImage from '@/components/icons/IconImage.vue'
 import IconFolder from '@/components/icons/IconFolder.vue'
 import IconChat from '@/components/icons/IconChat.vue'
 import IconMoreHorizontal from '@/components/icons/IconMoreHorizontal.vue'
@@ -16,7 +15,7 @@ import type { FileIndexNode } from '@/stores/fileIndex'
  * - hover 显示 AppDropdownMenu（重命名 / 删除 / 在新窗口打开（仅文件夹））
  * - 选中态 bg-accent-soft
  */
-const props = withDefaults(
+withDefaults(
   defineProps<{
     node: FileIndexNode
     depth?: number
@@ -55,7 +54,11 @@ function iconFor(type: FileIndexNode['type']) {
     :style="{ paddingLeft: `${8 + depth * 12}px` }"
     @click="emit('select', node)"
   >
-    <component :is="iconFor(node.type)" :size="16" class="text-fg-secondary shrink-0" />
+    <component
+      :is="iconFor(node.type)"
+      :size="16"
+      class="text-fg-secondary shrink-0"
+    />
     <span class="flex-1 truncate">{{ node.label }}</span>
 
     <AppDropdownMenu class="opacity-0 group-hover:opacity-100 transition-opacity">
@@ -69,14 +72,21 @@ function iconFor(type: FileIndexNode['type']) {
           <IconMoreHorizontal :size="14" />
         </button>
       </template>
-      <AppDropdownMenuItem @select="emit('rename', node)">重命名</AppDropdownMenuItem>
+      <AppDropdownMenuItem @select="emit('rename', node)">
+        重命名
+      </AppDropdownMenuItem>
       <AppDropdownMenuItem
         v-if="node.type === 'conversation'"
         @select="emit('openExternal', node)"
       >
         在新窗口打开
       </AppDropdownMenuItem>
-      <AppDropdownMenuItem danger @select="emit('remove', node)">删除</AppDropdownMenuItem>
+      <AppDropdownMenuItem
+        danger
+        @select="emit('remove', node)"
+      >
+        删除
+      </AppDropdownMenuItem>
     </AppDropdownMenu>
   </div>
 </template>

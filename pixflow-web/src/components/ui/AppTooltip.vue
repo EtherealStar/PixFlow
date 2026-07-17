@@ -37,7 +37,11 @@ withDefaults(
         class="z-50 bg-fg-primary text-fg-inverse rounded-sm px-2 py-1 text-xs shadow-md select-none"
       >
         {{ content }}
-        <TooltipArrow class="fill-fg-primary" :width="8" :height="4" />
+        <TooltipArrow
+          class="fill-fg-primary"
+          :width="8"
+          :height="4"
+        />
       </TooltipContent>
     </TooltipPortal>
   </TooltipRoot>

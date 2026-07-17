@@ -16,18 +16,37 @@ withDefaults(
     text: string
     timestamp?: string
   }>(),
-  {}
+  {
+    timestamp: undefined,
+  }
 )
 </script>
 
 <template>
-  <div class="bubble-row" :class="role === 'user' ? 'justify-end' : 'justify-start'">
-    <div class="bubble-group" :class="role === 'user' ? 'items-end' : 'items-start'">
+  <div
+    class="bubble-row"
+    :class="role === 'user' ? 'justify-end' : 'justify-start'"
+  >
+    <div
+      class="bubble-group"
+      :class="role === 'user' ? 'items-end' : 'items-start'"
+    >
       <div class="bubble-meta">
-        <AppAvatar v-if="role === 'assistant'" :size="20" text="A" />
-        <IconUser v-else :size="14" class="text-fg-muted" />
+        <AppAvatar
+          v-if="role === 'assistant'"
+          :size="20"
+          text="A"
+        />
+        <IconUser
+          v-else
+          :size="14"
+          class="text-fg-muted"
+        />
         <span class="role-label">{{ role === 'user' ? 'USER' : 'ASSISTANT' }}</span>
-        <span v-if="timestamp" class="timestamp">{{ timestamp }}</span>
+        <span
+          v-if="timestamp"
+          class="timestamp"
+        >{{ timestamp }}</span>
       </div>
       <div
         :class="[

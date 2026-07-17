@@ -33,7 +33,7 @@ watch(() => props.visible, (v) => {
   }
 })
 
-async function onSubmit(): Promise<void> {
+function onSubmit(): void {
   if (!answer.value.trim()) return
   submitting.value = true
   try {
@@ -55,13 +55,33 @@ async function onSubmit(): Promise<void> {
         <div class="bg-bg-sunken rounded-md p-3 mb-3 text-sm text-fg-secondary">
           {{ challenge.prompt }}
         </div>
-        <AppTextarea v-model="answer" :rows="3" placeholder="请输入答案..." />
-        <p v-if="error" class="text-xs text-danger mt-2">错误：{{ error.message }}</p>
+        <AppTextarea
+          v-model="answer"
+          :rows="3"
+          placeholder="请输入答案..."
+        />
+        <p
+          v-if="error"
+          class="text-xs text-danger mt-2"
+        >
+          错误：{{ error.message }}
+        </p>
       </div>
     </template>
     <template #footer>
-      <AppButton variant="secondary" @click="$emit('update:visible', false)">取消</AppButton>
-      <AppButton variant="primary" :loading="submitting" @click="onSubmit">提交</AppButton>
+      <AppButton
+        variant="secondary"
+        @click="$emit('update:visible', false)"
+      >
+        取消
+      </AppButton>
+      <AppButton
+        variant="primary"
+        :loading="submitting"
+        @click="onSubmit"
+      >
+        提交
+      </AppButton>
     </template>
   </AppDialog>
 </template>

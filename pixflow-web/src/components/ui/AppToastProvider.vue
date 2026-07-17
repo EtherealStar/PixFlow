@@ -36,8 +36,16 @@ function variantClass(variant: string): string {
 </script>
 
 <template>
-  <div class="toast-stack" aria-live="polite" aria-atomic="false">
-    <transition-group name="toast" tag="div" class="flex flex-col gap-2">
+  <div
+    class="toast-stack"
+    aria-live="polite"
+    aria-atomic="false"
+  >
+    <transition-group
+      name="toast"
+      tag="div"
+      class="flex flex-col gap-2"
+    >
       <div
         v-for="item in toast.items"
         :key="item.id"
@@ -52,10 +60,20 @@ function variantClass(variant: string): string {
         role="status"
       >
         <!-- 图标：success 用 check；其他用 alert -->
-        <IconCheck v-if="item.variant === 'success'" :size="16" class="shrink-0 mt-0.5" />
-        <IconAlertCircle v-else :size="16" class="shrink-0 mt-0.5" />
+        <IconCheck
+          v-if="item.variant === 'success'"
+          :size="16"
+          class="shrink-0 mt-0.5"
+        />
+        <IconAlertCircle
+          v-else
+          :size="16"
+          class="shrink-0 mt-0.5"
+        />
 
-        <div class="flex-1 text-fg-primary">{{ item.message }}</div>
+        <div class="flex-1 text-fg-primary">
+          {{ item.message }}
+        </div>
 
         <button
           type="button"

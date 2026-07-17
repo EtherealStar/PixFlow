@@ -35,6 +35,8 @@ const props = withDefaults(
     closeOnOverlay?: boolean
   }>(),
   {
+    title: undefined,
+    description: undefined,
     closeOnOverlay: true,
   }
 )
@@ -48,7 +50,10 @@ void props
 </script>
 
 <template>
-  <DialogRoot :open="open" @update:open="(v: boolean) => $emit('update:open', v)">
+  <DialogRoot
+    :open="open"
+    @update:open="(v: boolean) => $emit('update:open', v)"
+  >
     <DialogPortal>
       <DialogOverlay class="fixed inset-0 z-50 bg-fg-primary/40 animate-in fade-in" />
       <DialogContent
@@ -61,10 +66,16 @@ void props
         @escape-key-down="$emit('update:open', false)"
         @pointer-down-outside="closeOnOverlay && $emit('update:open', false)"
       >
-        <DialogTitle v-if="title" class="text-xl text-fg-primary mb-2 font-semibold">
+        <DialogTitle
+          v-if="title"
+          class="text-xl text-fg-primary mb-2 font-semibold"
+        >
           {{ title }}
         </DialogTitle>
-        <DialogDescription v-if="description" class="text-sm text-fg-secondary mb-4">
+        <DialogDescription
+          v-if="description"
+          class="text-sm text-fg-secondary mb-4"
+        >
           {{ description }}
         </DialogDescription>
         <DialogClose
@@ -78,7 +89,10 @@ void props
           <slot name="body" />
         </div>
 
-        <div v-if="$slots.footer" class="dialog-footer mt-6 flex justify-end gap-2">
+        <div
+          v-if="$slots.footer"
+          class="dialog-footer mt-6 flex justify-end gap-2"
+        >
           <slot name="footer" />
         </div>
       </DialogContent>

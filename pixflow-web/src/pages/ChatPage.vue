@@ -30,7 +30,10 @@ const chat = useChatSession({ route, router })
     </header>
 
     <div class="chat-body flex-1 overflow-y-auto">
-      <MessageStream :timeline="chat.streamTimeline.value" :user-messages="chat.userMessages.value" />
+      <MessageStream
+        :timeline="chat.streamTimeline.value"
+        :user-messages="chat.userMessages.value"
+      />
 
       <ProposalCard
         v-for="p in chat.visibleProposals.value"

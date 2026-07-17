@@ -21,7 +21,9 @@ const nodes = computed(() => fileIndex.historyNodes)
 
 function onSelect(node: FileIndexNode): void {
   if (node.type === 'history') {
-    router.push(`/chat/${node.refId}`)
+    void router.push(`/chat/${node.refId}`).catch((error: unknown) => {
+      toast.push({ variant: 'danger', message: error instanceof Error ? error.message : '导航失败' })
+    })
   }
 }
 

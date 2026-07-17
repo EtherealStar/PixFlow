@@ -14,7 +14,7 @@ import IconExternalLink from '@/components/icons/IconExternalLink.vue'
  * - 底部 caption：文件名 + 尺寸 / 大小
  * - 选中态：ring-2 ring-accent
  */
-const props = defineProps<{
+defineProps<{
   /** 数据对象，至少含 id + src/url + filename */
   src: string
   alt?: string
@@ -59,8 +59,12 @@ const aspectBox = computed(() => 'aspect-[4/3]')
           :alt="alt ?? filename"
           class="w-full h-full object-cover"
           loading="lazy"
+        >
+        <IconImage
+          v-else
+          :size="32"
+          class="text-fg-muted"
         />
-        <IconImage v-else :size="32" class="text-fg-muted" />
       </div>
     </button>
 
@@ -73,7 +77,10 @@ const aspectBox = computed(() => 'aspect-[4/3]')
         :checked="selected"
         @update:checked="(v: boolean) => emit('update:selected', v)"
       />
-      <div v-else class="h-4 w-4" />
+      <div
+        v-else
+        class="h-4 w-4"
+      />
       <div class="flex gap-1">
         <button
           type="button"
@@ -96,8 +103,18 @@ const aspectBox = computed(() => 'aspect-[4/3]')
 
     <!-- caption -->
     <div class="px-2 py-1.5 bg-bg-panel border-t border-border">
-      <div class="text-xs text-fg-primary truncate" :title="filename">{{ filename }}</div>
-      <div v-if="size" class="text-[10px] text-fg-muted truncate">{{ size }}</div>
+      <div
+        class="text-xs text-fg-primary truncate"
+        :title="filename"
+      >
+        {{ filename }}
+      </div>
+      <div
+        v-if="size"
+        class="text-[10px] text-fg-muted truncate"
+      >
+        {{ size }}
+      </div>
     </div>
   </div>
 </template>

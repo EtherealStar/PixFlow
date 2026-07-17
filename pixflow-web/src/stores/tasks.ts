@@ -28,5 +28,17 @@ export const useTasksStore = defineStore('tasks', () => {
     return items.value.get(taskId)
   }
 
-  return { items, watching, watch, unwatch, isWatching, upsert, get }
+  function addQueued(taskId: string, retryOfTaskId?: string): TaskState {
+    const state: TaskState = {
+      taskId,
+      phase: 'queued',
+      progress: { done: 0, total: 0, failed: 0, skipped: 0 },
+      retryOfTaskId,
+      updatedAt: Date.now()
+    }
+    upsert(state)
+    return state
+  }
+
+  return { items, watching, watch, unwatch, isWatching, upsert, get, addQueued }
 })

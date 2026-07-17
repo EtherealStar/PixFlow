@@ -4,7 +4,6 @@ import AppPopover from '@/components/ui/AppPopover.vue'
 import AppScrollArea from '@/components/ui/AppScrollArea.vue'
 import { useFileIndexStore, type FileIndexNode } from '@/stores/fileIndex'
 import IconPackage from '@/components/icons/IconPackage.vue'
-import IconImage from '@/components/icons/IconImage.vue'
 import IconFolder from '@/components/icons/IconFolder.vue'
 import IconChat from '@/components/icons/IconChat.vue'
 
@@ -57,12 +56,20 @@ defineExpose({ moveActive, confirmActive })
 </script>
 
 <template>
-  <AppPopover :default-open="open" @update:open="(v: boolean) => $emit('update:open', v)">
+  <AppPopover
+    :default-open="open"
+    @update:open="(v: boolean) => $emit('update:open', v)"
+  >
     <template #trigger>
       <slot name="trigger" />
     </template>
     <AppScrollArea max-height="240px">
-      <div v-if="results.length === 0" class="empty-hint">无匹配项</div>
+      <div
+        v-if="results.length === 0"
+        class="empty-hint"
+      >
+        无匹配项
+      </div>
       <button
         v-for="(node, idx) in results"
         :key="node.id"
@@ -74,9 +81,16 @@ defineExpose({ moveActive, confirmActive })
         @click="emit('select', node)"
         @mouseenter="activeIndex = idx"
       >
-        <component :is="iconFor(node.type)" :size="16" class="text-fg-secondary shrink-0" />
+        <component
+          :is="iconFor(node.type)"
+          :size="16"
+          class="text-fg-secondary shrink-0"
+        />
         <span class="flex-1 truncate">{{ node.label }}</span>
-        <span v-if="node.subtitle" class="text-xs text-fg-muted shrink-0">{{ node.subtitle }}</span>
+        <span
+          v-if="node.subtitle"
+          class="text-xs text-fg-muted shrink-0"
+        >{{ node.subtitle }}</span>
       </button>
     </AppScrollArea>
   </AppPopover>

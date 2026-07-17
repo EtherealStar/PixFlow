@@ -1,15 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { router } from '@/router'
-import { setAccessToken } from '@/transport/authToken'
 import { getAuthSession } from '@/runtime/authSession'
 import * as authApi from '@/api/auth'
 
 vi.mock('@/api/auth', () => ({
-  me: vi.fn(async () => {
+  me: vi.fn(() => {
     throw new Error('not authenticated')
   }),
-  refresh: vi.fn(async () => {
+  refresh: vi.fn(() => {
     throw new Error('no refresh session')
   }),
   login: vi.fn(),

@@ -1,4 +1,4 @@
-import type { ApiError } from '@/types/api'
+import { ApiError } from '@/types/api'
 import { refreshAuthSessionOnce } from '@/transport/authRefresh'
 import { getAccessToken } from '@/transport/authToken'
 import { newTraceId } from '@/utils/id'
@@ -16,7 +16,7 @@ import { normalizeHttpError, readHttpError } from '@/transport/httpError'
  */
 export interface RequestOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
-  body?: BodyInit | unknown
+  body?: unknown
   headers?: Record<string, string>
   /** 调用方传入的 Idempotency-Key；不传则 client 不自动生成 */
   idempotencyKey?: string
@@ -75,28 +75,28 @@ export function configureInFlightCapacity(capacity: number): void {
 }
 
 function makeNetworkError(err: unknown, traceId: string): ApiError {
-  return {
+  return ApiError.fromUnknown(err, {
     status: 0,
     errorCode: 'NETWORK_ERROR',
-    message: err instanceof Error ? err.message : 'network error',
+    message: 'network error',
     traceId
-  }
+  })
 }
 
 async function withTimeout<T>(p: Promise<T>, ms: number, signal?: AbortSignal): Promise<T> {
   if (signal) {
-    return p
+    return await Promise.resolve(p)
   }
   return new Promise<T>((resolve, reject) => {
     const t = setTimeout(() => reject(new Error(`request timeout after ${ms}ms`)), ms)
-    p.then(
+    Promise.resolve(p).then(
       (v) => {
         clearTimeout(t)
         resolve(v)
       },
       (e) => {
         clearTimeout(t)
-        reject(e)
+        reject(e instanceof Error ? e : new Error('request failed', { cause: e }))
       }
     )
   })
@@ -159,7 +159,7 @@ export async function request<T = unknown>(path: string, opts: RequestOptions = 
       if (res.status === 204) return undefined as T
       const ct = res.headers.get('content-type') ?? ''
       if (ct.includes('application/json')) {
-        const json = await res.json()
+        const json: unknown = await res.json()
         if (json && typeof json === 'object' && 'success' in json && 'data' in json) {
           const envelope = json as { success?: boolean; data?: unknown; code?: string; message?: string; traceId?: string }
           if (envelope.success === false) {
@@ -171,9 +171,7 @@ export async function request<T = unknown>(path: string, opts: RequestOptions = 
       }
       return (await res.text()) as unknown as T
     } catch (e: unknown) {
-      if (e && typeof e === 'object' && 'errorCode' in e && 'status' in e) {
-        throw e as ApiError
-      }
+      if (e instanceof ApiError) throw e
       throw makeNetworkError(e, traceId)
     } finally {
       if (!opts.skipInFlight) inFlight.release()
@@ -184,7 +182,7 @@ export async function request<T = unknown>(path: string, opts: RequestOptions = 
     try {
       return await doFetch()
     } catch (e: unknown) {
-      const err = e as ApiError
+      const err = makeNetworkError(e, traceId)
       if (err.status === 0 || (err.status >= 500 && err.status < 600)) {
         // 退避 500ms 后重试一次
         await new Promise((r) => setTimeout(r, 500))
@@ -196,7 +194,7 @@ export async function request<T = unknown>(path: string, opts: RequestOptions = 
   return await doFetch()
 }
 
-function toRequestBody(value: BodyInit | unknown): BodyInit {
+function toRequestBody(value: unknown): BodyInit {
   if (isRawBody(value)) return value
   return JSON.stringify(value)
 }

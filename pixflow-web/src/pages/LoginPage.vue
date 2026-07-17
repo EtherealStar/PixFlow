@@ -67,7 +67,9 @@ function setMode(nextMode: AuthMode): void {
   if (mode.value === nextMode) return
   mode.value = nextMode
   clearErrors()
-  router.replace({ query: { ...route.query, mode: nextMode } })
+  void router.replace({ query: { ...route.query, mode: nextMode } }).catch((error: unknown) => {
+    pageError.value = error instanceof Error ? error.message : '切换登录模式失败'
+  })
 }
 
 function normalizeUsername(value: string): string {
@@ -173,10 +175,17 @@ function readRedirect(): string {
 
 <template>
   <div class="login-page flex min-h-screen items-center justify-center bg-bg-page px-4 py-10">
-    <AppCard padding="lg" class="w-full max-w-md">
+    <AppCard
+      padding="lg"
+      class="w-full max-w-md"
+    >
       <header class="mb-6 text-center">
-        <h1 class="mb-1 text-xl font-semibold text-fg-primary">{{ title }}</h1>
-        <p class="text-sm text-fg-secondary">{{ subtitle }}</p>
+        <h1 class="mb-1 text-xl font-semibold text-fg-primary">
+          {{ title }}
+        </h1>
+        <p class="text-sm text-fg-secondary">
+          {{ subtitle }}
+        </p>
       </header>
 
       <div class="mb-5 grid grid-cols-2 gap-2 rounded-md bg-bg-sunken p-1">
@@ -202,11 +211,18 @@ function readRedirect(): string {
         </button>
       </div>
 
-      <p v-if="pageError" class="mb-4 rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger">
+      <p
+        v-if="pageError"
+        class="mb-4 rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger"
+      >
         {{ pageError }}
       </p>
 
-      <form v-if="isRegisterMode" class="flex flex-col gap-3" @submit.prevent="onSubmit">
+      <form
+        v-if="isRegisterMode"
+        class="flex flex-col gap-3"
+        @submit.prevent="onSubmit"
+      >
         <AppInput
           v-model="registerForm.username"
           name="username"
@@ -236,12 +252,21 @@ function readRedirect(): string {
           placeholder="确认密码"
           :error="fieldErrors.confirmPassword"
         />
-        <AppButton variant="primary" type="submit" :loading="submitting" :disabled="!canSubmit">
+        <AppButton
+          variant="primary"
+          type="submit"
+          :loading="submitting"
+          :disabled="!canSubmit"
+        >
           {{ submitLabel }}
         </AppButton>
       </form>
 
-      <form v-else class="flex flex-col gap-3" @submit.prevent="onSubmit">
+      <form
+        v-else
+        class="flex flex-col gap-3"
+        @submit.prevent="onSubmit"
+      >
         <AppInput
           v-model="loginForm.username"
           name="username"
@@ -257,7 +282,12 @@ function readRedirect(): string {
           placeholder="密码"
           :error="fieldErrors.loginPassword"
         />
-        <AppButton variant="primary" type="submit" :loading="submitting" :disabled="!canSubmit">
+        <AppButton
+          variant="primary"
+          type="submit"
+          :loading="submitting"
+          :disabled="!canSubmit"
+        >
           {{ submitLabel }}
         </AppButton>
       </form>

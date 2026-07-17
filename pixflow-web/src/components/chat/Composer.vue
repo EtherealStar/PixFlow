@@ -5,6 +5,8 @@ import IconPaperclip from '@/components/icons/IconPaperclip.vue'
 import MentionPopover from './MentionPopover.vue'
 import type { FileIndexNode } from '@/stores/fileIndex'
 
+defineOptions({ name: 'ChatComposer' })
+
 /**
  * Composer — 输入框（web.md §7.3 / §十二）
  *
@@ -33,10 +35,10 @@ const textareaRef = ref<HTMLTextAreaElement | null>(null)
 const fileInput = ref<HTMLInputElement | null>(null)
 const isDragging = ref(false)
 
-function onDragOver(e: DragEvent) {
+function onDragOver(_e: DragEvent) {
   isDragging.value = true
 }
-function onDragLeave(e: DragEvent) {
+function onDragLeave(_e: DragEvent) {
   isDragging.value = false
 }
 function onDrop(e: DragEvent) {
@@ -106,13 +108,27 @@ const canSend = computed(() => ((props.modelValue ?? '').trim().length > 0 || pr
     @drop.prevent="onDrop"
   >
     <!-- Drag overlay -->
-    <div v-if="isDragging" class="absolute inset-0 z-10 flex items-center justify-center bg-bg-panel/90 rounded-2xl border-2 border-dashed border-accent pointer-events-none">
+    <div
+      v-if="isDragging"
+      class="absolute inset-0 z-10 flex items-center justify-center bg-bg-panel/90 rounded-2xl border-2 border-dashed border-accent pointer-events-none"
+    >
       <span class="text-accent font-medium">松开鼠标以上传文件</span>
     </div>
 
     <!-- Hidden file input -->
-    <input type="file" ref="fileInput" class="hidden" multiple @change="onFileChange" />
-    <MentionPopover :open="mentionOpen" :query="mentionQuery" @update:open="mentionOpen = $event" @select="onSelectMention">
+    <input
+      ref="fileInput"
+      type="file"
+      class="hidden"
+      multiple
+      @change="onFileChange"
+    >
+    <MentionPopover
+      :open="mentionOpen"
+      :query="mentionQuery"
+      @update:open="mentionOpen = $event"
+      @select="onSelectMention"
+    >
       <template #trigger>
         <textarea
           ref="textareaRef"
@@ -132,8 +148,8 @@ const canSend = computed(() => ((props.modelValue ?? '').trim().length > 0 || pr
       <button 
         type="button" 
         class="flex items-center justify-center text-fg-muted hover:text-fg-primary hover:bg-bg-sunken w-8 h-8 rounded-lg transition-colors"
-        @click="triggerFileSelect"
         aria-label="上传附件"
+        @click="triggerFileSelect"
       >
         <IconPaperclip :size="20" />
       </button>
@@ -144,18 +160,18 @@ const canSend = computed(() => ((props.modelValue ?? '').trim().length > 0 || pr
           v-if="streaming"
           type="button"
           class="flex items-center justify-center w-8 h-8 rounded-full bg-bg-sunken hover:bg-border text-fg-primary transition-colors"
-          @click="$emit('stop')"
           aria-label="停止"
+          @click="$emit('stop')"
         >
-          <span class="w-3 h-3 bg-fg-primary rounded-sm"></span>
+          <span class="w-3 h-3 bg-fg-primary rounded-sm" />
         </button>
         <button 
           type="button"
           class="flex items-center justify-center w-8 h-8 rounded-full transition-colors"
           :class="canSend ? 'bg-fg-primary text-bg-panel hover:opacity-90' : 'bg-bg-sunken text-fg-muted cursor-not-allowed'"
           :disabled="!canSend"
-          @click="$emit('send')"
           :aria-label="streaming ? '加入发送队列' : '发送'"
+          @click="$emit('send')"
         >
           <IconSend :size="16" />
         </button>

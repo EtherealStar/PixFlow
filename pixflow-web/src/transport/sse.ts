@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import type { ApiError } from '@/types/api'
+import { ApiError } from '@/types/api'
 import { getAccessToken } from '@/transport/authToken'
 import { newTraceId } from '@/utils/id'
 import { readHttpError } from '@/transport/httpError'
@@ -63,12 +63,12 @@ export function createSseClient(opts: SseClientOptions): { close: () => void } {
       // 真断
       if (!closed) {
         closed = true
-        const err: ApiError = {
+        const err = new ApiError({
           status: 0,
           errorCode: 'STREAM_INTERRUPTED',
           message: `SSE stream silent for ${heartbeat}ms`,
           traceId
-        }
+        })
         opts.onError(err)
         try { controller?.abort() } catch { /* ignore */ }
       }
@@ -140,12 +140,12 @@ export function createSseClient(opts: SseClientOptions): { close: () => void } {
           const result = eventEnvelope.safeParse(payload)
           if (!result.success) {
             // schema 校验失败 → 触发 onError + breadcrumb
-            const err: ApiError = {
+            const err = new ApiError({
               status: 0,
               errorCode: 'SSE_PAYLOAD_INVALID',
               message: result.error.message,
               traceId
-            }
+            })
             opts.onError(err)
             continue
           }
@@ -159,12 +159,12 @@ export function createSseClient(opts: SseClientOptions): { close: () => void } {
       }
     } catch (e: unknown) {
       if (closed) return
-      const err: ApiError = {
+      const err = ApiError.fromUnknown(e, {
         status: 0,
         errorCode: 'STREAM_INTERRUPTED',
-        message: e instanceof Error ? e.message : 'SSE connection error',
+        message: 'SSE connection error',
         traceId
-      }
+      })
       opts.onError(err)
     } finally {
       window.clearInterval(heartbeatTimer)

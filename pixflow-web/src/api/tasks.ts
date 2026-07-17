@@ -22,6 +22,7 @@ export interface TaskStatusView {
   progress: { done: number; total: number; failed: number }
   skipped: number
   lastError?: string | null
+  retryOfTaskId?: string | null
   createdAt: string
   startedAt?: string
   finishedAt?: string
@@ -54,8 +55,27 @@ export interface TaskResult {
   size?: number | null
   url?: string | null
   errorMsg?: string
+  failure?: TaskFailure | null
   createdAt: string
   finishedAt?: string
+}
+
+export interface TaskFailure {
+  code?: string | null
+  category?: string | null
+  recovery?: string | null
+  failedNodeId?: string | null
+  failedTool?: string | null
+  attemptCount: number
+  safeMessage?: string | null
+  details: Record<string, unknown>
+}
+
+export interface RetryTaskResponse {
+  taskId: string
+  retryOfTaskId: string
+  selectedUnitCount: number
+  status: TaskStatus
 }
 
 export interface DownloadHandle {
@@ -117,6 +137,14 @@ export function cancelTask(conversationId: string, taskId: string): Promise<Canc
     `/api/conversations/${encodeURIComponent(conversationId)}/tasks/${encodeURIComponent(taskId)}/cancel`,
     { method: 'POST', noRetry: true }
   )
+}
+
+export function retryFailedTask(taskId: string, idempotencyKey: string): Promise<RetryTaskResponse> {
+  return request<RetryTaskResponse>(`/api/tasks/${encodeURIComponent(taskId)}/retry-failed`, {
+    method: 'POST',
+    idempotencyKey,
+    noRetry: true
+  })
 }
 
 export function deleteTaskResult(taskId: string, resultId: string): Promise<void> {

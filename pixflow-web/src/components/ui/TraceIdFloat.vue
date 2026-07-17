@@ -45,7 +45,10 @@ async function copy(): Promise<void> {
     <span class="text-fg-primary max-w-[240px] overflow-hidden text-ellipsis whitespace-nowrap">
       {{ traceId }}
     </span>
-    <IconCopy :size="12" class="text-fg-muted shrink-0" />
+    <IconCopy
+      :size="12"
+      class="text-fg-muted shrink-0"
+    />
   </div>
 </template>
 

@@ -2,7 +2,6 @@
 import { computed, ref } from 'vue'
 import { useUiStore } from '@/stores/ui'
 import { useTasksStore } from '@/stores/tasks'
-import { useAuthStore } from '@/stores/auth'
 import IconPin from '@/components/icons/IconPin.vue'
 import IconPinOff from '@/components/icons/IconPinOff.vue'
 import IconX from '@/components/icons/IconX.vue'
@@ -28,7 +27,6 @@ import TaskPanel from '@/components/tasks/TaskPanel.vue'
 
 const ui = useUiStore()
 const tasks = useTasksStore()
-const auth = useAuthStore()
 
 // 状态统计
 const counts = computed(() => {
@@ -69,25 +67,46 @@ const effectiveExpanded = computed(() => ui.rightPanelPinned || ui.rightPanelExp
     @mouseleave="onLeave"
   >
     <!-- 把手 -->
-    <div v-if="!effectiveExpanded" class="rail" @click="ui.setRightPanelExpanded(true)">
-      <div class="rail-bar"></div>
+    <div
+      v-if="!effectiveExpanded"
+      class="rail"
+      @click="ui.setRightPanelExpanded(true)"
+    >
+      <div class="rail-bar" />
       <div class="badges">
-        <AppBadge v-if="counts.inProgress > 0" tone="info" style="solid">
+        <AppBadge
+          v-if="counts.inProgress > 0"
+          tone="info"
+          style="solid"
+        >
           {{ counts.inProgress }}
         </AppBadge>
-        <AppBadge v-if="counts.completed > 0" tone="success" style="solid">
+        <AppBadge
+          v-if="counts.completed > 0"
+          tone="success"
+          style="solid"
+        >
           {{ counts.completed }}
         </AppBadge>
-        <AppBadge v-if="counts.failed > 0" tone="danger" style="solid">
+        <AppBadge
+          v-if="counts.failed > 0"
+          tone="danger"
+          style="solid"
+        >
           {{ counts.failed }}
         </AppBadge>
       </div>
     </div>
 
     <!-- 展开态 -->
-    <div v-show="effectiveExpanded" class="panel-body flex flex-col h-full w-[360px]">
+    <div
+      v-show="effectiveExpanded"
+      class="panel-body flex flex-col h-full w-[360px]"
+    >
       <header class="panel-header">
-        <h3 class="panel-title">任务 ({{ totalCount }})</h3>
+        <h3 class="panel-title">
+          任务 ({{ totalCount }})
+        </h3>
         <div class="panel-actions">
           <button
             type="button"
@@ -95,8 +114,14 @@ const effectiveExpanded = computed(() => ui.rightPanelPinned || ui.rightPanelExp
             :aria-label="ui.rightPanelPinned ? '取消钉住' : '钉住面板'"
             @click="ui.toggleRightPanelPin()"
           >
-            <IconPin v-if="!ui.rightPanelPinned" :size="14" />
-            <IconPinOff v-else :size="14" />
+            <IconPin
+              v-if="!ui.rightPanelPinned"
+              :size="14"
+            />
+            <IconPinOff
+              v-else
+              :size="14"
+            />
           </button>
           <button
             type="button"

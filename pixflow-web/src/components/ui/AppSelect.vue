@@ -37,7 +37,10 @@ defineEmits<{
       class="inline-flex items-center justify-between gap-2 h-10 px-3 text-base bg-bg-panel text-fg-primary border border-border rounded-md focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition-colors min-w-[120px]"
     >
       <SelectValue :placeholder="placeholder ?? '请选择'" />
-      <IconChevronDown :size="16" class="text-fg-muted" />
+      <IconChevronDown
+        :size="16"
+        class="text-fg-muted"
+      />
     </SelectTrigger>
     <SelectPortal>
       <SelectContent

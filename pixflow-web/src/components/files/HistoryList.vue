@@ -18,7 +18,7 @@ const toast = useToastStore()
 onMounted(() => {
   // 确保有数据
   if (conversations.items.length === 0) {
-    conversations.refresh()
+    void conversations.refresh().catch(showError)
   }
 })
 
@@ -49,7 +49,11 @@ const groupedHistory = computed(() => {
 })
 
 function onSelect(id: string): void {
-  router.push(`/chat/${id}`)
+  void router.push(`/chat/${id}`).catch(showError)
+}
+
+function showError(error: unknown): void {
+  toast.push({ variant: 'danger', message: error instanceof Error ? error.message : '操作失败' })
 }
 
 async function onRemove(id: string, title?: string): Promise<void> {
@@ -62,8 +66,14 @@ async function onRemove(id: string, title?: string): Promise<void> {
 
 <template>
   <div class="history-list">
-    <div v-for="group in groupedHistory" :key="group.label" class="history-group">
-      <div class="group-label">{{ group.label }}</div>
+    <div
+      v-for="group in groupedHistory"
+      :key="group.label"
+      class="history-group"
+    >
+      <div class="group-label">
+        {{ group.label }}
+      </div>
       <ul class="group-items">
         <li 
           v-for="item in group.items" 
@@ -72,18 +82,28 @@ async function onRemove(id: string, title?: string): Promise<void> {
           :class="{ active: $route.params.cid === item.conversationId }"
           @click="onSelect(item.conversationId)"
         >
-          <IconChat :size="16" class="item-icon" />
+          <IconChat
+            :size="16"
+            class="item-icon"
+          />
           <span class="item-title flex-1 truncate">{{ item.title || '新会话' }}</span>
           
           <!-- Hover 操作 -->
           <div class="item-actions opacity-0 group-hover/item:opacity-100 transition-opacity">
             <AppDropdownMenu>
               <template #trigger>
-                <button class="action-btn" @click.stop aria-label="更多操作">
+                <button
+                  class="action-btn"
+                  aria-label="更多操作"
+                  @click.stop
+                >
                   <IconMoreHorizontal :size="16" />
                 </button>
               </template>
-              <AppDropdownMenuItem danger @select="onRemove(item.conversationId, item.title)">
+              <AppDropdownMenuItem
+                danger
+                @select="onRemove(item.conversationId, item.title)"
+              >
                 删除
               </AppDropdownMenuItem>
             </AppDropdownMenu>

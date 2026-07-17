@@ -17,6 +17,8 @@ withDefaults(
   {
     pulse: true,
     rounded: 'sm',
+    width: undefined,
+    height: undefined,
   }
 )
 </script>

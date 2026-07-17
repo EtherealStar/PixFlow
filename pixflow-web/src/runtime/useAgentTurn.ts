@@ -4,7 +4,7 @@ import { createSseClient } from '@/transport/sse'
 import { challenge as challengeConfirm, submit as submitConfirm } from '@/api/confirm'
 import { getIdempotencyKey, setIdempotencyKey } from '@/utils/idempotencyStore'
 import { newId, newUuid } from '@/utils/id'
-import type { ApiError } from '@/types/api'
+import { ApiError } from '@/types/api'
 import type {
   AgentEvent,
   AgentEventAttribution,
@@ -85,12 +85,12 @@ export function createAgentTurn(opts: { conversationId: string }) {
   }
 
   function abort(): void {
-    const err: ApiError = {
+    const err = new ApiError({
       status: 0,
       errorCode: 'TURN_CANCELLED',
       message: 'Agent 回合已取消',
       traceId: ''
-    }
+    })
     if (abortController) {
       abortController.abort()
       abortController = null
@@ -125,7 +125,7 @@ export function createAgentTurn(opts: { conversationId: string }) {
         activeTurn = null
         startNextQueuedTurn()
       })
-      .catch((error: ApiError | Error | unknown) => {
+      .catch((error: unknown) => {
         const apiError = toApiError(error)
         item.reject(apiError)
         activeTurn = null
@@ -233,12 +233,12 @@ export function createAgentTurn(opts: { conversationId: string }) {
             }
             case 'error': {
               const p = ev.data as ErrorEventPayload
-              const err: ApiError = {
+              const err = new ApiError({
                 status: 0,
                 errorCode: p.errorCode ?? 'STREAM_ERROR',
                 message: p.message ?? 'agent stream error',
                 traceId: p.traceId ?? ''
-              }
+              })
               setPhase('error', { error: err })
               fail(err)
               break
@@ -257,7 +257,7 @@ export function createAgentTurn(opts: { conversationId: string }) {
         },
         onClose: () => {
           if (settled || receivedCompletion) return
-          const err: ApiError = { status: 0, errorCode: 'STREAM_INTERRUPTED', message: 'SSE 关闭前未收到 completed 事件', traceId: '' }
+          const err = new ApiError({ status: 0, errorCode: 'STREAM_INTERRUPTED', message: 'SSE 关闭前未收到 completed 事件', traceId: '' })
           setPhase('error', { error: err })
           fail(err)
         }
@@ -544,8 +544,7 @@ export function createAgentTurn(opts: { conversationId: string }) {
     const idx = proposals.value.findIndex((p) => p.proposalId === proposalId)
     if (idx === -1) return
     const next = proposals.value.slice()
-    const rejected = { ...next[idx]!, type: next[idx]!.type } as Proposal & { rejected?: true }
-    ;(rejected as Proposal & { rejected?: true }).rejected = true
+    const rejected: Proposal & { rejected?: true } = { ...next[idx]!, rejected: true }
     next[idx] = rejected
     proposals.value = next
     if (pending?.proposal.proposalId === proposalId) {
@@ -562,12 +561,12 @@ export function createAgentTurn(opts: { conversationId: string }) {
    */
   async function confirm(proposalId: string, challengeAnswer?: string): Promise<ConfirmResult> {
     if (!pending || pending.proposal.proposalId !== proposalId) {
-      throw {
+      throw new ApiError({
         status: 400,
         errorCode: 'PROPOSAL_NOT_FOUND',
         message: '本地无对应 proposal 状态',
         traceId: ''
-      } as ApiError
+      })
     }
     if (challengeAnswer && pending.challengeId) {
       return await doSubmit(proposalId, challengeAnswer)
@@ -576,8 +575,8 @@ export function createAgentTurn(opts: { conversationId: string }) {
     let ct: ChallengeOrToken
     try {
       ct = await challengeConfirm(opts.conversationId, proposalId)
-    } catch (e) {
-      const err = e as ApiError
+    } catch (e: unknown) {
+      const err = toApiError(e)
       if (err.errorCode === 'PROPOSAL_CHALLENGE_FAILED') {
         setPhase('awaiting_challenge', { error: err })
         throw err
@@ -590,7 +589,7 @@ export function createAgentTurn(opts: { conversationId: string }) {
     }
     if (ct.needChallenge) {
       if (!ct.challenge) {
-        const err: ApiError = { status: 500, errorCode: 'INTERNAL_ERROR', message: 'challenge 响应缺 challenge 字段', traceId: '' }
+        const err = new ApiError({ status: 500, errorCode: 'INTERNAL_ERROR', message: 'challenge 响应缺 challenge 字段', traceId: '' })
         setPhase('error', { error: err })
         throw err
       }
@@ -599,7 +598,7 @@ export function createAgentTurn(opts: { conversationId: string }) {
       return { taskId: '', challenge: ct.challenge }
     }
     if (!ct.token) {
-      const err: ApiError = { status: 500, errorCode: 'INTERNAL_ERROR', message: 'challenge 响应缺 token 字段', traceId: '' }
+      const err = new ApiError({ status: 500, errorCode: 'INTERNAL_ERROR', message: 'challenge 响应缺 token 字段', traceId: '' })
       setPhase('error', { error: err })
       throw err
     }
@@ -609,12 +608,12 @@ export function createAgentTurn(opts: { conversationId: string }) {
 
   async function doSubmit(proposalId: string, challengeAnswer?: string): Promise<ConfirmResult> {
     if (!pending || (!pending.token && !pending.challengeId)) {
-      throw {
+      throw new ApiError({
         status: 400,
         errorCode: 'CONFIRMATION_TOKEN_INVALID',
         message: 'no token to submit',
         traceId: ''
-      } as ApiError
+      })
     }
     setPhase('awaiting_confirm')
     const idemp = getIdempotencyKey(proposalId) ?? newUuid()
@@ -632,12 +631,12 @@ export function createAgentTurn(opts: { conversationId: string }) {
       setPhase('completed', { taskId: r.taskId })
       pending = null
       return { taskId: r.taskId }
-    } catch (e) {
-      const err = e as ApiError
+    } catch (e: unknown) {
+      const err = toApiError(e)
       if (err.errorCode === 'PROPOSAL_ALREADY_CONFIRMED') {
         // 幂等：视为成功
         setPhase('completed')
-        return { taskId: err.details?.taskId as string ?? '' }
+        return { taskId: typeof err.details?.taskId === 'string' ? err.details.taskId : '' }
       }
       if (err.errorCode === 'CONFIRMATION_TOKEN_INVALID') {
         setPhase('error', { error: err })
@@ -667,24 +666,13 @@ function isActivePhase(phase: AgentTurnPhase): boolean {
   return phase === 'sending' || phase === 'streaming' || phase === 'awaiting_challenge' || phase === 'awaiting_confirm'
 }
 
-function toApiError(error: ApiError | Error | unknown): ApiError {
-  if (typeof error === 'object' && error !== null && 'errorCode' in error && 'message' in error) {
-    return error as ApiError
-  }
-  if (error instanceof Error) {
-    return {
-      status: 0,
-      errorCode: 'STREAM_ERROR',
-      message: error.message,
-      traceId: ''
-    }
-  }
-  return {
+function toApiError(error: unknown): ApiError {
+  return ApiError.fromUnknown(error, {
     status: 0,
     errorCode: 'STREAM_ERROR',
     message: 'agent stream error',
     traceId: ''
-  }
+  })
 }
 
 export type AgentTurn = ReturnType<typeof createAgentTurn>

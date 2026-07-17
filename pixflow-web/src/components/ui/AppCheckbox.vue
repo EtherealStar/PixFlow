@@ -38,7 +38,10 @@ void props
     @update:checked="(v: boolean) => $emit('update:checked', v)"
   >
     <CheckboxIndicator class="flex items-center justify-center text-accent-fg">
-      <IconCheck :size="12" :stroke-width="2.5" />
+      <IconCheck
+        :size="12"
+        :stroke-width="2.5"
+      />
     </CheckboxIndicator>
   </CheckboxRoot>
 </template>

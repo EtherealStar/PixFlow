@@ -39,18 +39,32 @@ const emit = defineEmits<{
             :src="src"
             :alt="alt ?? filename"
             class="max-w-full max-h-[60vh] object-contain"
-          />
+          >
         </div>
         <div class="flex items-center justify-between text-xs text-fg-secondary">
           <span v-if="size">{{ size }}</span>
           <span v-else />
           <div class="flex gap-2">
-            <AppButton size="sm" variant="ghost" @click="emit('download')">
-              <IconDownload :size="14" class="mr-1" />
+            <AppButton
+              size="sm"
+              variant="ghost"
+              @click="emit('download')"
+            >
+              <IconDownload
+                :size="14"
+                class="mr-1"
+              />
               下载
             </AppButton>
-            <AppButton size="sm" variant="ghost" @click="emit('open-external')">
-              <IconExternalLink :size="14" class="mr-1" />
+            <AppButton
+              size="sm"
+              variant="ghost"
+              @click="emit('open-external')"
+            >
+              <IconExternalLink
+                :size="14"
+                class="mr-1"
+              />
               新窗口打开
             </AppButton>
           </div>

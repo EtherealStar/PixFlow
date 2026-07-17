@@ -14,7 +14,7 @@ import IconAlertCircle from '@/components/icons/IconAlertCircle.vue'
  *
  * 设计原则：颜色全部走 token。
  */
-const props = withDefaults(
+withDefaults(
   defineProps<{
     modelValue?: string | number
     placeholder?: string
@@ -30,8 +30,13 @@ const props = withDefaults(
     name?: string
   }>(),
   {
+    modelValue: undefined,
+    placeholder: undefined,
+    error: undefined,
     type: 'text',
     disabled: false,
+    autocomplete: undefined,
+    name: undefined,
   }
 )
 
@@ -59,7 +64,10 @@ const hasSuffix = computed(() => !!slots.suffix)
         disabled && 'opacity-50 cursor-not-allowed bg-bg-sunken'
       ]"
     >
-      <span v-if="hasPrefix" class="prefix-slot pl-2 text-fg-muted">
+      <span
+        v-if="hasPrefix"
+        class="prefix-slot pl-2 text-fg-muted"
+      >
         <slot name="prefix" />
       </span>
       <input
@@ -71,12 +79,24 @@ const hasSuffix = computed(() => !!slots.suffix)
         :disabled="disabled"
         class="flex-1 min-w-0 h-10 px-3 text-base bg-transparent text-fg-primary placeholder:text-fg-muted focus:outline-none disabled:cursor-not-allowed"
         @input="(ev: Event) => $emit('update:modelValue', (ev.target as HTMLInputElement).value)"
-      />
-      <span v-if="hasSuffix" class="suffix-slot pr-2 text-fg-muted">
+      >
+      <span
+        v-if="hasSuffix"
+        class="suffix-slot pr-2 text-fg-muted"
+      >
         <slot name="suffix" />
       </span>
-      <IconAlertCircle v-if="error" :size="16" class="text-danger mr-2 shrink-0" />
+      <IconAlertCircle
+        v-if="error"
+        :size="16"
+        class="text-danger mr-2 shrink-0"
+      />
     </div>
-    <p v-if="error" class="error-text text-xs text-danger mt-1">{{ error }}</p>
+    <p
+      v-if="error"
+      class="error-text text-xs text-danger mt-1"
+    >
+      {{ error }}
+    </p>
   </div>
 </template>

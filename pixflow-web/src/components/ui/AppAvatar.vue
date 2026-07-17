@@ -19,6 +19,8 @@ const props = withDefaults(
     size?: number
   }>(),
   {
+    text: undefined,
+    src: undefined,
     size: 32,
   }
 )
@@ -42,7 +44,15 @@ const initial = computed(() => {
     ]"
     :style="{ width: `${size}px`, height: `${size}px`, fontSize: `${Math.round(size * 0.45)}px` }"
   >
-    <img v-if="src" :src="src" alt="" class="w-full h-full object-cover" />
-    <span v-else-if="initial" class="text-fg-secondary font-medium select-none">{{ initial }}</span>
+    <img
+      v-if="src"
+      :src="src"
+      alt=""
+      class="w-full h-full object-cover"
+    >
+    <span
+      v-else-if="initial"
+      class="text-fg-secondary font-medium select-none"
+    >{{ initial }}</span>
   </div>
 </template>

@@ -48,11 +48,26 @@ function onSubmit(): void {
     @update:open="(v: boolean) => $emit('update:open', v)"
   >
     <template #body>
-      <AppInput v-model="draft" placeholder="新名称" @keydown.enter="onSubmit" />
+      <AppInput
+        v-model="draft"
+        placeholder="新名称"
+        @keydown.enter="onSubmit"
+      />
     </template>
     <template #footer>
-      <AppButton variant="secondary" @click="$emit('update:open', false)">取消</AppButton>
-      <AppButton variant="primary" :loading="submitting" @click="onSubmit">确认</AppButton>
+      <AppButton
+        variant="secondary"
+        @click="$emit('update:open', false)"
+      >
+        取消
+      </AppButton>
+      <AppButton
+        variant="primary"
+        :loading="submitting"
+        @click="onSubmit"
+      >
+        确认
+      </AppButton>
     </template>
   </AppDialog>
 </template>

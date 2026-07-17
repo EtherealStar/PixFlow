@@ -16,7 +16,10 @@ defineProps<{
 </script>
 
 <template>
-  <AccordionItem :value="value" class="border-b border-border">
+  <AccordionItem
+    :value="value"
+    class="border-b border-border"
+  >
     <AccordionHeader>
       <AccordionTrigger
         class="w-full flex items-center justify-between py-3 px-2 text-sm font-medium text-fg-primary hover:bg-bg-sunken rounded-sm transition-colors"

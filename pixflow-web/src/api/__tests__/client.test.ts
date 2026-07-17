@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { request } from '@/api/client'
 import { setAccessToken } from '@/transport/authToken'
 import { getAuthSession } from '@/runtime/authSession'
+import { ApiError } from '@/types/api'
 
 function jsonResponse(data: unknown): Response {
   return new Response(JSON.stringify({ success: true, data }), {
@@ -21,7 +22,7 @@ describe('request auth header', () => {
   })
 
   it('attaches access token to authenticated requests', async () => {
-    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => jsonResponse({ ok: true }))
+    const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit) => jsonResponse({ ok: true }))
     vi.stubGlobal('fetch', fetchMock)
     setAccessToken('good-token')
 
@@ -33,7 +34,7 @@ describe('request auth header', () => {
   })
 
   it('skips access token when auth is false', async () => {
-    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => jsonResponse({ ok: true }))
+    const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit) => jsonResponse({ ok: true }))
     vi.stubGlobal('fetch', fetchMock)
     setAccessToken('bad-token')
 
@@ -47,7 +48,7 @@ describe('request auth header', () => {
   it('refreshes an expired access token once and retries the original request', async () => {
     setAccessToken('expired-token')
     const fetchMock = vi
-      .fn()
+      .fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>()
       .mockResolvedValueOnce(new Response(JSON.stringify({
         success: false,
         code: 'AUTH_TOKEN_EXPIRED',
@@ -77,6 +78,39 @@ describe('request auth header', () => {
     expect((fetchMock.mock.calls[1]?.[1] as RequestInit).headers).not.toHaveProperty('Authorization')
     expect((fetchMock.mock.calls[2]?.[1] as RequestInit).headers).toMatchObject({
       Authorization: 'Bearer fresh-token'
+    })
+  })
+
+  it('throws an Error subclass while preserving a backend error envelope', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      success: false,
+      code: 'INVALID_PARAM',
+      message: '参数错误',
+      details: { field: 'page' },
+      traceId: 'server-trace'
+    }), { status: 400, headers: { 'content-type': 'application/json' } })))
+
+    const promise = request('/api/failure', { noRetry: true })
+
+    await expect(promise).rejects.toBeInstanceOf(Error)
+    await expect(promise).rejects.toBeInstanceOf(ApiError)
+    await expect(promise).rejects.toMatchObject({
+      status: 400,
+      errorCode: 'INVALID_PARAM',
+      message: '参数错误',
+      details: { field: 'page' },
+      traceId: 'server-trace'
+    })
+  })
+
+  it('normalizes a fetch rejection to a structured network error', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('connection lost')))
+
+    await expect(request('/api/offline', { noRetry: true })).rejects.toMatchObject({
+      name: 'ApiError',
+      status: 0,
+      errorCode: 'NETWORK_ERROR',
+      message: 'connection lost'
     })
   })
 })

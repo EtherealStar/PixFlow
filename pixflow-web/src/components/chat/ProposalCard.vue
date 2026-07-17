@@ -37,19 +37,49 @@ function onConfirm(): void {
 </script>
 
 <template>
-  <AppCard bordered class="proposal-card border-accent bg-accent-soft my-3">
+  <AppCard
+    bordered
+    class="proposal-card border-accent bg-accent-soft my-3"
+  >
     <header class="flex items-center justify-between mb-2">
-      <AppBadge tone="accent" style="solid">{{ proposal.type }}</AppBadge>
+      <AppBadge
+        tone="accent"
+        style="solid"
+      >
+        {{ proposal.type }}
+      </AppBadge>
       <span class="text-xs font-mono text-fg-muted">{{ proposal.proposalId.slice(0, 8) }}</span>
     </header>
-    <div class="text-base text-fg-primary mb-2">{{ proposal.summary ?? '(无摘要)' }}</div>
-    <div v-if="awaitingChallenge && challengePrompt" class="bg-bg-panel rounded-md p-2 mb-2">
-      <div class="text-sm text-fg-secondary mb-1.5">{{ challengePrompt }}</div>
-      <AppInput v-model="answer" placeholder="请输入答案..." />
+    <div class="text-base text-fg-primary mb-2">
+      {{ proposal.summary ?? '(无摘要)' }}
+    </div>
+    <div
+      v-if="awaitingChallenge && challengePrompt"
+      class="bg-bg-panel rounded-md p-2 mb-2"
+    >
+      <div class="text-sm text-fg-secondary mb-1.5">
+        {{ challengePrompt }}
+      </div>
+      <AppInput
+        v-model="answer"
+        placeholder="请输入答案..."
+      />
     </div>
     <div class="flex gap-2 justify-end">
-      <AppButton variant="primary" :disabled="busy" @click="onConfirm">确认执行</AppButton>
-      <AppButton variant="ghost" :disabled="busy" @click="emit('reject')">拒绝</AppButton>
+      <AppButton
+        variant="primary"
+        :disabled="busy"
+        @click="onConfirm"
+      >
+        确认执行
+      </AppButton>
+      <AppButton
+        variant="ghost"
+        :disabled="busy"
+        @click="emit('reject')"
+      >
+        拒绝
+      </AppButton>
     </div>
   </AppCard>
 </template>

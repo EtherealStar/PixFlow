@@ -73,13 +73,24 @@ const barTone = computed(() => {
         </div>
         <div class="text-xs text-fg-muted truncate">
           {{ state.progress.done }}/{{ state.progress.total }}
-          <span v-if="state.progress.failed > 0" class="text-danger">
+          <span
+            v-if="state.progress.failed > 0"
+            class="text-danger"
+          >
             · 失败 {{ state.progress.failed }}
           </span>
         </div>
       </div>
-      <AppBadge :tone="badge.tone" style="solid">{{ badge.label }}</AppBadge>
+      <AppBadge
+        :tone="badge.tone"
+        style="solid"
+      >
+        {{ badge.label }}
+      </AppBadge>
     </div>
-    <AppProgressBar :percent="percent" :tone="barTone" />
+    <AppProgressBar
+      :percent="percent"
+      :tone="barTone"
+    />
   </AppCard>
 </template>

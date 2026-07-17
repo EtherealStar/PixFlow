@@ -5,6 +5,7 @@ import AppButton from '@/components/ui/AppButton.vue'
 import IconRefresh from '@/components/icons/IconRefresh.vue'
 import IconTrash from '@/components/icons/IconTrash.vue'
 import IconExternalLink from '@/components/icons/IconExternalLink.vue'
+import { RotateCcw } from 'lucide-vue-next'
 import type { TaskState } from '@/runtime/useTask'
 
 /**
@@ -36,7 +37,9 @@ const badge = computed(() => {
 })
 
 const canCancel = computed(() => props.state.phase === 'queued' || props.state.phase === 'running')
-const canRetry = computed(() => props.state.phase === 'failed' || props.state.phase === 'partial' || props.state.phase === 'cancelled')
+const canRetry = computed(() =>
+  (props.state.phase === 'failed' || props.state.phase === 'partial') && props.state.progress.failed > 0
+)
 
 function fmt(ts?: string): string {
   if (!ts) return '—'
@@ -53,44 +56,106 @@ function fmt(ts?: string): string {
           <h2 class="text-lg font-medium text-fg-primary truncate">
             {{ state.taskType ?? '图像处理' }}
           </h2>
-          <AppBadge :tone="badge.tone" style="solid">{{ badge.label }}</AppBadge>
+          <AppBadge
+            :tone="badge.tone"
+            style="solid"
+          >
+            {{ badge.label }}
+          </AppBadge>
         </div>
-        <div class="text-xs font-mono text-fg-muted">#{{ state.taskId }}</div>
+        <div class="text-xs font-mono text-fg-muted">
+          #{{ state.taskId }}
+        </div>
       </div>
       <div class="flex items-center gap-2 shrink-0">
-        <AppButton variant="ghost" size="sm" @click="emit('refresh')">
-          <IconRefresh :size="14" class="mr-1" />
+        <AppButton
+          variant="ghost"
+          size="sm"
+          @click="emit('refresh')"
+        >
+          <IconRefresh
+            :size="14"
+            class="mr-1"
+          />
           刷新
         </AppButton>
-        <AppButton v-if="canCancel" variant="ghost" size="sm" @click="emit('cancel')">
-          <IconTrash :size="14" class="mr-1" />
+        <AppButton
+          v-if="canCancel"
+          variant="ghost"
+          size="sm"
+          @click="emit('cancel')"
+        >
+          <IconTrash
+            :size="14"
+            class="mr-1"
+          />
           取消
         </AppButton>
-        <AppButton v-if="canRetry" variant="primary" size="sm" @click="emit('retry')">
-          重试
+        <AppButton
+          v-if="canRetry"
+          variant="primary"
+          size="sm"
+          @click="emit('retry')"
+        >
+          <RotateCcw
+            :size="14"
+            class="mr-1"
+          />
+          重试失败项
         </AppButton>
-        <AppButton variant="ghost" size="sm" @click="emit('openExternal')">
-          <IconExternalLink :size="14" class="mr-1" />
+        <AppButton
+          variant="ghost"
+          size="sm"
+          @click="emit('openExternal')"
+        >
+          <IconExternalLink
+            :size="14"
+            class="mr-1"
+          />
           新窗口
         </AppButton>
       </div>
     </div>
     <dl class="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
       <div>
-        <dt class="text-fg-muted mb-0.5">已处理 / 总数</dt>
-        <dd class="text-fg-primary">{{ state.progress.done }} / {{ state.progress.total }}</dd>
+        <dt class="text-fg-muted mb-0.5">
+          已处理 / 总数
+        </dt>
+        <dd class="text-fg-primary">
+          {{ state.progress.done }} / {{ state.progress.total }}
+        </dd>
       </div>
       <div>
-        <dt class="text-fg-muted mb-0.5">失败</dt>
-        <dd class="text-fg-primary">{{ state.progress.failed }}</dd>
+        <dt class="text-fg-muted mb-0.5">
+          失败
+        </dt>
+        <dd class="text-fg-primary">
+          {{ state.progress.failed }}
+        </dd>
       </div>
       <div>
-        <dt class="text-fg-muted mb-0.5">开始时间</dt>
-        <dd class="text-fg-primary">{{ fmt(state.startedAt) }}</dd>
+        <dt class="text-fg-muted mb-0.5">
+          跳过
+        </dt>
+        <dd class="text-fg-primary">
+          {{ state.progress.skipped }}
+        </dd>
       </div>
       <div>
-        <dt class="text-fg-muted mb-0.5">完成时间</dt>
-        <dd class="text-fg-primary">{{ fmt(state.finishedAt) }}</dd>
+        <dt class="text-fg-muted mb-0.5">
+          开始时间
+        </dt>
+        <dd class="text-fg-primary">
+          {{ fmt(state.startedAt) }}
+        </dd>
+      </div>
+      <div>
+        <dt class="text-fg-muted mb-0.5">
+          完成时间
+        </dt>
+        <dd class="text-fg-primary">
+          {{ fmt(state.finishedAt) }}
+        </dd>
       </div>
     </dl>
   </header>

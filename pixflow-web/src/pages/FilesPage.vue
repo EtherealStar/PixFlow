@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute } from 'vue-router'
 
 import AppTabs from '@/components/ui/AppTabs.vue'
 import AppTabsTrigger from '@/components/ui/AppTabsTrigger.vue'
@@ -26,12 +26,11 @@ import { listConversations } from '@/api/conversations'
 import { listConversationImages, deleteTaskResult } from '@/api/tasks'
 import { createBundleDownload } from '@/api/downloads'
 
-import type { ImageItem } from '@/components/files/ImageGrid.vue'
+import type { GalleryImageItem } from '@/types/files'
 import type { ViewMode, SortType } from '@/types/upload'
 
 // -- Router & Tabs --
 const route = useRoute()
-const router = useRouter()
 
 const activeTab = ref(route.query.tab === 'results' || route.query.focus === 'results' ? 'products' : 'materials')
 
@@ -53,10 +52,10 @@ const selectedIds = ref<string[]>([])
 
 // -- Dialogs --
 const previewOpen = ref(false)
-const previewItem = ref<ImageItem | null>(null)
+const previewItem = ref<GalleryImageItem | null>(null)
 
 // -- Data --
-interface ExtendedImageItem extends ImageItem {
+interface ExtendedImageItem extends GalleryImageItem {
   createdAt?: string
   groupId?: string
   sourceType: 'asset' | 'result'
@@ -157,13 +156,14 @@ async function loadProducts() {
 }
 
 onMounted(() => {
-  loadMaterials()
-  loadProducts()
+  void Promise.all([loadMaterials(), loadProducts()]).catch((error: unknown) => {
+    console.error('Failed to load files page', error)
+  })
 })
 
 // -- Computed Data for Display --
 const currentGroups = computed(() => {
-  let groups = activeTab.value === 'materials' ? materialsData.value : productsData.value
+  const groups = activeTab.value === 'materials' ? materialsData.value : productsData.value
   
   // Clone to avoid mutating original
   return groups.map(g => {
@@ -243,12 +243,12 @@ const totalItems = computed(() => {
 })
 
 // -- Actions --
-function onPreview(item: ImageItem): void {
+function onPreview(item: GalleryImageItem): void {
   previewItem.value = item
   previewOpen.value = true
 }
 
-function onDownload(item: ImageItem): void {
+function onDownload(item: GalleryImageItem): void {
   if (!item.src) return
   const a = document.createElement('a')
   a.href = item.src
@@ -273,7 +273,7 @@ async function onDownloadSelected() {
   a.remove()
 }
 
-function onOpenExternal(item: ImageItem): void {
+function onOpenExternal(item: GalleryImageItem): void {
   if (item.src) window.open(item.src, '_blank')
 }
 
@@ -314,12 +314,20 @@ function formatBytes(size?: number | null): string {
 
 <template>
   <section class="files-page flex flex-col h-full bg-bg-page overflow-hidden">
-    <AppTabs v-model="activeTab" :default-value="'materials'" class="flex flex-col h-full overflow-hidden">
+    <AppTabs
+      v-model="activeTab"
+      :default-value="'materials'"
+      class="flex flex-col h-full overflow-hidden"
+    >
       <template #list>
         <div class="px-4 pt-2">
           <div class="flex">
-            <AppTabsTrigger value="materials">素材</AppTabsTrigger>
-            <AppTabsTrigger value="products">产物</AppTabsTrigger>
+            <AppTabsTrigger value="materials">
+              素材
+            </AppTabsTrigger>
+            <AppTabsTrigger value="products">
+              产物
+            </AppTabsTrigger>
           </div>
         </div>
       </template>
@@ -355,7 +363,10 @@ function formatBytes(size?: number | null): string {
             class="h-10 ml-2" 
             @click="handleDeleteSelected"
           >
-            <IconTrash :size="16" class="mr-1" />
+            <IconTrash
+              :size="16"
+              class="mr-1"
+            />
             删除 ({{ selectedIds.length }})
           </AppButton>
         </template>
@@ -363,21 +374,40 @@ function formatBytes(size?: number | null): string {
 
       <!-- 主要内容区 -->
       <div class="flex-1 overflow-y-auto relative">
-        <AppTabsPanel value="materials" class="h-full absolute inset-0 overflow-y-auto">
+        <AppTabsPanel
+          value="materials"
+          class="h-full absolute inset-0 overflow-y-auto"
+        >
           <!-- 上传区 -->
           <div class="px-4 pt-4">
             <PackageUploader />
           </div>
 
-          <div v-if="loadingMaterials" class="p-8 flex justify-center text-fg-muted">
+          <div
+            v-if="loadingMaterials"
+            class="p-8 flex justify-center text-fg-muted"
+          >
             正在加载素材...
           </div>
-          <div v-else-if="viewMode === 'folder'" class="p-4">
-            <AppAccordion type="multiple" :default-value="materialsData.map(g => g.id)">
-              <AppAccordionItem v-for="group in currentGroups" :key="group.id" :value="group.id">
+          <div
+            v-else-if="viewMode === 'folder'"
+            class="p-4"
+          >
+            <AppAccordion
+              type="multiple"
+              :default-value="materialsData.map(g => g.id)"
+            >
+              <AppAccordionItem
+                v-for="group in currentGroups"
+                :key="group.id"
+                :value="group.id"
+              >
                 <template #trigger>
                   <div class="flex items-center gap-2">
-                    <IconFolder :size="16" class="text-accent" />
+                    <IconFolder
+                      :size="16"
+                      class="text-accent"
+                    />
                     <span>{{ group.title }} ({{ group.images.length }})</span>
                   </div>
                 </template>
@@ -399,7 +429,10 @@ function formatBytes(size?: number | null): string {
               description="没有找到匹配的素材图片"
             />
           </div>
-          <div v-else class="p-4">
+          <div
+            v-else
+            class="p-4"
+          >
             <ImageGrid
               v-if="currentFlatImages.length > 0"
               :items="currentFlatImages"
@@ -419,16 +452,35 @@ function formatBytes(size?: number | null): string {
           </div>
         </AppTabsPanel>
 
-        <AppTabsPanel value="products" class="h-full absolute inset-0 overflow-y-auto">
-          <div v-if="loadingProducts" class="p-8 flex justify-center text-fg-muted">
+        <AppTabsPanel
+          value="products"
+          class="h-full absolute inset-0 overflow-y-auto"
+        >
+          <div
+            v-if="loadingProducts"
+            class="p-8 flex justify-center text-fg-muted"
+          >
             正在加载产物...
           </div>
-          <div v-else-if="viewMode === 'folder'" class="p-4">
-            <AppAccordion type="multiple" :default-value="productsData.map(g => g.id)">
-              <AppAccordionItem v-for="group in currentGroups" :key="group.id" :value="group.id">
+          <div
+            v-else-if="viewMode === 'folder'"
+            class="p-4"
+          >
+            <AppAccordion
+              type="multiple"
+              :default-value="productsData.map(g => g.id)"
+            >
+              <AppAccordionItem
+                v-for="group in currentGroups"
+                :key="group.id"
+                :value="group.id"
+              >
                 <template #trigger>
                   <div class="flex items-center gap-2">
-                    <IconFolder :size="16" class="text-accent" />
+                    <IconFolder
+                      :size="16"
+                      class="text-accent"
+                    />
                     <span>{{ group.title }} ({{ group.images.length }})</span>
                   </div>
                 </template>
@@ -450,7 +502,10 @@ function formatBytes(size?: number | null): string {
               description="没有找到匹配的产物图片"
             />
           </div>
-          <div v-else class="p-4">
+          <div
+            v-else
+            class="p-4"
+          >
             <ImageGrid
               v-if="currentFlatImages.length > 0"
               :items="currentFlatImages"

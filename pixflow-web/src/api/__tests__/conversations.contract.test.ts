@@ -14,7 +14,7 @@ describe('conversation contract adapter', () => {
   })
 
   it('uses includeArchived/page=1 and maps backend id to conversationId', async () => {
-    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
+    const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit) =>
       jsonResponse({
         records: [{ id: 'c1', title: '会话', packageId: 2, updatedAt: '2026-07-06T10:00:00Z' }],
         total: 1,

@@ -1,7 +1,7 @@
 import { ref, type Ref } from 'vue'
 import { getStompConnection, type StompConnection } from '@/transport/ws'
 import { cancelTask, getTaskStatus, type TaskStatusView } from '@/api/tasks'
-import type { ApiError } from '@/types/api'
+import { ApiError } from '@/types/api'
 
 /**
  * 任务运行时状态机。
@@ -33,6 +33,7 @@ export interface TaskState {
   startedAt?: string
   finishedAt?: string
   lastError?: string | null
+  retryOfTaskId?: string | null
   error?: ApiError
 }
 
@@ -96,6 +97,7 @@ export function createTask(opts: { taskId: string; conversationId: string }) {
       startedAt: s.startedAt,
       finishedAt: s.finishedAt,
       lastError: s.lastError ?? null,
+      retryOfTaskId: s.retryOfTaskId ?? null,
       updatedAt: ts || Date.now()
     }
   }
@@ -123,8 +125,8 @@ export function createTask(opts: { taskId: string; conversationId: string }) {
     try {
       const s = await getTaskStatus(opts.taskId)
       applyBackend(s)
-    } catch (e) {
-      const err = e as ApiError
+    } catch (e: unknown) {
+      const err = ApiError.fromUnknown(e, { status: 0, errorCode: 'NETWORK_ERROR', message: '任务状态刷新失败', traceId: '' })
       if (err.status === 404) {
         // 任务不存在
         state.value = { ...state.value, phase: 'failed', error: err }
@@ -155,9 +157,9 @@ export function createTask(opts: { taskId: string; conversationId: string }) {
     state.value = { ...state.value, phase: 'cancelled', updatedAt: Date.now() }
     try {
       await cancelTask(opts.conversationId, opts.taskId)
-    } catch (e) {
+    } catch (e: unknown) {
       // 失败回退？V1 简单：保持 cancelled
-      error.value = e as ApiError
+      error.value = ApiError.fromUnknown(e, { status: 0, errorCode: 'NETWORK_ERROR', message: '取消任务失败', traceId: '' })
     }
   }
 

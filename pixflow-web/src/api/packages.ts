@@ -22,23 +22,25 @@ export interface InitUploadRequest {
   chunkSize: number
 }
 
-export function initUpload(req: InitUploadRequest): Promise<InitUploadResponse> {
+export function initUpload(req: InitUploadRequest, signal?: AbortSignal): Promise<InitUploadResponse> {
   return request<InitUploadResponse>('/api/files/packages/init', {
     method: 'POST',
     body: req,
-    noRetry: true
+    noRetry: true,
+    signal
   })
 }
 
-export function getSession(uploadId: string): Promise<UploadSessionState> {
-  return request<UploadSessionState>(`/api/files/packages/sessions/${encodeURIComponent(uploadId)}`)
+export function getSession(uploadId: string, signal?: AbortSignal): Promise<UploadSessionState> {
+  return request<UploadSessionState>(`/api/files/packages/sessions/${encodeURIComponent(uploadId)}`, { signal })
 }
 
 export function putChunk(
   uploadId: string,
   index: number,
   chunk: Blob,
-  chunkHash: string
+  chunkHash: string,
+  signal?: AbortSignal
 ): Promise<PutChunkResponse> {
   return request<PutChunkResponse>(
     `/api/files/packages/sessions/${encodeURIComponent(uploadId)}/chunks/${index}`,
@@ -51,15 +53,16 @@ export function putChunk(
         'X-Chunk-Size': String(chunk.size)
       },
       noRetry: true,
+      signal,
       skipInFlight: true // worker 池限流
     }
   )
 }
 
-export function completeUpload(uploadId: string, fileHash?: string): Promise<CompleteUploadResponse> {
+export function completeUpload(uploadId: string, fileHash?: string, signal?: AbortSignal): Promise<CompleteUploadResponse> {
   return request<CompleteUploadResponse>(
     `/api/files/packages/sessions/${encodeURIComponent(uploadId)}/complete`,
-    { method: 'POST', body: fileHash ? { fileHash } : {}, noRetry: true }
+    { method: 'POST', body: fileHash ? { fileHash } : {}, noRetry: true, signal }
   )
 }
 
@@ -90,7 +93,7 @@ interface BackendPackageDetail extends Omit<Partial<PackageDetail>, 'packageId'>
 function normalizePackage(raw: BackendPackageDetail): PackageDetail {
   // 后端 AssetPackage 序列化主键为 id；页面统一使用 packageId。
   const packageId = raw.packageId ?? raw.id
-  if (packageId == null) {
+  if (packageId === null || packageId === undefined) {
     throw new Error('素材包响应缺少 id/packageId')
   }
   return {

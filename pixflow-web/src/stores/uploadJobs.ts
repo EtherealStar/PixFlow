@@ -9,7 +9,7 @@ import type { UploadJobState } from '@/types/upload'
  *
  * 行为：
  * - Map<jobId, UploadJobState> 是事实源（响应式）；handle 引用单独保存以便 cancel/retry
- * - activeJobs = 非终态（done/error/cancelled）的 job 列表，给 UI 渲染用
+ * - activeJobs 保留 paused/error，确保用户始终能看到继续与重试入口
  *
  * 注：handles 用 shallowRef 以避免 Pinia 深度 unwrap Ref<UploadJobState>
  */
@@ -20,7 +20,7 @@ export const useUploadJobsStore = defineStore('uploadJobs', () => {
   const activeJobs = computed(() => {
     const arr: UploadJobState[] = []
     for (const j of items.value.values()) {
-      if (j.phase !== 'done' && j.phase !== 'error' && j.phase !== 'cancelled') {
+      if (j.phase !== 'done' && j.phase !== 'cancelled') {
         arr.push(j)
       }
     }
@@ -54,22 +54,17 @@ export const useUploadJobsStore = defineStore('uploadJobs', () => {
     const handle = createUploadJob({
       file,
       onProgress: (p) => {
-        update(handle.state.value.jobId, {
-          progress: {
-            hashed: p.hashed ?? 0,
-            uploaded: p.uploaded,
-            total: p.total,
-          },
-        })
+        // handle 内状态机拥有完整快照；Pinia 每次复制全量，避免 hash/uploadId/分片数漂移。
+        items.value.set(handle.state.value.jobId, { ...handle.state.value, phase: p.phase })
       },
       onError: (err: ApiError) => {
-        update(handle.state.value.jobId, { error: err, phase: 'error' })
+        items.value.set(handle.state.value.jobId, { ...handle.state.value, error: err, phase: 'error' })
       },
       onDedup: () => {
         // 后续可在此向 toast 推"已存在/正在上传"
       },
       onDone: () => {
-        update(handle.state.value.jobId, { phase: 'done' })
+        items.value.set(handle.state.value.jobId, { ...handle.state.value, phase: 'done' })
       }
     })
     add(handle.state.value)
@@ -83,11 +78,19 @@ export const useUploadJobsStore = defineStore('uploadJobs', () => {
     await h.cancel()
   }
 
+  function pause(jobId: string): void {
+    handles.value.get(jobId)?.pause()
+  }
+
+  async function resume(jobId: string): Promise<void> {
+    await handles.value.get(jobId)?.resume()
+  }
+
   async function retry(jobId: string): Promise<void> {
     const h = handles.value.get(jobId)
     if (!h) return
     await h.retry()
   }
 
-  return { items, handles, activeJobs, add, update, get, remove, startWholeFile, cancel, retry }
+  return { items, handles, activeJobs, add, update, get, remove, startWholeFile, pause, resume, cancel, retry }
 })

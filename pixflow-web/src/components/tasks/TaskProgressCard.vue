@@ -45,7 +45,10 @@ const icon = computed(() => {
 </script>
 
 <template>
-  <AppCard padding="md" class="task-progress-card">
+  <AppCard
+    padding="md"
+    class="task-progress-card"
+  >
     <div class="flex items-center gap-2 mb-2">
       <component
         :is="icon"
@@ -68,7 +71,10 @@ const icon = computed(() => {
         currentState.phase === 'completed' ? 'success' : 'accent'
       "
     />
-    <div v-if="currentState.error || currentState.lastError" class="mt-2 text-xs text-danger">
+    <div
+      v-if="currentState.error || currentState.lastError"
+      class="mt-2 text-xs text-danger"
+    >
       错误：{{ currentState.error?.message ?? currentState.lastError }}
     </div>
   </AppCard>

@@ -1,222 +1,167 @@
-import type { ApiError } from '@/types/api'
-import type { ChunkState, PutChunkResponse, UploadSessionState } from '@/types/upload'
-import { putChunk } from '@/api/packages'
+import { ApiError } from '@/types/api'
+import type { PutChunkResponse } from '@/types/upload'
+import { putChunk as putChunkApi } from '@/api/packages'
 import { sha256Blob } from './hasher'
 
-/**
- * 分片 worker 池（固定大小，默认 4）。
- * 见 web.md §7.5、§7.6。
- *
- *  - 退避：1s → 2s → 4s → 8s → 16s → 30s（封顶）；同分片最多 5 次
- *  - 触发自动重试：网络错 / 5xx / 通用 429 / UPLOAD_SESSION_NOT_UPLOADING
- *  - 不重试：CHUNK_HASH_MISMATCH / CHUNK_SIZE_MISMATCH / CHUNK_OUT_OF_RANGE / INCOMPLETE_CHUNKS
- *  - ALREADY_EXISTS 视为成功
- *  - 单分片累计退避 > 60s → FAILED → 整文件 error
- *  - AbortController：用户取消时立即中断所有在飞 PUT
- */
-
-const BACKOFF = [1000, 2000, 4000, 8000, 16_000, 30_000]
+const BACKOFF = [1000, 2000, 4000, 8000, 16_000]
 const MAX_ATTEMPTS = 5
 const CONGESTION_BUDGET_MS = 60_000
-
-const RETRYABLE_CODES = new Set([
-  'NETWORK_ERROR',
-  'INTERNAL_ERROR',
-  'DEPENDENCY_UNAVAILABLE',
-  'UPLOAD_SESSION_NOT_UPLOADING'
-])
 
 export interface ChunkWorkerOptions {
   uploadId: string
   file: File
   chunkSize: number
+  expectedChunks: number
+  initialUploadedIndices: Iterable<number>
   concurrency: number
   signal: AbortSignal
-  onChunkUploaded?: (index: number, uploaded: number[]) => void
-  onChunkFailed?: (index: number, err: ApiError) => void
+  onProgress?: (snapshot: { uploadedIndices: number[]; uploadedBytes: number }) => void
+  onChunkFailed?: (index: number, error: ApiError) => void
+  /** 测试缝：生产调用不传。 */
+  putChunk?: typeof putChunkApi
+  hashChunk?: typeof sha256Blob
+  wait?: (ms: number, signal: AbortSignal) => Promise<void>
 }
 
 export interface ChunkWorkerResult {
   uploadedIndices: Set<number>
   failedIndices: Map<number, ApiError>
-  /** 因 60s 拥塞熔断而失败的索引 */
   congestionFailed: Set<number>
   aborted: boolean
 }
 
-export async function runChunkPool(opts: ChunkWorkerOptions): Promise<ChunkWorkerResult> {
-  const { uploadId, file, chunkSize, concurrency, signal } = opts
-  const total = Math.ceil(file.size / chunkSize)
-  const state = new Map<number, ChunkState>()
-  for (let i = 0; i < total; i++) {
-    state.set(i, { index: i, phase: 'PENDING', attempts: 0, hash: '', size: 0 })
-  }
-
+/**
+ * 只调度后端尚未确认的分片。响应中的 uploadedChunks 会持续校准共享快照。
+ */
+export async function runChunkPool(options: ChunkWorkerOptions): Promise<ChunkWorkerResult> {
+  const uploadedIndices = normalizeIndices(options.initialUploadedIndices, options.expectedChunks)
   const result: ChunkWorkerResult = {
-    uploadedIndices: new Set(),
+    uploadedIndices,
     failedIndices: new Map(),
     congestionFailed: new Set(),
-    aborted: false
+    aborted: options.signal.aborted
+  }
+  if (result.aborted) return result
+
+  const queue = Array.from({ length: options.expectedChunks }, (_, index) => index)
+    .filter((index) => !uploadedIndices.has(index))
+  let cursor = 0
+  let stopped = false
+  const workerCount = Math.max(1, Math.min(options.concurrency, queue.length || 1))
+
+  emitProgress(options, result.uploadedIndices)
+
+  async function workerLoop(): Promise<void> {
+    while (!stopped && !options.signal.aborted) {
+      const position = cursor++
+      if (position >= queue.length) return
+      const index = queue[position]!
+      const error = await uploadOne(index, options, result)
+      if (error) {
+        result.failedIndices.set(index, error)
+        options.onChunkFailed?.(index, error)
+        // 一个确定性失败就停止领取新任务，避免终止会话后继续制造无效 PUT。
+        stopped = true
+      }
+    }
   }
 
-  if (signal.aborted) {
-    result.aborted = true
-    return result
-  }
-  signal.addEventListener('abort', () => {
-    result.aborted = true
-  })
-
-  // 简单并发池：从 queue 取下一个 index，直到所有 PENDING/FAILED_RETRYING 都被消费
-  const queue: number[] = []
-  for (let i = 0; i < total; i++) queue.push(i)
-
-  const workers: Promise<void>[] = []
-  for (let w = 0; w < concurrency; w++) {
-    workers.push(workerLoop(uploadId, file, chunkSize, queue, state, result, signal, opts))
-  }
-  await Promise.all(workers)
+  await Promise.all(Array.from({ length: workerCount }, () => workerLoop()))
+  result.aborted = options.signal.aborted
   return result
 }
 
-async function workerLoop(
-  uploadId: string,
-  file: File,
-  chunkSize: number,
-  queue: number[],
-  state: Map<number, ChunkState>,
-  result: ChunkWorkerResult,
-  signal: AbortSignal,
-  opts: ChunkWorkerOptions
-): Promise<void> {
-  while (queue.length > 0 && !result.aborted) {
-    const idx = queue.shift()
-    if (idx === undefined) break
-    const chunk = state.get(idx)
-    if (!chunk) continue
-    if (chunk.phase === 'UPLOADED') continue
-    await processChunk(uploadId, file, chunkSize, chunk, state, result, signal, opts)
+async function uploadOne(
+  index: number,
+  options: ChunkWorkerOptions,
+  result: ChunkWorkerResult
+): Promise<ApiError | null> {
+  const start = index * options.chunkSize
+  const end = Math.min(start + options.chunkSize, options.file.size)
+  const blob = options.file.slice(start, end)
+  const hashChunk = options.hashChunk ?? sha256Blob
+  const sendChunk = options.putChunk ?? putChunkApi
+  const wait = options.wait ?? sleep
+
+  let chunkHash: string
+  try {
+    chunkHash = await hashChunk(blob)
+  } catch (error) {
+    if (options.signal.aborted) return null
+    return asApiError(error, '分片哈希计算失败')
+  }
+
+  let totalBackoff = 0
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    if (options.signal.aborted) return null
+    try {
+      const response = await sendChunk(options.uploadId, index, blob, chunkHash, options.signal)
+      mergeServerSnapshot(result.uploadedIndices, response, options.expectedChunks)
+      // 某些兼容响应不回完整集合，当前成功 index 仍必须计入。
+      result.uploadedIndices.add(index)
+      emitProgress(options, result.uploadedIndices)
+      return null
+    } catch (error) {
+      const apiError = asApiError(error, '分片上传失败')
+      if (!isRetryable(apiError) || attempt === MAX_ATTEMPTS) return apiError
+
+      const delay = BACKOFF[Math.min(attempt - 1, BACKOFF.length - 1)]!
+      totalBackoff += delay
+      if (totalBackoff > CONGESTION_BUDGET_MS) {
+        result.congestionFailed.add(index)
+        return apiError
+      }
+      await wait(delay, options.signal)
+    }
+  }
+  return null
+}
+
+function isRetryable(error: ApiError): boolean {
+  return error.status === 0 || (error.status >= 500 && error.status < 600)
+}
+
+function mergeServerSnapshot(target: Set<number>, response: PutChunkResponse, expectedChunks: number): void {
+  for (const index of response.uploadedChunks ?? []) {
+    if (Number.isInteger(index) && index >= 0 && index < expectedChunks) target.add(index)
   }
 }
 
-async function processChunk(
-  uploadId: string,
-  file: File,
-  chunkSize: number,
-  chunk: ChunkState,
-  state: Map<number, ChunkState>,
-  result: ChunkWorkerResult,
-  signal: AbortSignal,
-  opts: ChunkWorkerOptions
-): Promise<void> {
-  if (result.aborted || signal.aborted) return
-  const start = chunk.index * chunkSize
-  const end = Math.min(start + chunkSize, file.size)
-  const blob = file.slice(start, end)
-
-  // 算分片 hash
-  let chunkHash: string
-  try {
-    chunkHash = await sha256Blob(blob)
-  } catch (e) {
-    const err: ApiError = {
-      status: 0,
-      errorCode: 'NETWORK_ERROR',
-      message: e instanceof Error ? e.message : 'hash error',
-      traceId: ''
-    }
-    state.set(chunk.index, { ...chunk, phase: 'FAILED', error: err })
-    result.failedIndices.set(chunk.index, err)
-    opts.onChunkFailed?.(chunk.index, err)
-    return
+function normalizeIndices(indices: Iterable<number>, expectedChunks: number): Set<number> {
+  const normalized = new Set<number>()
+  for (const index of indices) {
+    if (Number.isInteger(index) && index >= 0 && index < expectedChunks) normalized.add(index)
   }
+  return normalized
+}
 
-  chunk.hash = chunkHash
-  chunk.size = blob.size
-  chunk.phase = 'UPLOADING'
-  state.set(chunk.index, chunk)
+function emitProgress(options: ChunkWorkerOptions, indices: Set<number>): void {
+  const snapshot = [...indices].sort((a, b) => a - b)
+  const uploadedBytes = snapshot.reduce((sum, index) => {
+    const start = index * options.chunkSize
+    return sum + Math.max(0, Math.min(options.chunkSize, options.file.size - start))
+  }, 0)
+  options.onProgress?.({ uploadedIndices: snapshot, uploadedBytes })
+}
 
-  let attempts = 0
-  let totalBackoff = 0
-  while (attempts < MAX_ATTEMPTS) {
-    if (result.aborted || signal.aborted) return
-    try {
-      const resp: PutChunkResponse = await putChunk(uploadId, chunk.index, blob, chunkHash)
-      const uploaded = resp.uploadedChunks ?? [chunk.index]
-      chunk.phase = 'UPLOADED'
-      chunk.attempts = attempts + 1
-      state.set(chunk.index, chunk)
-      result.uploadedIndices.add(chunk.index)
-      opts.onChunkUploaded?.(chunk.index, uploaded)
-      return
-    } catch (e) {
-      const err = e as ApiError
-      // 不重试的 4xx 业务码
-      if (
-        err.errorCode === 'CHUNK_HASH_MISMATCH' ||
-        err.errorCode === 'CHUNK_SIZE_MISMATCH' ||
-        err.errorCode === 'CHUNK_OUT_OF_RANGE' ||
-        err.errorCode === 'INCOMPLETE_CHUNKS' ||
-        err.errorCode === 'UPLOAD_SESSION_NOT_FOUND'
-      ) {
-        chunk.phase = 'FAILED'
-        chunk.error = err
-        state.set(chunk.index, chunk)
-        result.failedIndices.set(chunk.index, err)
-        opts.onChunkFailed?.(chunk.index, err)
-        return
-      }
-      attempts++
-      chunk.attempts = attempts
-      const isRetryable =
-        err.status === 0 ||
-        err.status === 429 ||
-        (err.status >= 500 && err.status < 600) ||
-        RETRYABLE_CODES.has(err.errorCode)
-      if (!isRetryable || attempts >= MAX_ATTEMPTS) {
-        chunk.phase = 'FAILED'
-        chunk.error = err
-        state.set(chunk.index, chunk)
-        result.failedIndices.set(chunk.index, err)
-        opts.onChunkFailed?.(chunk.index, err)
-        return
-      }
-      // 退避
-      const base = BACKOFF[Math.min(attempts - 1, BACKOFF.length - 1)]!
-      const retryAfterMs = err.retryAfterMs ?? 0
-      const delay = Math.max(base, retryAfterMs)
-      totalBackoff += delay
-      if (totalBackoff > CONGESTION_BUDGET_MS) {
-        // 拥塞熔断
-        chunk.phase = 'FAILED'
-        chunk.error = err
-        state.set(chunk.index, chunk)
-        result.failedIndices.set(chunk.index, err)
-        result.congestionFailed.add(chunk.index)
-        opts.onChunkFailed?.(chunk.index, err)
-        return
-      }
-      chunk.phase = 'FAILED_RETRYING'
-      state.set(chunk.index, chunk)
-      await sleep(delay, signal)
-    }
-  }
+function asApiError(error: unknown, fallback: string): ApiError {
+  return ApiError.fromUnknown(error, {
+    status: 0,
+    errorCode: 'NETWORK_ERROR',
+    message: fallback,
+    traceId: ''
+  })
 }
 
 function sleep(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
     if (signal.aborted) return resolve()
-    const t = setTimeout(() => {
-      signal.removeEventListener('abort', onAbort)
-      resolve()
-    }, ms)
-    const onAbort = () => {
-      clearTimeout(t)
+    const timer = setTimeout(done, ms)
+    function done() {
+      clearTimeout(timer)
+      signal.removeEventListener('abort', done)
       resolve()
     }
-    signal.addEventListener('abort', onAbort)
+    signal.addEventListener('abort', done, { once: true })
   })
 }
-
-/** 拉取当前 session（断线补偿用）。 */
-export type { UploadSessionState }

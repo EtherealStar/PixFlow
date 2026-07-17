@@ -53,8 +53,12 @@ const isAllEmpty = computed(() =>
 <template>
   <div class="task-panel flex flex-col h-full overflow-y-auto">
     <header class="task-panel-header px-4 py-3 border-b border-border">
-      <h3 class="text-sm font-medium text-fg-primary">任务面板</h3>
-      <p class="text-xs text-fg-muted">实时跟踪上传 / 处理任务进度</p>
+      <h3 class="text-sm font-medium text-fg-primary">
+        任务面板
+      </h3>
+      <p class="text-xs text-fg-muted">
+        实时跟踪上传 / 处理任务进度
+      </p>
     </header>
 
     <AppEmptyState
@@ -63,13 +67,23 @@ const isAllEmpty = computed(() =>
       description="上传素材或启动处理后会在这里显示"
     />
 
-    <AppAccordion v-else :default-value="['in-progress']" type="multiple" class="border-t-0">
+    <AppAccordion
+      v-else
+      :default-value="['in-progress']"
+      type="multiple"
+      class="border-t-0"
+    >
       <!-- 进行中 -->
       <AppAccordionItem value="in-progress">
         <template #trigger>
           <div class="flex items-center gap-2">
             <span class="text-sm font-medium">进行中</span>
-            <AppBadge tone="info" style="soft">{{ groups.inProgress.length }}</AppBadge>
+            <AppBadge
+              tone="info"
+              style="soft"
+            >
+              {{ groups.inProgress.length }}
+            </AppBadge>
           </div>
         </template>
         <div class="flex flex-col gap-2">
@@ -80,7 +94,10 @@ const isAllEmpty = computed(() =>
             :selected="selectedTaskId === t.taskId"
             @select="(id) => emit('select', id)"
           />
-          <div v-if="groups.inProgress.length === 0" class="text-xs text-fg-muted py-2">
+          <div
+            v-if="groups.inProgress.length === 0"
+            class="text-xs text-fg-muted py-2"
+          >
             暂无进行中的任务
           </div>
         </div>
@@ -91,7 +108,12 @@ const isAllEmpty = computed(() =>
         <template #trigger>
           <div class="flex items-center gap-2">
             <span class="text-sm font-medium">已完成</span>
-            <AppBadge tone="success" style="soft">{{ groups.completed.length }}</AppBadge>
+            <AppBadge
+              tone="success"
+              style="soft"
+            >
+              {{ groups.completed.length }}
+            </AppBadge>
           </div>
         </template>
         <div class="flex flex-col gap-2">
@@ -102,7 +124,10 @@ const isAllEmpty = computed(() =>
             :selected="selectedTaskId === t.taskId"
             @select="(id) => emit('select', id)"
           />
-          <div v-if="groups.completed.length === 0" class="text-xs text-fg-muted py-2">
+          <div
+            v-if="groups.completed.length === 0"
+            class="text-xs text-fg-muted py-2"
+          >
             暂无已完成的任务
           </div>
         </div>
@@ -113,7 +138,12 @@ const isAllEmpty = computed(() =>
         <template #trigger>
           <div class="flex items-center gap-2">
             <span class="text-sm font-medium">失败</span>
-            <AppBadge tone="danger" style="soft">{{ groups.failed.length }}</AppBadge>
+            <AppBadge
+              tone="danger"
+              style="soft"
+            >
+              {{ groups.failed.length }}
+            </AppBadge>
           </div>
         </template>
         <div class="flex flex-col gap-2">
@@ -124,18 +154,29 @@ const isAllEmpty = computed(() =>
             :selected="selectedTaskId === t.taskId"
             @select="(id) => emit('select', id)"
           />
-          <div v-if="groups.failed.length === 0" class="text-xs text-fg-muted py-2">
+          <div
+            v-if="groups.failed.length === 0"
+            class="text-xs text-fg-muted py-2"
+          >
             暂无失败任务
           </div>
         </div>
       </AppAccordionItem>
 
       <!-- 已取消 -->
-      <AppAccordionItem v-if="groups.cancelled.length > 0" value="cancelled">
+      <AppAccordionItem
+        v-if="groups.cancelled.length > 0"
+        value="cancelled"
+      >
         <template #trigger>
           <div class="flex items-center gap-2">
             <span class="text-sm font-medium">已取消</span>
-            <AppBadge tone="muted" style="soft">{{ groups.cancelled.length }}</AppBadge>
+            <AppBadge
+              tone="muted"
+              style="soft"
+            >
+              {{ groups.cancelled.length }}
+            </AppBadge>
           </div>
         </template>
         <div class="flex flex-col gap-2">

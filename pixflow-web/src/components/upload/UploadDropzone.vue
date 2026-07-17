@@ -62,9 +62,22 @@ function onDragLeave(): void {
     @dragleave="onDragLeave"
     @drop="onDrop"
   >
-    <IconUpload :size="32" :class="isHover ? 'text-accent' : 'text-fg-muted'" />
-    <div class="text-sm text-fg-primary">拖入文件或点击选择</div>
-    <div class="text-xs text-fg-muted">支持多文件 / 单个最大 200MB</div>
-    <input ref="inputRef" type="file" multiple class="hidden" @change="onChange" />
+    <IconUpload
+      :size="32"
+      :class="isHover ? 'text-accent' : 'text-fg-muted'"
+    />
+    <div class="text-sm text-fg-primary">
+      拖入文件或点击选择
+    </div>
+    <div class="text-xs text-fg-muted">
+      支持多文件 / 单个最大 200MB
+    </div>
+    <input
+      ref="inputRef"
+      type="file"
+      multiple
+      class="hidden"
+      @change="onChange"
+    >
   </div>
 </template>

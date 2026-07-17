@@ -1,4 +1,4 @@
-import type { ApiError } from '@/types/api'
+import { ApiError } from '@/types/api'
 
 export function normalizeHttpError(
   status: number,
@@ -10,7 +10,7 @@ export function normalizeHttpError(
   const message = obj?.message
   const traceId = obj?.traceId
   const details = obj?.details
-  const out: ApiError = {
+  return new ApiError({
     status,
     errorCode: typeof errorCode === 'string' && errorCode ? errorCode : `HTTP_${status}`,
     message:
@@ -19,12 +19,11 @@ export function normalizeHttpError(
         : typeof body === 'string' && body.trim()
           ? body.trim()
           : `HTTP ${status}`,
-    traceId: typeof traceId === 'string' && traceId ? traceId : fallbackTraceId
-  }
-  if (details && typeof details === 'object') {
-    out.details = details as Record<string, unknown>
-  }
-  return out
+    traceId: typeof traceId === 'string' && traceId ? traceId : fallbackTraceId,
+    details: details && typeof details === 'object' && !Array.isArray(details)
+      ? details as Record<string, unknown>
+      : undefined
+  })
 }
 
 export async function readHttpError(response: Response, fallbackTraceId: string): Promise<ApiError> {

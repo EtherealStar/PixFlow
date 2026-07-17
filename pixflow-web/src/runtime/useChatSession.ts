@@ -5,7 +5,7 @@ import { createAgentTurn, isRejected, type AgentTurn } from '@/runtime/useAgentT
 import { useAgentTurnsStore } from '@/stores/agentTurns'
 import { useConversationsStore } from '@/stores/conversations'
 import { useToastStore } from '@/stores/toast'
-import type { ApiError } from '@/types/api'
+import { ApiError } from '@/types/api'
 import type { ConfirmationChallenge, Proposal, TimelineItem } from '@/types/agent'
 
 export interface ChatRouteLike {
@@ -104,8 +104,8 @@ export function useChatSession(opts: ChatSessionOptions) {
         packageId
       })
       attachTaskIfPresent(turnRef, taskRefs, activeConversationId.value)
-    } catch (e) {
-      const err = e as ApiError
+    } catch (e: unknown) {
+      const err = ApiError.fromUnknown(e, { status: 0, errorCode: 'STREAM_ERROR', message: '发送失败', traceId: '' })
       toast.push({ variant: 'danger', message: err.message })
     } finally {
       sending.value = false
@@ -133,8 +133,8 @@ export function useChatSession(opts: ChatSessionOptions) {
         appendTaskRef(taskRefs, r.taskId, activeConversationId.value)
         challengeVisible.value = false
       }
-    } catch (e) {
-      const err = e as ApiError
+    } catch (e: unknown) {
+      const err = ApiError.fromUnknown(e, { status: 0, errorCode: 'NETWORK_ERROR', message: '确认失败', traceId: '' })
       if (err.errorCode === 'PROPOSAL_CHALLENGE_FAILED') {
         challengeVisible.value = true
       } else {
@@ -165,8 +165,8 @@ export function useChatSession(opts: ChatSessionOptions) {
         pendingAttachments.value.push(result)
       }
       toast.push({ variant: 'success', message: `已上传 ${files.length} 个附件，将随下一条消息发送` })
-    } catch (e) {
-      const err = e as ApiError
+    } catch (e: unknown) {
+      const err = ApiError.fromUnknown(e, { status: 0, errorCode: 'NETWORK_ERROR', message: '附件上传失败', traceId: '' })
       toast.push({ variant: 'danger', message: err.message ?? '附件上传失败' })
     } finally {
       uploadingAttachment.value = false

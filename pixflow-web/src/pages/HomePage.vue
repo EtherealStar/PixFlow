@@ -21,11 +21,11 @@ const { goProtected } = useAuthRedirect()
 
 const prompt = ref('')
 
-function onSend() {
+async function onSend(): Promise<void> {
   if (!prompt.value.trim()) return
   const q = encodeURIComponent(prompt.value)
   prompt.value = ''
-  goProtected(`/chat/new?q=${q}`)
+  await goProtected(`/chat/new?q=${q}`)
 }
 
 const cards: Array<{
@@ -70,33 +70,52 @@ const cards: Array<{
 <template>
   <section class="home-page flex flex-col h-full relative">
     <div class="p-6 md:p-10 max-w-5xl mx-auto w-full flex-1 overflow-y-auto">
-    <header class="mb-8">
-      <h1 class="text-2xl font-semibold text-fg-primary mb-2">PixFlow · 专属于你的AI电商运营助手</h1>
-      <p class="text-sm text-fg-secondary">精准解析自然语言指令，智能编排图片处理，沉淀高效经营洞察</p>
-    </header>
+      <header class="mb-8">
+        <h1 class="text-2xl font-semibold text-fg-primary mb-2">
+          PixFlow · 专属于你的AI电商运营助手
+        </h1>
+        <p class="text-sm text-fg-secondary">
+          精准解析自然语言指令，智能编排图片处理，沉淀高效经营洞察
+        </p>
+      </header>
 
-    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-      <AppCard
-        v-for="card in cards"
-        :key="card.title"
-        hoverable
-        padding="lg"
-        class="home-card flex flex-col gap-3"
-      >
-        <component :is="card.icon" :size="28" class="text-accent" />
-        <div class="flex-1">
-          <h2 class="text-base font-medium text-fg-primary mb-1">{{ card.title }}</h2>
-          <p class="text-sm text-fg-secondary">{{ card.description }}</p>
-        </div>
-        <AppButton variant="primary" size="sm" @click="card.action ? card.action() : goProtected(card.to!)">
-          {{ card.cta }}
-        </AppButton>
-      </AppCard>
-    </div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <AppCard
+          v-for="card in cards"
+          :key="card.title"
+          hoverable
+          padding="lg"
+          class="home-card flex flex-col gap-3"
+        >
+          <component
+            :is="card.icon"
+            :size="28"
+            class="text-accent"
+          />
+          <div class="flex-1">
+            <h2 class="text-base font-medium text-fg-primary mb-1">
+              {{ card.title }}
+            </h2>
+            <p class="text-sm text-fg-secondary">
+              {{ card.description }}
+            </p>
+          </div>
+          <AppButton
+            variant="primary"
+            size="sm"
+            @click="card.action ? card.action() : goProtected(card.to!)"
+          >
+            {{ card.cta }}
+          </AppButton>
+        </AppCard>
+      </div>
     </div>
 
     <div class="w-full max-w-3xl mx-auto px-6 pb-6 mt-auto">
-      <Composer v-model="prompt" @send="onSend" />
+      <Composer
+        v-model="prompt"
+        @send="onSend"
+      />
     </div>
   </section>
 </template>

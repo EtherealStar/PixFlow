@@ -52,7 +52,7 @@ export const useFileIndexStore = defineStore('fileIndex', () => {
   // "结果"段：已归档的会话（关联了 packageId 的对话）
   const resultNodes = computed<FileIndexNode[]>(() => {
     return conversations.items
-      .filter((c) => c.packageId != null)
+      .filter((c) => c.packageId !== null && c.packageId !== undefined)
       .map((c) => ({
         id: `conversation-${c.conversationId}`,
         type: 'conversation' as const,

@@ -6,6 +6,7 @@ import AppButton from '@/components/ui/AppButton.vue'
 import AppBadge from '@/components/ui/AppBadge.vue'
 import IconTrash from '@/components/icons/IconTrash.vue'
 import IconRefresh from '@/components/icons/IconRefresh.vue'
+import { Pause, Play } from 'lucide-vue-next'
 import type { UploadJobState } from '@/types/upload'
 
 /**
@@ -19,6 +20,8 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
+  pause: [jobId: string]
+  resume: [jobId: string]
   cancel: [jobId: string]
   retry: [jobId: string]
 }>()
@@ -35,6 +38,7 @@ const phaseLabel = computed(() => {
     case 'hashing': return '计算哈希中'
     case 'initing': return '协商上传'
     case 'uploading': return '上传中'
+    case 'paused': return '已暂停'
     case 'completing': return '合并中'
     case 'done': return '完成'
     case 'error': return '失败'
@@ -46,17 +50,20 @@ const badgeTone = computed(() => {
   switch (props.job.phase) {
     case 'done': return 'success' as const
     case 'error': return 'danger' as const
-    case 'cancelled': return 'muted' as const
+    case 'cancelled': return 'neutral' as const
+    case 'paused': return 'warning' as const
     case 'uploading':
     case 'hashing':
     case 'initing':
-    case 'completing': return 'info' as const
-    default: return 'muted' as const
+    case 'completing': return 'accent' as const
+    default: return 'neutral' as const
   }
 })
 
-const canRetry = computed(() => props.job.phase === 'error' || props.job.phase === 'cancelled')
-const canCancel = computed(() => props.job.phase === 'idle' || props.job.phase === 'hashing' || props.job.phase === 'initing' || props.job.phase === 'uploading')
+const canPause = computed(() => props.job.phase === 'hashing' || props.job.phase === 'initing' || props.job.phase === 'uploading')
+const canResume = computed(() => props.job.phase === 'paused')
+const canRetry = computed(() => props.job.phase === 'error')
+const canCancel = computed(() => props.job.phase !== 'done' && props.job.phase !== 'cancelled' && props.job.phase !== 'completing')
 
 function fmtSize(n: number): string {
   if (n <= 0) return '0 B'
@@ -71,28 +78,87 @@ function fmtSize(n: number): string {
   <AppCard padding="md">
     <div class="flex items-start justify-between gap-3 mb-2">
       <div class="min-w-0 flex-1">
-        <div class="text-sm font-medium text-fg-primary truncate" :title="job.filename">
+        <div
+          class="text-sm font-medium text-fg-primary truncate"
+          :title="job.filename"
+        >
           {{ job.filename }}
         </div>
         <div class="text-xs text-fg-muted mt-0.5">
           {{ fmtSize(job.size) }} · {{ job.uploadedChunks }}/{{ job.totalChunks }} 分片
-          <span v-if="job.fileHash" class="font-mono ml-2">#{{ job.fileHash.slice(0, 8) }}</span>
+          <span
+            v-if="job.fileHash"
+            class="font-mono ml-2"
+          >#{{ job.fileHash.slice(0, 8) }}</span>
         </div>
       </div>
-      <AppBadge :tone="badgeTone" style="solid">{{ phaseLabel }}</AppBadge>
+      <AppBadge
+        :tone="badgeTone"
+        style="solid"
+      >
+        {{ phaseLabel }}
+      </AppBadge>
     </div>
 
-    <AppProgressBar :percent="percent" :tone="job.phase === 'error' ? 'danger' : job.phase === 'done' ? 'success' : 'accent'" />
+    <AppProgressBar
+      :percent="percent"
+      :tone="job.phase === 'error' ? 'danger' : job.phase === 'done' ? 'success' : 'accent'"
+    />
 
-    <p v-if="job.error" class="mt-2 text-xs text-danger">错误：{{ job.error.message }}</p>
+    <p
+      v-if="job.error"
+      class="mt-2 text-xs text-danger"
+    >
+      错误：{{ job.error.message }}
+    </p>
 
     <div class="flex gap-2 justify-end mt-3">
-      <AppButton v-if="canCancel" size="sm" variant="ghost" @click="emit('cancel', job.jobId)">
-        <IconTrash :size="14" class="mr-1" />
+      <AppButton
+        v-if="canPause"
+        size="sm"
+        variant="ghost"
+        @click="emit('pause', job.jobId)"
+      >
+        <Pause
+          :size="14"
+          class="mr-1"
+        />
+        暂停
+      </AppButton>
+      <AppButton
+        v-if="canResume"
+        size="sm"
+        variant="primary"
+        @click="emit('resume', job.jobId)"
+      >
+        <Play
+          :size="14"
+          class="mr-1"
+        />
+        继续
+      </AppButton>
+      <AppButton
+        v-if="canCancel"
+        size="sm"
+        variant="ghost"
+        @click="emit('cancel', job.jobId)"
+      >
+        <IconTrash
+          :size="14"
+          class="mr-1"
+        />
         取消
       </AppButton>
-      <AppButton v-if="canRetry" size="sm" variant="primary" @click="emit('retry', job.jobId)">
-        <IconRefresh :size="14" class="mr-1" />
+      <AppButton
+        v-if="canRetry"
+        size="sm"
+        variant="primary"
+        @click="emit('retry', job.jobId)"
+      >
+        <IconRefresh
+          :size="14"
+          class="mr-1"
+        />
         重试
       </AppButton>
     </div>

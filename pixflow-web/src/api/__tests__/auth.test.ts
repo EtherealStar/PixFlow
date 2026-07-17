@@ -23,7 +23,7 @@ describe('auth api', () => {
   })
 
   it('does not send stale Authorization to login, register, or refresh', async () => {
-    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => authResponse())
+    const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit) => authResponse())
     vi.stubGlobal('fetch', fetchMock)
     setAccessToken('stale-token')
 

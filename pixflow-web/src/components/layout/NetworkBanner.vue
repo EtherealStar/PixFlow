@@ -12,8 +12,14 @@ import IconAlertCircle from '@/components/icons/IconAlertCircle.vue'
 </script>
 
 <template>
-  <div class="network-banner" role="alert">
-    <IconAlertCircle :size="14" class="banner-icon" />
+  <div
+    class="network-banner"
+    role="alert"
+  >
+    <IconAlertCircle
+      :size="14"
+      class="banner-icon"
+    />
     <span>网络已断开，正在重连...</span>
   </div>
 </template>

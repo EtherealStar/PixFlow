@@ -20,7 +20,12 @@ withDefaults(
     /** 主操作按钮文案 */
     actionLabel?: string
   }>(),
-  {}
+  {
+    icon: undefined,
+    title: undefined,
+    description: undefined,
+    actionLabel: undefined,
+  }
 )
 
 defineEmits<{ action: [] }>()
@@ -34,9 +39,23 @@ defineEmits<{ action: [] }>()
       :size="48"
       class="text-fg-muted mb-4"
     />
-    <h3 v-if="title" class="text-lg text-fg-primary mb-1">{{ title }}</h3>
-    <p v-if="description" class="text-sm text-fg-secondary mb-4 max-w-sm">{{ description }}</p>
-    <AppButton v-if="actionLabel" variant="primary" @click="$emit('action')">
+    <h3
+      v-if="title"
+      class="text-lg text-fg-primary mb-1"
+    >
+      {{ title }}
+    </h3>
+    <p
+      v-if="description"
+      class="text-sm text-fg-secondary mb-4 max-w-sm"
+    >
+      {{ description }}
+    </p>
+    <AppButton
+      v-if="actionLabel"
+      variant="primary"
+      @click="$emit('action')"
+    >
       {{ actionLabel }}
     </AppButton>
     <slot v-else />

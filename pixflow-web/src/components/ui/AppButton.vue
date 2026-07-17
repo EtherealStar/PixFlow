@@ -90,7 +90,11 @@ const variantClass = computed(() => {
     ]"
     @click="(ev: MouseEvent) => $emit('click', ev)"
   >
-    <IconLoader v-if="loading" :size="size === 'sm' ? 14 : size === 'lg' ? 18 : 16" class="animate-spin" />
+    <IconLoader
+      v-if="loading"
+      :size="size === 'sm' ? 14 : size === 'lg' ? 18 : 16"
+      class="animate-spin"
+    />
     <slot />
   </button>
 </template>

@@ -45,10 +45,10 @@ interface BackendMessageView {
 export type HistoryResponse = Page<HistoryMessage>
 
 function parseMetadata(raw: BackendMessageView['metadata']): Pick<HistoryMessage, 'metadata' | 'metadataRaw'> {
-  if (raw == null) return {}
+  if (raw === null || raw === undefined) return {}
   if (typeof raw === 'object') return { metadata: raw }
   try {
-    const parsed = JSON.parse(raw)
+    const parsed: unknown = JSON.parse(raw)
     return parsed && typeof parsed === 'object'
       ? { metadata: parsed as Record<string, unknown> }
       : { metadataRaw: raw }
@@ -69,7 +69,9 @@ function normalizeMessage(raw: BackendMessageView): HistoryMessage {
     createdAt: raw.createdAt,
     isCompactionBoundary: Boolean(raw.compactionBoundary),
     isCompactionSummary: raw.compactionMarker === 'SUMMARY',
-    attachedPackageId: raw.attachedPackageId == null ? undefined : String(raw.attachedPackageId)
+    attachedPackageId: raw.attachedPackageId === null || raw.attachedPackageId === undefined
+      ? undefined
+      : String(raw.attachedPackageId)
   }
 }
 

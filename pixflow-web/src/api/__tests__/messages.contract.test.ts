@@ -14,7 +14,7 @@ describe('message history contract adapter', () => {
   })
 
   it('requests page response without sinceSeq and parses metadata JSON strings', async () => {
-    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
+    const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit) =>
       jsonResponse({
         records: [{
           id: 'm1',

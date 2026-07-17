@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import ImageCard from '@/components/files/ImageCard.vue'
+import type { GalleryImageItem } from '@/types/files'
 
 /**
  * ImageGrid — 自适应图片网格（web.md §7.3 / §十四）
@@ -8,17 +9,8 @@ import ImageCard from '@/components/files/ImageCard.vue'
  *
  * 单卡事件冒泡到上层，自身不持选中态。
  */
-export interface ImageItem {
-  id: string
-  src: string
-  alt?: string
-  filename: string
-  size?: string
-  failed?: boolean
-}
-
 const props = defineProps<{
-  items: ImageItem[]
+  items: GalleryImageItem[]
   selectedIds: string[]
   /** 是否允许选中（受工具栏 select-all 控制） */
   checkable?: boolean
@@ -26,9 +18,9 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'update:selectedIds': [ids: string[]]
-  preview: [item: ImageItem]
-  download: [item: ImageItem]
-  'open-external': [item: ImageItem]
+  preview: [item: GalleryImageItem]
+  download: [item: GalleryImageItem]
+  'open-external': [item: GalleryImageItem]
 }>()
 
 function toggle(id: string): void {

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { AccordionRoot, AccordionItem, AccordionHeader, AccordionTrigger, AccordionContent } from 'radix-vue'
+import { AccordionRoot } from 'radix-vue'
 
 /**
  * AppAccordion — 手风琴（包装 radix-vue Accordion）

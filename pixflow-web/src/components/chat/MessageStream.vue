@@ -60,7 +60,10 @@ function transitionText(item: TransitionTimelineItem): string {
 </script>
 
 <template>
-  <div ref="containerRef" class="message-stream flex flex-col gap-3 p-4 overflow-y-auto">
+  <div
+    ref="containerRef"
+    class="message-stream flex flex-col gap-3 p-4 overflow-y-auto"
+  >
     <ChatBubble
       v-for="m in userMessages ?? []"
       :key="m.id"
@@ -68,7 +71,10 @@ function transitionText(item: TransitionTimelineItem): string {
       :text="m.text"
     />
 
-    <template v-for="item in timeline" :key="item.id">
+    <template
+      v-for="item in timeline"
+      :key="item.id"
+    >
       <ChatBubble
         v-if="item.type === 'assistant' && item.text"
         role="assistant"
@@ -92,7 +98,10 @@ function transitionText(item: TransitionTimelineItem): string {
           v-if="item.input !== undefined"
           class="mt-2 max-h-24 overflow-auto whitespace-pre-wrap rounded bg-bg-muted px-2 py-1 text-xs text-fg-secondary"
         >{{ JSON.stringify(item.input, null, 2) }}</pre>
-        <p v-if="summarizeToolResult(item)" class="mt-2 whitespace-pre-wrap text-fg-secondary">
+        <p
+          v-if="summarizeToolResult(item)"
+          class="mt-2 whitespace-pre-wrap text-fg-secondary"
+        >
           {{ summarizeToolResult(item) }}
         </p>
       </div>
@@ -102,7 +111,10 @@ function transitionText(item: TransitionTimelineItem): string {
         class="ml-2 max-w-[82%] rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800"
       >
         {{ transitionText(item) }}
-        <span v-if="item.errorCode" class="ml-2 text-xs text-amber-700">{{ item.errorCode }}</span>
+        <span
+          v-if="item.errorCode"
+          class="ml-2 text-xs text-amber-700"
+        >{{ item.errorCode }}</span>
       </div>
 
       <div

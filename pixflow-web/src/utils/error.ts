@@ -14,7 +14,7 @@ const TOKEN_KEY_RE = /(?:confirmationToken|token)/
 const TOKEN_VALUES_RE = /^[A-Za-z0-9._-]{12,}$/
 
 function redactDeep<T>(value: T): T {
-  if (value == null) return value
+  if (value === null || value === undefined) return value
   if (Array.isArray(value)) return value.map(redactDeep) as unknown as T
   if (typeof value === 'object') {
     const out: Record<string, unknown> = {}

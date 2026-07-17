@@ -38,7 +38,11 @@ withDefaults(
         class="z-50 bg-bg-panel shadow-lg rounded-md p-2 border border-border"
       >
         <slot />
-        <PopoverArrow class="fill-bg-panel" :width="10" :height="5" />
+        <PopoverArrow
+          class="fill-bg-panel"
+          :width="10"
+          :height="5"
+        />
       </PopoverContent>
     </PopoverPortal>
   </PopoverRoot>

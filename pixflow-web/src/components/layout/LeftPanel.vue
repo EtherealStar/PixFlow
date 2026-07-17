@@ -56,7 +56,15 @@ async function handleLogout(): Promise<void> {
 }
 
 function startNewChat(): void {
-  router.push('/')
+  void router.push('/').catch(showNavigationError)
+}
+
+function openSettings(): void {
+  void router.push('/settings').catch(showNavigationError)
+}
+
+function showNavigationError(error: unknown): void {
+  toast.push({ variant: 'danger', message: error instanceof Error ? error.message : '导航失败' })
 }
 </script>
 
@@ -68,30 +76,52 @@ function startNewChat(): void {
     @mouseleave="onLeave"
   >
     <!-- 把手 -->
-    <div v-if="!effectiveExpanded" class="rail">
+    <div
+      v-if="!effectiveExpanded"
+      class="rail"
+    >
       <button
         type="button"
         class="rail-pin-btn"
         :aria-label="ui.leftPanelPinned ? '取消钉住' : '钉住面板'"
         @click="ui.toggleLeftPanelPin()"
       >
-        <IconPin v-if="!ui.leftPanelPinned" :size="20" />
-        <IconPinOff v-else :size="20" />
+        <IconPin
+          v-if="!ui.leftPanelPinned"
+          :size="20"
+        />
+        <IconPinOff
+          v-else
+          :size="20"
+        />
       </button>
     </div>
 
     <!-- 展开态 -->
-    <div v-show="effectiveExpanded" class="panel-body flex flex-col h-full w-[300px]">
+    <div
+      v-show="effectiveExpanded"
+      class="panel-body flex flex-col h-full w-[300px]"
+    >
       <!-- 品牌 Logo -->
       <div class="px-4 pt-4 pb-2 flex items-center gap-2">
-        <IconPackage :size="24" class="text-accent" />
+        <IconPackage
+          :size="24"
+          class="text-accent"
+        />
         <span class="text-md font-semibold text-fg-primary">PixFlow</span>
       </div>
 
       <!-- 顶部新对话按钮与钉住控制 -->
       <div class="px-3 pt-2 pb-3 flex items-center justify-between">
-        <AppButton variant="ghost" class="new-chat-btn flex-1 justify-start border border-border bg-bg-panel hover:bg-bg-sunken shadow-sm rounded-md h-9" @click="startNewChat">
-          <IconPlus :size="16" class="mr-2" />
+        <AppButton
+          variant="ghost"
+          class="new-chat-btn flex-1 justify-start border border-border bg-bg-panel hover:bg-bg-sunken shadow-sm rounded-md h-9"
+          @click="startNewChat"
+        >
+          <IconPlus
+            :size="16"
+            class="mr-2"
+          />
           新对话
         </AppButton>
         <button
@@ -100,27 +130,65 @@ function startNewChat(): void {
           :aria-label="ui.leftPanelPinned ? '取消钉住' : '钉住面板'"
           @click="ui.toggleLeftPanelPin()"
         >
-          <IconPin v-if="!ui.leftPanelPinned" :size="16" />
-          <IconPinOff v-else :size="16" />
+          <IconPin
+            v-if="!ui.leftPanelPinned"
+            :size="16"
+          />
+          <IconPinOff
+            v-else
+            :size="16"
+          />
         </button>
       </div>
 
       <!-- 主导航链接 -->
       <nav class="main-nav px-3 flex flex-col gap-1 pb-2">
-        <RouterLink to="/" class="nav-link" active-class="active" exact>
-          <IconChat :size="16" class="shrink-0" />
+        <RouterLink
+          to="/"
+          class="nav-link"
+          active-class="active"
+          exact
+        >
+          <IconChat
+            :size="16"
+            class="shrink-0"
+          />
           <span class="truncate">会话</span>
         </RouterLink>
-        <RouterLink to="/files" class="nav-link" active-class="active" exact>
-          <IconPackage :size="16" class="shrink-0" />
+        <RouterLink
+          to="/files"
+          class="nav-link"
+          active-class="active"
+          exact
+        >
+          <IconPackage
+            :size="16"
+            class="shrink-0"
+          />
           <span class="truncate">素材</span>
         </RouterLink>
-        <RouterLink to="/files?focus=results" class="nav-link" active-class="active" exact>
-          <IconImage :size="16" class="shrink-0" />
+        <RouterLink
+          to="/files?focus=results"
+          class="nav-link"
+          active-class="active"
+          exact
+        >
+          <IconImage
+            :size="16"
+            class="shrink-0"
+          />
           <span class="truncate">产物</span>
         </RouterLink>
-        <RouterLink to="/rubrics" class="nav-link" active-class="active" exact>
-          <IconCheck :size="16" class="shrink-0" />
+        <RouterLink
+          to="/rubrics"
+          class="nav-link"
+          active-class="active"
+          exact
+        >
+          <IconCheck
+            :size="16"
+            class="shrink-0"
+          />
           <span class="truncate">Rubric评估</span>
         </RouterLink>
       </nav>
@@ -135,16 +203,25 @@ function startNewChat(): void {
         <AppDropdownMenu>
           <template #trigger>
             <button class="user-trigger flex items-center gap-2 w-full px-2 py-2 rounded-md hover:bg-bg-sunken transition-colors">
-              <AppAvatar :text="userInitial" :size="30" />
+              <AppAvatar
+                :text="userInitial"
+                :size="30"
+              />
               <span class="flex-1 text-left text-sm font-medium text-fg-primary truncate">{{ displayName }}</span>
-              <IconMoreHorizontal :size="16" class="text-fg-muted" />
+              <IconMoreHorizontal
+                :size="16"
+                class="text-fg-muted"
+              />
             </button>
           </template>
-          <AppDropdownMenuItem @select="$router.push('/settings')">
+          <AppDropdownMenuItem @select="openSettings">
             设置
           </AppDropdownMenuItem>
           <AppDropdownMenuSeparator />
-          <AppDropdownMenuItem danger @select="handleLogout">
+          <AppDropdownMenuItem
+            danger
+            @select="handleLogout"
+          >
             退出登录
           </AppDropdownMenuItem>
         </AppDropdownMenu>

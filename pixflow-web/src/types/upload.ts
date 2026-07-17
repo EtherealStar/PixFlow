@@ -6,6 +6,7 @@ export type UploadJobPhase =
   | 'hashing'
   | 'initing'
   | 'uploading'
+  | 'paused'
   | 'completing'
   | 'done'
   | 'error'
@@ -37,23 +38,23 @@ export interface ChunkState {
   error?: ApiError
 }
 
-/** init 响应：UPLOAD / DEDUP-READY / DEDUP-UPLOADING 三种。 */
+/** init 响应严格对应后端 UPLOAD / RESUME / DEDUP 三种互斥形态。 */
 export type InitUploadResponse =
-  | { mode: 'UPLOAD'; uploadId: string; chunkSize: number; expectedChunks: number; uploadedChunks: number[] }
-  | { mode: 'DEDUP'; packageId: number; status: 'READY' }
-  | { mode: 'DEDUP'; packageId: null; status: 'UPLOADING'; uploadId: string; uploadedChunks: number[] }
+  | { mode: 'UPLOAD'; uploadId: string; packageId: null; status: null; chunkSize: number; expectedChunks: number; uploadedChunks: number[] }
+  | { mode: 'RESUME'; uploadId: string; packageId: null; status: 'UPLOADING'; chunkSize: number; expectedChunks: number; uploadedChunks: number[] }
+  | { mode: 'DEDUP'; uploadId: null; packageId: number; status: 'READY'; chunkSize: 0; expectedChunks: 0; uploadedChunks: [] }
 
 /** 拉取会话响应。 */
 export interface UploadSessionState {
   uploadId: string
-  fileHash?: string
-  size?: number
-  chunkSize?: number
+  fileHash: string
+  size: number
+  chunkSize: number
   expectedChunks: number
   uploadedChunks: number[]
   failedChunks: number[]
   status: 'UPLOADING' | 'READY' | 'EXPIRED' | 'CANCELLED'
-  packageId?: number | null
+  packageId: number | null
 }
 
 /** chunk PUT 响应。 */
@@ -92,10 +93,10 @@ export interface PackageDetail {
   deletedAt?: string | null
   createdAt?: string
   updatedAt?: string
-  images?: ImageItem[]
+  images?: PackageImageItem[]
 }
 
-export interface ImageItem {
+export interface PackageImageItem {
   id: string
   url: string
   name: string

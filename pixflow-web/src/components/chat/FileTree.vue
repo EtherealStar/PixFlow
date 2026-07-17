@@ -7,7 +7,7 @@ import type { FileIndexNode } from '@/stores/fileIndex'
  *
  * 与左栏 FileTreePanel 和 @提及下拉共用；本身不发请求，只渲染传入的节点列表。
  */
-const props = withDefaults(
+withDefaults(
   defineProps<{
     nodes: FileIndexNode[]
     selectedId?: string | null

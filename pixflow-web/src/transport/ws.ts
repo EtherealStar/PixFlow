@@ -1,5 +1,5 @@
 import { Client, type IMessage, type StompSubscription } from '@stomp/stompjs'
-import type { ApiError } from '@/types/api'
+import { ApiError } from '@/types/api'
 import { getAccessToken } from '@/transport/authToken'
 import { newTraceId } from '@/utils/id'
 
@@ -62,12 +62,12 @@ export class StompConnection {
       this.opts.onDisconnect?.()
     }
     this.client.onStompError = (frame) => {
-      this.opts.onError?.({
+      this.opts.onError?.(new ApiError({
         status: 0,
         errorCode: 'WS_RECONNECTING',
         message: `STOMP error: ${frame.headers['message'] ?? 'unknown'}`,
         traceId: this.traceId
-      })
+      }))
     }
     this.client.onWebSocketClose = () => {
       this.connected = false
@@ -78,12 +78,12 @@ export class StompConnection {
 
   private reconnectTimer: number | null = null
   private scheduleReconnect(delays: number[]): void {
-    if (this.reconnectTimer != null) return
+    if (this.reconnectTimer !== null) return
     const delay = delays[Math.min(this.currentDelay, delays.length - 1)]
     this.currentDelay++
     this.reconnectTimer = window.setTimeout(() => {
       this.reconnectTimer = null
-      try { this.client.activate() } catch { /* ignore */ }
+      try { this.client.activate() } catch (error: unknown) { this.reportConnectionError(error) }
     }, delay)
   }
 
@@ -97,15 +97,24 @@ export class StompConnection {
   }
 
   activate(): void {
-    try { this.client.activate() } catch { /* ignore */ }
+    try { this.client.activate() } catch (error: unknown) { this.reportConnectionError(error) }
   }
 
   deactivate(): void {
-    if (this.reconnectTimer != null) {
+    if (this.reconnectTimer !== null) {
       window.clearTimeout(this.reconnectTimer)
       this.reconnectTimer = null
     }
-    try { this.client.deactivate() } catch { /* ignore */ }
+    void this.client.deactivate().catch((error: unknown) => this.reportConnectionError(error))
+  }
+
+  private reportConnectionError(error: unknown): void {
+    this.opts.onError?.(ApiError.fromUnknown(error, {
+      status: 0,
+      errorCode: 'WS_RECONNECTING',
+      message: 'WebSocket connection error',
+      traceId: this.traceId
+    }))
   }
 
   subscribe<T>(destination: string, handler: (msg: T) => void): { unsubscribe: () => void } {
