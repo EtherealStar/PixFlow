@@ -1,37 +1,21 @@
 package com.pixflow.module.memory.config;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.pixflow.infra.ai.chat.ChatModelClient;
 import com.pixflow.infra.ai.embedding.EmbeddingClient;
-import com.pixflow.infra.vector.VectorStore;
+import com.pixflow.infra.vector.VectorSearch;
 import com.pixflow.module.memory.DefaultMemoryService;
 import com.pixflow.module.memory.MemoryService;
 import com.pixflow.module.memory.context.MemoryContextBuilder;
-import com.pixflow.module.memory.ingest.InsightIngestService;
-import com.pixflow.module.memory.ingest.MemoryIngestService;
-import com.pixflow.module.memory.ingest.NoopMemoryIngestService;
-import com.pixflow.module.memory.insight.DefaultInsightIndexRebuildService;
-import com.pixflow.module.memory.insight.DefaultInsightVectorRepo;
-import com.pixflow.module.memory.insight.DefaultInsightLifecycleService;
-import com.pixflow.module.memory.insight.InsightExtractor;
-import com.pixflow.module.memory.insight.InsightIndexRebuildService;
-import com.pixflow.module.memory.insight.InsightRecallService;
+import com.pixflow.module.memory.insight.DefaultInsightVectorSearch;
 import com.pixflow.module.memory.insight.HybridInsightRecallService;
 import com.pixflow.module.memory.insight.InsightDocMapper;
 import com.pixflow.module.memory.insight.InsightKeywordSearch;
-import com.pixflow.module.memory.insight.InsightLifecycleService;
-import com.pixflow.module.memory.insight.InsightVectorRepo;
-import com.pixflow.module.memory.insight.LlmInsightExtractor;
+import com.pixflow.module.memory.insight.InsightRecallService;
+import com.pixflow.module.memory.insight.InsightVectorSearch;
 import com.pixflow.module.memory.insight.MybatisInsightKeywordSearch;
-import com.pixflow.module.memory.insight.NoopInsightIndexRebuildService;
 import com.pixflow.module.memory.insight.NoopInsightKeywordSearch;
-import com.pixflow.module.memory.insight.NoopInsightRecallService;
-import com.pixflow.module.memory.insight.NoopInsightLifecycleService;
-import com.pixflow.module.memory.lifecycle.MemoryReinforcementService;
-import com.pixflow.module.memory.lifecycle.NoopMemoryReinforcementService;
-import com.pixflow.module.memory.lifecycle.ScheduledInsightMaintenance;
-import com.pixflow.module.memory.preference.NoopPreferenceService;
+import com.pixflow.module.memory.insight.VectorRecallReadiness;
 import com.pixflow.module.memory.preference.MybatisPreferenceService;
+import com.pixflow.module.memory.preference.NoopPreferenceService;
 import com.pixflow.module.memory.preference.PreferenceService;
 import com.pixflow.module.memory.preference.UserPreferenceMapper;
 import com.pixflow.module.memory.recall.MemoryRanker;
@@ -40,47 +24,24 @@ import com.pixflow.module.memory.recall.RecallSignalExtractor;
 import com.pixflow.module.memory.recall.RrfFuser;
 import com.pixflow.module.memory.skuhistory.MybatisSkuHistoryService;
 import com.pixflow.module.memory.skuhistory.NoopSkuHistoryService;
-import com.pixflow.module.memory.skuhistory.SkuHistoryService;
 import com.pixflow.module.memory.skuhistory.SkuHistoryMapper;
+import com.pixflow.module.memory.skuhistory.SkuHistoryService;
 import java.time.Clock;
-import java.util.concurrent.Executor;
 import org.apache.ibatis.annotations.Mapper;
 import org.mybatis.spring.annotation.MapperScan;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
-import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.scheduling.annotation.EnableScheduling;
-import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
 @AutoConfiguration
 @EnableConfigurationProperties(MemoryProperties.class)
-@EnableScheduling
 @MapperScan(
         basePackageClasses = {UserPreferenceMapper.class, SkuHistoryMapper.class, InsightDocMapper.class},
         annotationClass = Mapper.class)
 public class MemoryAutoConfiguration {
-
-    @Bean
-    @ConditionalOnMissingBean
-    public ObjectMapper memoryObjectMapper() {
-        return new ObjectMapper();
-    }
-
-    @Bean
-    @ConditionalOnMissingBean(name = "memoryIngestExecutor")
-    public Executor memoryIngestExecutor(MemoryProperties properties) {
-        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
-        executor.setThreadNamePrefix("pixflow-memory-ingest-");
-        executor.setCorePoolSize(properties.getIngest().getPool().getCoreSize());
-        executor.setMaxPoolSize(properties.getIngest().getPool().getMaxSize());
-        executor.setQueueCapacity(properties.getIngest().getPool().getQueueCapacity());
-        executor.initialize();
-        return executor;
-    }
 
     @Bean
     @ConditionalOnMissingBean
@@ -129,105 +90,38 @@ public class MemoryAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    @ConditionalOnBean(VectorStore.class)
-    public InsightVectorRepo insightVectorRepo(VectorStore vectorStore, MemoryProperties properties) {
-        return new DefaultInsightVectorRepo(vectorStore, properties);
+    @ConditionalOnBean(VectorSearch.class)
+    public InsightVectorSearch insightVectorSearch(VectorSearch vectorSearch, MemoryProperties properties) {
+        return new DefaultInsightVectorSearch(vectorSearch, properties);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public VectorRecallReadiness vectorRecallReadiness(
+            ObjectProvider<InsightVectorSearch> vectorSearch,
+            MemoryProperties properties) {
+        // 启动探测只改变召回门状态；Qdrant 配置或网络故障不能阻断整个应用上下文。
+        return VectorRecallReadiness.probe(vectorSearch.getIfAvailable(), properties);
     }
 
     @Bean
     @ConditionalOnMissingBean
     public InsightRecallService hybridInsightRecallService(
             ObjectProvider<EmbeddingClient> embeddingClient,
-            ObjectProvider<InsightVectorRepo> vectorRepo,
+            ObjectProvider<InsightVectorSearch> vectorSearch,
+            VectorRecallReadiness vectorReadiness,
             InsightKeywordSearch keywordSearch,
             RrfFuser rrfFuser,
             MemoryRanker memoryRanker,
             MemoryProperties properties) {
-        EmbeddingClient resolvedEmbedding = embeddingClient.getIfAvailable();
-        InsightVectorRepo resolvedVectorRepo = vectorRepo.getIfAvailable();
-        if (resolvedEmbedding == null || resolvedVectorRepo == null) {
-            return new NoopInsightRecallService();
-        }
-        return new HybridInsightRecallService(resolvedEmbedding, resolvedVectorRepo, keywordSearch, rrfFuser, memoryRanker, properties);
-    }
-
-    @Bean
-    @ConditionalOnMissingBean
-    @ConditionalOnBean(ChatModelClient.class)
-    public InsightExtractor insightExtractor(ChatModelClient chatModelClient, ObjectMapper memoryObjectMapper) {
-        return new LlmInsightExtractor(chatModelClient, memoryObjectMapper);
-    }
-
-    @Bean
-    @ConditionalOnMissingBean
-    @ConditionalOnBean({InsightExtractor.class, InsightDocMapper.class, EmbeddingClient.class, InsightVectorRepo.class, InsightLifecycleService.class})
-    public MemoryIngestService insightIngestService(
-            InsightExtractor extractor,
-            InsightDocMapper mapper,
-            EmbeddingClient embeddingClient,
-            InsightVectorRepo vectorRepo,
-            InsightLifecycleService lifecycleService,
-            MemoryProperties properties,
-            @Qualifier("memoryIngestExecutor") Executor memoryIngestExecutor,
-            Clock clock) {
-        return new InsightIngestService(
-                extractor,
-                mapper,
-                embeddingClient,
-                vectorRepo,
-                lifecycleService,
-                properties,
-                memoryIngestExecutor,
-                clock);
-    }
-
-    @Bean
-    @ConditionalOnMissingBean
-    public MemoryIngestService memoryIngestService() {
-        return new NoopMemoryIngestService();
-    }
-
-    @Bean
-    @ConditionalOnMissingBean
-    public InsightLifecycleService insightLifecycleService(
-            ObjectProvider<InsightDocMapper> mapper,
-            ObjectProvider<InsightVectorRepo> vectorRepo,
-            MemoryProperties properties,
-            Clock clock) {
-        InsightDocMapper resolvedMapper = mapper.getIfAvailable();
-        InsightVectorRepo resolvedVectorRepo = vectorRepo.getIfAvailable();
-        if (resolvedMapper == null || resolvedVectorRepo == null) {
-            return new NoopInsightLifecycleService();
-        }
-        return new DefaultInsightLifecycleService(resolvedMapper, resolvedVectorRepo, properties, clock);
-    }
-
-    @Bean
-    @ConditionalOnMissingBean
-    public ScheduledInsightMaintenance scheduledInsightMaintenance(InsightLifecycleService lifecycleService) {
-        return new ScheduledInsightMaintenance(lifecycleService);
-    }
-
-    @Bean
-    @ConditionalOnMissingBean
-    @ConditionalOnBean({InsightDocMapper.class, EmbeddingClient.class, InsightVectorRepo.class})
-    public InsightIndexRebuildService insightIndexRebuildService(
-            InsightDocMapper mapper,
-            EmbeddingClient embeddingClient,
-            InsightVectorRepo vectorRepo) {
-        return new DefaultInsightIndexRebuildService(mapper, embeddingClient, vectorRepo);
-    }
-
-    @Bean
-    @ConditionalOnMissingBean
-    public InsightIndexRebuildService noopInsightIndexRebuildService() {
-        return new NoopInsightIndexRebuildService();
-    }
-
-    @Bean
-    @ConditionalOnMissingBean
-    public MemoryReinforcementService memoryReinforcementService() {
-        return new NoopMemoryReinforcementService();
+        return new HybridInsightRecallService(
+                embeddingClient.getIfAvailable(),
+                vectorSearch.getIfAvailable(),
+                vectorReadiness,
+                keywordSearch,
+                rrfFuser,
+                memoryRanker,
+                properties);
     }
 
     @Bean
@@ -238,15 +132,17 @@ public class MemoryAutoConfiguration {
             PreferenceService preferenceService,
             SkuHistoryService skuHistoryService,
             InsightRecallService insightRecallService) {
-        return new MemoryContextBuilder(signalExtractor, planner, preferenceService, skuHistoryService, insightRecallService);
+        return new MemoryContextBuilder(
+                signalExtractor,
+                planner,
+                preferenceService,
+                skuHistoryService,
+                insightRecallService);
     }
 
     @Bean
     @ConditionalOnMissingBean
-    public MemoryService memoryService(
-            MemoryContextBuilder contextBuilder,
-            MemoryIngestService ingestService,
-            MemoryReinforcementService reinforcementService) {
-        return new DefaultMemoryService(contextBuilder, ingestService, reinforcementService);
+    public MemoryService memoryService(MemoryContextBuilder contextBuilder) {
+        return new DefaultMemoryService(contextBuilder);
     }
 }

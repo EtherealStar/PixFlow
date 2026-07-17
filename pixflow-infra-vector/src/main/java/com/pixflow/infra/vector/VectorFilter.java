@@ -10,7 +10,9 @@ public final class VectorFilter {
     private static final VectorFilter NONE = new VectorFilter(List.of(), List.of(), List.of());
 
     private final List<Condition> must;
+
     private final List<Condition> should;
+
     private final List<Condition> mustNot;
 
     private VectorFilter(List<Condition> must, List<Condition> should, List<Condition> mustNot) {

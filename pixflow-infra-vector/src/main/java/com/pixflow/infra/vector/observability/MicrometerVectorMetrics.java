@@ -12,7 +12,7 @@ public class MicrometerVectorMetrics implements VectorMetrics {
 
     @Override
     public void recordOperation(String operation, String result, Duration duration) {
-        meterRegistry.timer("pixflow.vector.op", "op", operation, "result", result).record(duration);
+        meterRegistry.timer("pixflow.vector.op", "operation", operation, "result", result).record(duration);
     }
 
     @Override

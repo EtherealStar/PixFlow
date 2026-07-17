@@ -15,21 +15,30 @@ import java.util.Objects;
 
 public class HybridInsightRecallService implements InsightRecallService {
     private final EmbeddingClient embeddingClient;
-    private final InsightVectorRepo vectorRepo;
+
+    private final InsightVectorSearch vectorSearch;
+
+    private final VectorRecallReadiness vectorReadiness;
+
     private final InsightKeywordSearch keywordSearch;
+
     private final RrfFuser rrfFuser;
+
     private final MemoryRanker ranker;
+
     private final MemoryProperties properties;
 
     public HybridInsightRecallService(
             EmbeddingClient embeddingClient,
-            InsightVectorRepo vectorRepo,
+            InsightVectorSearch vectorSearch,
+            VectorRecallReadiness vectorReadiness,
             InsightKeywordSearch keywordSearch,
             RrfFuser rrfFuser,
             MemoryRanker ranker,
             MemoryProperties properties) {
-        this.embeddingClient = Objects.requireNonNull(embeddingClient, "embeddingClient");
-        this.vectorRepo = Objects.requireNonNull(vectorRepo, "vectorRepo");
+        this.embeddingClient = embeddingClient;
+        this.vectorSearch = vectorSearch;
+        this.vectorReadiness = Objects.requireNonNull(vectorReadiness, "vectorReadiness");
         this.keywordSearch = Objects.requireNonNull(keywordSearch, "keywordSearch");
         this.rrfFuser = Objects.requireNonNull(rrfFuser, "rrfFuser");
         this.ranker = Objects.requireNonNull(ranker, "ranker");
@@ -47,19 +56,25 @@ public class HybridInsightRecallService implements InsightRecallService {
         Map<String, Object> trace = new LinkedHashMap<>();
         List<String> degradedReasons = new ArrayList<>();
 
-        try {
-            EmbeddingResult embedding = embeddingClient.embed(List.of(query));
-            if (embedding.vectors().isEmpty()) {
-                degradedReasons.add("vector_empty_embedding");
-            } else {
-                vectorItems = vectorRepo.search(
-                        embedding.vectors().get(0).values(),
-                        recall.getTopnEach(),
-                        (float) recall.getVectorThreshold(),
-                        filter);
+        if (!vectorReadiness.ready()) {
+            degradedReasons.add(vectorReadiness.degradedReason());
+        } else if (embeddingClient == null || vectorSearch == null) {
+            degradedReasons.add("vector_not_configured");
+        } else {
+            try {
+                EmbeddingResult embedding = embeddingClient.embed(List.of(query));
+                if (embedding.vectors().isEmpty()) {
+                    degradedReasons.add("vector_empty_embedding");
+                } else {
+                    vectorItems = vectorSearch.search(
+                            embedding.vectors().get(0).values(),
+                            recall.getTopnEach(),
+                            (float) recall.getVectorThreshold(),
+                            filter);
+                }
+            } catch (RuntimeException ex) {
+                degradedReasons.add("vector_unavailable");
             }
-        } catch (RuntimeException ex) {
-            degradedReasons.add("vector_failed:" + ex.getClass().getSimpleName());
         }
 
         try {

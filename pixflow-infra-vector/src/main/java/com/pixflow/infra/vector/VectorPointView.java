@@ -1,13 +1,12 @@
 package com.pixflow.infra.vector;
 
 import java.util.Arrays;
-import java.util.Collections;
-import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 
-public record VectorPoint(String id, float[] vector, Map<String, Object> payload) {
-    public VectorPoint {
+/** 单点诊断读取的不可变快照。 */
+public record VectorPointView(String id, float[] vector, Map<String, Object> payload) {
+    public VectorPointView {
         if (id == null || id.isBlank()) {
             throw new IllegalArgumentException("id must not be blank");
         }
@@ -18,18 +17,11 @@ public record VectorPoint(String id, float[] vector, Map<String, Object> payload
             }
         }
         vector = Arrays.copyOf(vector, vector.length);
-        payload = immutableCopy(payload);
+        payload = ImmutablePayload.copy(payload);
     }
 
     @Override
     public float[] vector() {
         return Arrays.copyOf(vector, vector.length);
-    }
-
-    private static Map<String, Object> immutableCopy(Map<String, Object> source) {
-        if (source == null || source.isEmpty()) {
-            return Map.of();
-        }
-        return Collections.unmodifiableMap(new LinkedHashMap<>(source));
     }
 }

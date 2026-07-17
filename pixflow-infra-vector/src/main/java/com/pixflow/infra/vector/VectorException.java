@@ -8,9 +8,19 @@ import java.util.Map;
  * infra/vector 内部异常，跨模块边界后由 common 归一化为 DEPENDENCY。
  */
 public class VectorException extends RuntimeException {
+    public enum FailureKind {
+        COLLECTION_INVALID,
+        DEPENDENCY
+    }
+
     private final String operation;
+
     private final String collection;
+
     private final boolean retryable;
+
+    private final FailureKind failureKind;
+
     private final Map<String, Object> details;
 
     public VectorException(String operation, String collection, boolean retryable, String message) {
@@ -28,10 +38,24 @@ public class VectorException extends RuntimeException {
             String message,
             Throwable cause,
             Map<String, ?> details) {
+        this(operation, collection, retryable, cause == null
+                ? FailureKind.COLLECTION_INVALID
+                : FailureKind.DEPENDENCY, message, cause, details);
+    }
+
+    public VectorException(
+            String operation,
+            String collection,
+            boolean retryable,
+            FailureKind failureKind,
+            String message,
+            Throwable cause,
+            Map<String, ?> details) {
         super(message, cause);
         this.operation = operation;
         this.collection = collection;
         this.retryable = retryable;
+        this.failureKind = failureKind;
         this.details = immutableCopy(details);
     }
 
@@ -45,6 +69,10 @@ public class VectorException extends RuntimeException {
 
     public boolean retryable() {
         return retryable;
+    }
+
+    public FailureKind failureKind() {
+        return failureKind;
     }
 
     public Map<String, Object> details() {

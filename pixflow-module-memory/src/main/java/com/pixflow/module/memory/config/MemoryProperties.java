@@ -6,7 +6,6 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public class MemoryProperties {
     private final Prompt prompt = new Prompt();
     private final Insight insight = new Insight();
-    private final Ingest ingest = new Ingest();
 
     public Prompt getPrompt() {
         return prompt;
@@ -16,15 +15,15 @@ public class MemoryProperties {
         return insight;
     }
 
-    public Ingest getIngest() {
-        return ingest;
-    }
-
     public static class Prompt {
         private int maxItems = 18;
+
         private int maxTokens = 1800;
+
         private int preferenceMaxItems = 50;
+
         private int skuHistoryMaxItemsPerSku = 5;
+
         private int insightTopn = 10;
 
         public int getMaxItems() {
@@ -70,10 +69,12 @@ public class MemoryProperties {
 
     public static class Insight {
         private String collection = "analysis_insight";
-        private int dedupNeighbors = 10;
+
+        private Integer expectedDimension;
+
         private final Recall recall = new Recall();
+
         private final Rank rank = new Rank();
-        private final Lifecycle lifecycle = new Lifecycle();
 
         public String getCollection() {
             return collection;
@@ -86,12 +87,15 @@ public class MemoryProperties {
             this.collection = collection;
         }
 
-        public int getDedupNeighbors() {
-            return dedupNeighbors;
+        public Integer getExpectedDimension() {
+            return expectedDimension;
         }
 
-        public void setDedupNeighbors(int dedupNeighbors) {
-            this.dedupNeighbors = positive(dedupNeighbors, "insight.dedup-neighbors");
+        public void setExpectedDimension(Integer expectedDimension) {
+            if (expectedDimension != null && expectedDimension <= 0) {
+                throw new IllegalArgumentException("insight.expected-dimension must be positive");
+            }
+            this.expectedDimension = expectedDimension;
         }
 
         public Recall getRecall() {
@@ -102,16 +106,17 @@ public class MemoryProperties {
             return rank;
         }
 
-        public Lifecycle getLifecycle() {
-            return lifecycle;
-        }
     }
 
     public static class Recall {
         private int topnEach = 20;
+
         private int topn = 10;
+
         private int rrfK = 60;
+
         private double vectorThreshold = 0.1;
+
         private double minFinalScore = 0.1;
 
         public int getTopnEach() {
@@ -157,9 +162,13 @@ public class MemoryProperties {
 
     public static class Rank {
         private double rrfWeight = 0.55;
+
         private double confidenceWeight = 0.15;
+
         private double importanceWeight = 0.15;
+
         private double decayWeight = 0.10;
+
         private double recencyWeight = 0.05;
 
         public double getRrfWeight() {
@@ -200,86 +209,6 @@ public class MemoryProperties {
 
         public void setRecencyWeight(double recencyWeight) {
             this.recencyWeight = finiteNonNegative(recencyWeight, "insight.rank.recency-weight");
-        }
-    }
-
-    public static class Lifecycle {
-        private int decayHalfLifeDays = 30;
-        private double suppressThreshold = 0.25;
-        private double expireThreshold = 0.10;
-        private String maintenanceCron = "0 0 * * * *";
-
-        public int getDecayHalfLifeDays() {
-            return decayHalfLifeDays;
-        }
-
-        public void setDecayHalfLifeDays(int decayHalfLifeDays) {
-            this.decayHalfLifeDays = positive(decayHalfLifeDays, "insight.lifecycle.decay-half-life-days");
-        }
-
-        public double getSuppressThreshold() {
-            return suppressThreshold;
-        }
-
-        public void setSuppressThreshold(double suppressThreshold) {
-            this.suppressThreshold = finiteNonNegative(suppressThreshold, "insight.lifecycle.suppress-threshold");
-        }
-
-        public double getExpireThreshold() {
-            return expireThreshold;
-        }
-
-        public void setExpireThreshold(double expireThreshold) {
-            this.expireThreshold = finiteNonNegative(expireThreshold, "insight.lifecycle.expire-threshold");
-        }
-
-        public String getMaintenanceCron() {
-            return maintenanceCron;
-        }
-
-        public void setMaintenanceCron(String maintenanceCron) {
-            if (maintenanceCron == null || maintenanceCron.isBlank()) {
-                throw new IllegalArgumentException("insight.lifecycle.maintenance-cron must not be blank");
-            }
-            this.maintenanceCron = maintenanceCron;
-        }
-    }
-
-    public static class Ingest {
-        private final Pool pool = new Pool();
-
-        public Pool getPool() {
-            return pool;
-        }
-    }
-
-    public static class Pool {
-        private int coreSize = 2;
-        private int maxSize = 4;
-        private int queueCapacity = 100;
-
-        public int getCoreSize() {
-            return coreSize;
-        }
-
-        public void setCoreSize(int coreSize) {
-            this.coreSize = positive(coreSize, "ingest.pool.core-size");
-        }
-
-        public int getMaxSize() {
-            return maxSize;
-        }
-
-        public void setMaxSize(int maxSize) {
-            this.maxSize = positive(maxSize, "ingest.pool.max-size");
-        }
-
-        public int getQueueCapacity() {
-            return queueCapacity;
-        }
-
-        public void setQueueCapacity(int queueCapacity) {
-            this.queueCapacity = positive(queueCapacity, "ingest.pool.queue-capacity");
         }
     }
 

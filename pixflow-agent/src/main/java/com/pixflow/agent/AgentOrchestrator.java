@@ -40,6 +40,8 @@ import com.pixflow.harness.loop.event.AgentEventSink;
 import com.pixflow.harness.loop.permission.DefaultPermissionContextFactory;
 import com.pixflow.harness.loop.permission.PermissionContextFactory;
 import com.pixflow.harness.permission.PermissionPolicy;
+import com.pixflow.harness.permission.PermissionPlanMode;
+import com.pixflow.harness.permission.PermissionPrincipal;
 import com.pixflow.harness.tools.ToolDescriptor;
 import com.pixflow.harness.tools.ToolExecutor;
 import com.pixflow.harness.tools.ToolRegistry;
@@ -82,7 +84,8 @@ import java.util.concurrent.ExecutorService;
  *       现场构造（与 {@code loop.md §十二} 一致——{@code AgentLoop} 不暴露为 Spring bean）</li>
  *   <li>{@link #streamNewTurn(AgentTurnRequest, AgentEventSink)} 是
  *       {@code conversation.AgentTurnRunner} SPI 的生产实现</li>
- *   <li>{@link #continueTurn(String, AgentEventSink, CancellationToken)} 跳过 user prompt 派发与追加，
+ *   <li>{@link #continueTurn(String, PermissionPrincipal, AgentEventSink, CancellationToken)}
+ *       跳过 user prompt 派发与追加，
  *       复用同一构造路径（fork / 续轮场景）</li>
  *   <li>错误向上抛给 web 层（归一化为 HTTP/SSE error 帧），不 emit error 事件</li>
  * </ul>
@@ -326,7 +329,8 @@ public class AgentOrchestrator {
         Objects.requireNonNull(sink, "sink");
         request.cancellation().throwIfCancellationRequested();
 
-        TurnRuntime runtime = createTurnRuntime(request.conversationId(), TurnMode.NEW_TURN);
+        TurnRuntime runtime = createTurnRuntime(
+                request.conversationId(), request.principal(), TurnMode.NEW_TURN);
         return driveTurn(runtime.state(), runtime.messageStore(), request.conversationId(),
                 runtime.targetTurnNo(), request.prompt(), request.attachments(), sink,
                 TurnMode.NEW_TURN, request.cancellation());
@@ -342,13 +346,19 @@ public class AgentOrchestrator {
      * @param sink           SSE 事件接出
      * @return AgentLoop 返回的最终 assistant 文本
      */
-    public String continueTurn(String conversationId, AgentEventSink sink, CancellationToken cancellation) {
+    public String continueTurn(
+            String conversationId,
+            PermissionPrincipal principal,
+            AgentEventSink sink,
+            CancellationToken cancellation) {
         Objects.requireNonNull(conversationId, "conversationId");
+        Objects.requireNonNull(principal, "principal");
         Objects.requireNonNull(sink, "sink");
         Objects.requireNonNull(cancellation, "cancellation");
         cancellation.throwIfCancellationRequested();
 
-        TurnRuntime runtime = createTurnRuntime(conversationId, TurnMode.CONTINUE);
+        // 续轮也必须由认证边界显式传入主体，不能从历史消息或 metadata 恢复身份。
+        TurnRuntime runtime = createTurnRuntime(conversationId, principal, TurnMode.CONTINUE);
         return driveTurn(runtime.state(), runtime.messageStore(), conversationId,
                 runtime.targetTurnNo(), "", List.of(), sink, TurnMode.CONTINUE, cancellation);
     }
@@ -441,16 +451,24 @@ public class AgentOrchestrator {
     /**
      * 构造 per-conversation 的 {@link RuntimeState}：traceId 用 UUID，turnNo 从 1 起。
      */
-    private RuntimeState newState(String conversationId, int targetTurnNo) {
+    private RuntimeState newState(
+            String conversationId,
+            com.pixflow.harness.permission.PermissionPrincipal principal,
+            int targetTurnNo) {
         RuntimeState state = new RuntimeState();
         state.setConversationId(conversationId);
         state.setTraceId(UUID.randomUUID().toString());
         state.setTurnNo(targetTurnNo);
         state.setRuntimeScope(RuntimeScope.main());
+        state.setPermissionPrincipal(principal);
+        state.setPermissionPlanMode(PermissionPlanMode.OFF);
         return state;
     }
 
-    private TurnRuntime createTurnRuntime(String conversationId, TurnMode mode) {
+    private TurnRuntime createTurnRuntime(
+            String conversationId,
+            com.pixflow.harness.permission.PermissionPrincipal principal,
+            TurnMode mode) {
         MessageStore messageStore = MessageStore.transcriptBacked(transcriptPort);
         messageStore.bindConversation(conversationId);
         List<com.pixflow.harness.context.model.Message> seed = loadTranscript(conversationId);
@@ -459,7 +477,7 @@ public class AgentOrchestrator {
         int targetTurnNo = mode == TurnMode.CONTINUE
                 ? Math.max(1, userTurnCount)
                 : userTurnCount + 1;
-        RuntimeState state = newState(conversationId, targetTurnNo);
+        RuntimeState state = newState(conversationId, principal, targetTurnNo);
         return new TurnRuntime(state, messageStore, targetTurnNo);
     }
 
