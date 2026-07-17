@@ -205,13 +205,14 @@ class DefaultChatModelClientTest {
                 new AiProperties.Retry(1, Duration.ZERO, Duration.ZERO, 0),
                 Duration.ofSeconds(5),
                 null,
-                Map.of(ModelRole.PRIMARY_CHAT, new AiProperties.Quota(
-                        "primary-chat", 100, 100, Duration.ofSeconds(1), Duration.ofMinutes(1), 1)));
+                new AiProperties.QuotaSettings(Map.of(ModelRole.PRIMARY_CHAT, new AiProperties.Quota(
+                        "primary-chat", 100, 100, Duration.ofSeconds(1), Duration.ofMinutes(1), 1))));
         var concurrency = new ConcurrencyGuard((role, provider, waitTime) -> () -> { });
         var quota = new ModelQuotaGuard(
                 (role, provider, group, cost) -> new com.pixflow.infra.ai.spi.ModelQuotaLimiter.QuotaDecision(
                         true, 99, Duration.ZERO),
-                properties);
+                properties,
+                new AiMetrics(new SimpleMeterRegistry()));
         return new DefaultChatModelClient(
                 properties,
                 new DefaultModelRouter(properties),

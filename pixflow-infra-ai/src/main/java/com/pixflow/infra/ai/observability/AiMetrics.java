@@ -14,7 +14,14 @@ import java.util.concurrent.atomic.AtomicInteger;
  * ai 模块的 Micrometer 指标封装。
  */
 public final class AiMetrics {
+    public enum QuotaResult {
+        ALLOWED,
+        REJECTED,
+        ERROR
+    }
+
     private final MeterRegistry meterRegistry;
+
     private final AtomicInteger concurrency = new AtomicInteger();
 
     public AiMetrics(MeterRegistry meterRegistry) {
@@ -26,7 +33,12 @@ public final class AiMetrics {
         return Timer.start(meterRegistry);
     }
 
-    public void recordCall(Timer.Sample sample, ModelRole role, String provider, ModelCapability capability, boolean ok) {
+    public void recordCall(
+            Timer.Sample sample,
+            ModelRole role,
+            String provider,
+            ModelCapability capability,
+            boolean ok) {
         sample.stop(Timer.builder("pixflow.ai.call")
                 .tag("role", role.name())
                 .tag("provider", provider)
@@ -50,6 +62,15 @@ public final class AiMetrics {
         Counter.builder("pixflow.ai.retry")
                 .tag("role", role.name())
                 .tag("reason", code.code())
+                .register(meterRegistry)
+                .increment();
+    }
+
+    public void recordQuota(ModelRole role, String provider, QuotaResult result) {
+        Counter.builder("pixflow.ai.quota")
+                .tag("role", role.name())
+                .tag("provider", provider)
+                .tag("result", result.name().toLowerCase(java.util.Locale.ROOT))
                 .register(meterRegistry)
                 .increment();
     }

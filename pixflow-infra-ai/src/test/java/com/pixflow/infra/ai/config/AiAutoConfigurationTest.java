@@ -27,6 +27,7 @@ import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 class AiAutoConfigurationTest {
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
             .withConfiguration(AutoConfigurations.of(AiAutoConfiguration.class))
+            .withPropertyValues(quotaProperties())
             .withBean(ObjectMapper.class, ObjectMapper::new)
             .withBean(SimpleMeterRegistry.class, SimpleMeterRegistry::new)
             .withBean(GlobalConcurrencyLimiter.class, () -> (role, provider, waitTime) -> () -> { })
@@ -59,6 +60,60 @@ class AiAutoConfigurationTest {
                     assertThat(properties.provider("CUSTOM-ANYTHING").apiKey()).isEqualTo("test-key");
                     assertThat(properties.provider("custom-anything").baseUrl()).endsWith("/v1");
                 });
+    }
+
+    @Test
+    void bindsQuotaRolesAndDefaultsRetryToThree() {
+        contextRunner.run(context -> {
+            AiProperties properties = context.getBean(AiProperties.class);
+
+            assertThat(properties.retry().maxRetries()).isEqualTo(3);
+            assertThat(properties.quota(ModelRole.PRIMARY_CHAT).quotaGroup()).isEqualTo("chat");
+        });
+    }
+
+    @Test
+    void legacyQuotasPathDoesNotSatisfyRequiredRoleConfiguration() {
+        ApplicationContextRunner runner = baseRunner()
+                .withBean(GlobalConcurrencyLimiter.class, () -> (role, provider, waitTime) -> () -> { })
+                .withBean(ModelQuotaLimiter.class, () -> (role, provider, group, cost) ->
+                        new ModelQuotaLimiter.QuotaDecision(true, 100, java.time.Duration.ZERO))
+                .withPropertyValues(quotaPropertiesWithoutPrimary())
+                .withPropertyValues(
+                        "pixflow.ai.quotas.primary-chat.quota-group=legacy",
+                        "pixflow.ai.quotas.primary-chat.capacity=10",
+                        "pixflow.ai.quotas.primary-chat.refill-tokens=10",
+                        "pixflow.ai.quotas.primary-chat.refill-period=1s",
+                        "pixflow.ai.quotas.primary-chat.idle-ttl=1m",
+                        "pixflow.ai.quotas.primary-chat.cost-per-attempt=1");
+
+        runner.run(context -> assertThat(context).hasFailed());
+    }
+
+    @Test
+    void partialRoleBindingCannotSkipRequiredQuotaValidation() {
+        baseRunner()
+                .withBean(GlobalConcurrencyLimiter.class, () -> (role, provider, waitTime) -> () -> { })
+                .withBean(ModelQuotaLimiter.class, () -> (role, provider, group, cost) ->
+                        new ModelQuotaLimiter.QuotaDecision(true, 100, java.time.Duration.ZERO))
+                .withPropertyValues(
+                        "pixflow.ai.roles.primary-chat.provider=dashscope",
+                        "pixflow.ai.roles.primary-chat.model=qwen-max",
+                        "pixflow.ai.roles.primary-chat.capability=CHAT")
+                .withPropertyValues(quotaPropertiesWithoutPrimary())
+                .run(context -> assertThat(context).hasFailed());
+    }
+
+    @Test
+    void missingEitherAdmissionAdapterFailsStartup() {
+        baseRunner().withPropertyValues(quotaProperties())
+                .withBean(ModelQuotaLimiter.class, () -> (role, provider, group, cost) ->
+                        new ModelQuotaLimiter.QuotaDecision(true, 100, java.time.Duration.ZERO))
+                .run(context -> assertThat(context).hasFailed());
+
+        baseRunner().withPropertyValues(quotaProperties())
+                .withBean(GlobalConcurrencyLimiter.class, () -> (role, provider, waitTime) -> () -> { })
+                .run(context -> assertThat(context).hasFailed());
     }
 
     @Test
@@ -108,5 +163,41 @@ class AiAutoConfigurationTest {
 
     private static ChatMessage userText(String text) {
         return new ChatMessage(ChatMessage.Role.USER, List.of(new ChatMessage.TextPart(text)));
+    }
+
+    private static ApplicationContextRunner baseRunner() {
+        return new ApplicationContextRunner()
+                .withConfiguration(AutoConfigurations.of(AiAutoConfiguration.class))
+                .withBean(ObjectMapper.class, ObjectMapper::new)
+                .withBean(SimpleMeterRegistry.class, SimpleMeterRegistry::new);
+    }
+
+    private static String[] quotaProperties() {
+        java.util.List<String> properties = new java.util.ArrayList<>();
+        addQuotaProperties(properties, "primary-chat", "chat");
+        addQuotaProperties(properties, "vision", "vision");
+        addQuotaProperties(properties, "imagegen", "imagegen");
+        addQuotaProperties(properties, "embedding", "embedding");
+        addQuotaProperties(properties, "rerank", "rerank");
+        return properties.toArray(String[]::new);
+    }
+
+    private static String[] quotaPropertiesWithoutPrimary() {
+        java.util.List<String> properties = new java.util.ArrayList<>();
+        addQuotaProperties(properties, "vision", "vision");
+        addQuotaProperties(properties, "imagegen", "imagegen");
+        addQuotaProperties(properties, "embedding", "embedding");
+        addQuotaProperties(properties, "rerank", "rerank");
+        return properties.toArray(String[]::new);
+    }
+
+    private static void addQuotaProperties(java.util.List<String> properties, String role, String group) {
+        String prefix = "pixflow.ai.quota.roles." + role;
+        properties.add(prefix + ".quota-group=" + group);
+        properties.add(prefix + ".capacity=10");
+        properties.add(prefix + ".refill-tokens=10");
+        properties.add(prefix + ".refill-period=1s");
+        properties.add(prefix + ".idle-ttl=1m");
+        properties.add(prefix + ".cost-per-attempt=1");
     }
 }

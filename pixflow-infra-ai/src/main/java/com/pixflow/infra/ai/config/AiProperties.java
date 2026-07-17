@@ -19,17 +19,17 @@ public record AiProperties(
         Retry retry,
         Duration timeout,
         Concurrency concurrency,
-        Map<ModelRole, Quota> quotas) {
+        QuotaSettings quota) {
 
     public AiProperties {
         defaultProvider = defaultProvider == null ? "dashscope" : defaultProvider;
         dashscope = dashscope == null ? new DashScope(null, "https://dashscope.aliyuncs.com") : dashscope;
         providers = providers == null ? Map.of() : Map.copyOf(providers);
         roles = roles == null ? Roles.defaults() : roles;
-        retry = retry == null ? new Retry(10, Duration.ofMillis(500), Duration.ofSeconds(32), 0.25d) : retry;
+        retry = retry == null ? new Retry(3, Duration.ofMillis(500), Duration.ofSeconds(32), 0.25d) : retry;
         timeout = timeout == null ? Duration.ofSeconds(60) : timeout;
         concurrency = concurrency == null ? new Concurrency(16, 8, 4) : concurrency;
-        quotas = quotas == null ? Map.of() : Map.copyOf(quotas);
+        quota = quota == null ? new QuotaSettings(Map.of()) : quota;
     }
 
     public record DashScope(String apiKey, String baseUrl) {
@@ -78,9 +78,15 @@ public record AiProperties(
         }
     }
 
+    public record QuotaSettings(Map<ModelRole, Quota> roles) {
+        public QuotaSettings {
+            roles = roles == null ? Map.of() : Map.copyOf(roles);
+        }
+    }
+
     public Quota quota(ModelRole role) {
-        Quota quota = quotas.get(role);
-        if (quota == null) {
+        Quota roleQuota = quota.roles().get(role);
+        if (roleQuota == null) {
             throw new PixFlowException(
                     com.pixflow.infra.ai.error.AiErrorCode.MODEL_CONFIGURATION_ERROR,
                     "未配置模型出站额度: " + role,
@@ -90,7 +96,23 @@ public record AiProperties(
                     null,
                     null);
         }
-        return quota;
+        return roleQuota;
+    }
+
+    public void validateConfiguredRoleQuotas() {
+        quota(ModelRole.PRIMARY_CHAT);
+        quota(ModelRole.VISION);
+        quota(ModelRole.IMAGEGEN);
+        quota(ModelRole.EMBEDDING);
+        quota(ModelRole.RERANK);
+        requireQuota(ModelRole.RUBRICS_JUDGE_TEXT, roles.rubricsJudgeText());
+        requireQuota(ModelRole.RUBRICS_JUDGE_VISION, roles.rubricsJudgeVision());
+    }
+
+    private void requireQuota(ModelRole role, RoleConfig roleConfig) {
+        if (roleConfig != null) {
+            quota(role);
+        }
     }
 
     private static void requirePositive(Duration duration, String name) {

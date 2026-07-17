@@ -67,8 +67,12 @@ public class AiAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public ModelQuotaGuard modelQuotaGuard(ModelQuotaLimiter limiter, AiProperties properties) {
-        return new ModelQuotaGuard(limiter, properties);
+    public ModelQuotaGuard modelQuotaGuard(
+            ModelQuotaLimiter limiter,
+            AiProperties properties,
+            AiMetrics metrics) {
+        properties.validateConfiguredRoleQuotas();
+        return new ModelQuotaGuard(limiter, properties, metrics);
     }
 
     @Bean
@@ -132,7 +136,8 @@ public class AiAutoConfiguration {
             ModelQuotaGuard quotaGuard,
             AiMetrics aiMetrics,
             DashScopeHttpClient dashScopeHttpClient) {
-        return new DefaultEmbeddingClient(modelRouter, retryRunner, concurrencyGuard, quotaGuard, aiMetrics, dashScopeHttpClient);
+        return new DefaultEmbeddingClient(
+                modelRouter, retryRunner, concurrencyGuard, quotaGuard, aiMetrics, dashScopeHttpClient);
     }
 
     @Bean
@@ -144,7 +149,8 @@ public class AiAutoConfiguration {
             ModelQuotaGuard quotaGuard,
             AiMetrics aiMetrics,
             DashScopeHttpClient dashScopeHttpClient) {
-        return new DefaultImageGenClient(modelRouter, retryRunner, concurrencyGuard, quotaGuard, aiMetrics, dashScopeHttpClient);
+        return new DefaultImageGenClient(
+                modelRouter, retryRunner, concurrencyGuard, quotaGuard, aiMetrics, dashScopeHttpClient);
     }
 
     @Bean
@@ -156,6 +162,7 @@ public class AiAutoConfiguration {
             ModelQuotaGuard quotaGuard,
             AiMetrics aiMetrics,
             DashScopeHttpClient dashScopeHttpClient) {
-        return new DefaultRerankClient(modelRouter, retryRunner, concurrencyGuard, quotaGuard, aiMetrics, dashScopeHttpClient);
+        return new DefaultRerankClient(
+                modelRouter, retryRunner, concurrencyGuard, quotaGuard, aiMetrics, dashScopeHttpClient);
     }
 }
