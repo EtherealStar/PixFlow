@@ -18,9 +18,10 @@ This ExecPlan is a living document. The sections `Progress`, `Surprises & Discov
 - [x] (2026-07-17) 核对提交 `0faa171` 的后端设计变更，并建立模块依赖 DAG、可并行工作流和关键契约切口。
 - [x] (2026-07-17) 核对当前工作树，确认 `execution-domain-refactor-plan.md`、`linter-adoption-plan.md`、`rubrics-criterion-verdict-refactor-plan.md` 正在由用户移动到 `exec-plans/completed/`，活动计划只剩 `lint-baseline-remediation-plan.md`。
 - [x] (2026-07-17) 创建本后端总重构 ExecPlan，固定目标规范优先级、阶段顺序、每阶段必读文档、兼容策略和验收闭环。
-- [ ] Milestone 0：完成实现基线审计、文档冲突收敛、公开契约冻结和架构测试骨架。
-- [ ] Milestone 1：落地 canonical Asset Reference、File 解析边界和 USER message references，删除 ATTACHMENT 身份模型。
-- [ ] Milestone 2：落地单一管理员、deny-first Permission 和 Conversation 所属的临时 Proposal，删除确认令牌与 durable pending plan。（2026-07-17：Auth、Permission 与 Proposal 子范围已完成；已接五类 current-facts proof、可信 runtime context、发布二次授权、空 body confirm/reject、进程内 Proposal CAS、Task proposalId replay，并删除 token/challenge/pending_plan 全链路。总里程碑仍等待 Milestone 1 的 canonical Asset Reference 工具合同完成；当前 Imagegen 内部仍从已校验的 packageId/imageId 生成 key，不能把总链路虚报完成。）
+- [x] (2026-07-17) Milestone 0：完成实现基线审计、文档冲突收敛和 owner-defined 基础设施公开契约冻结。已按专项计划核实 Auth、Cache、Image、MQ、Storage、Thirdparty、AI、Vector 与 Permission 的实现和模块级守护；旧路径全仓清单仍作为后续各里程碑的删除验收，不把尚未迁移的上层命中误记为基础设施缺陷。
+- [x] (2026-07-17 19:06+08:00) 基础设施子范围：Auth 已切换为 Configured Administrator；Cache 已删除 confirmation-token 集成；Image 已具备 decode 前像素足迹准入；MQ、Storage、Thirdparty、AI 已对齐当前配置、准入和失败边界；Vector/Memory 已切换为只读召回；Permission 已切换为 deny-first direct-confirm，并补齐属主 proof fault-isolation 矩阵。统一 infra reactor 覆盖 Common、Permission 和八个 `pixflow-infra-*` 模块，真实 Redis、MinIO、Qdrant 测试零跳过；File 33、Conversation 40 项回归通过。canonical Asset Reference owner namespace、Task/File publication 和 tool capability catalog 仍按 Milestone 1/3/7 实施，不属于本基础设施子范围。
+- [ ] Milestone 1：落地 canonical Asset Reference、File 解析边界和 USER message references，删除 ATTACHMENT 身份模型。（2026-07-17：纯 JDK canonical codec、typed keys 与 File permission parser 已完成，直接 DAG/Imagegen/Task/App 消费方已切换；完整 File resolve/inspect/expand、USER message references 与 ATTACHMENT 删除仍未完成。）
+- [x] (2026-07-17) Milestone 2：落地单一管理员、deny-first Permission 和 Conversation 所属的临时 Proposal，删除确认令牌与 durable pending plan。Auth/Permission 已接五类 current-facts proof、可信 runtime context、发布二次授权和空 body confirm/reject；本轮把 Proposal store/CAS/幂等归属 Conversation，DAG/Imagegen 只返回 validated payload，App 负责可信发布，并删除 contracts Proposal、producer publisher 与多源 Imagegen 工具合同。
 - [ ] Milestone 3：对齐 DAG、Imagegen、Task、State、Storage、Cache 与 Image 执行链，并把成功结果发布为独立 Generated Image。
 - [ ] Milestone 4：把 Vision 替换为可恢复 Product Visual Facts 作业和唯一 Agent lookup tool。
 - [ ] Milestone 5：把 Memory、Vector、Hooks 与 Agent 收窄为只读召回和视觉事实消费，删除全部在线写回路径。（2026-07-17：Vector/Memory 子范围已完成，唯一运行时能力为三方法 `VectorSearch`，在线 ingest/reinforcement/lifecycle/rebuild 与旧 hook 已删除；canonical Asset Reference 和视觉事实消费仍待本总计划后续切片。）
@@ -46,6 +47,18 @@ This ExecPlan is a living document. The sections `Progress`, `Surprises & Discov
 
 - Observation: 已完成的 Execution Domain 计划证明 Canonical DAG、Work Unit、Execution Epoch、Pixel Budget 和 Derived Retry 的主体已有实现，但最新架构仍改变了素材身份、Proposal 所有权和成功结果发布边界。
   Evidence: `docs/design-docs/exec-plans/completed/execution-domain-refactor-plan.md` 的 completed milestones；当前源码仍存在 durable pending plan、旧 Imagegen 多图输入和未统一的 Asset Reference 消费方。
+
+- Observation: 基础设施实现已先于业务链落地，且工作树干净；当前风险不再是各 infra 模块缺少目标能力，而是把其已冻结能力接入 canonical Asset Reference、Task publication 和 Vision 等后续属主模块。
+  Evidence: `git log --oneline` 显示 `99cbe97`（Auth）、`f307ba9`（Cache）、`8cc0d7b`（Image）、`411994d`（AI）、`0c75c80`（Thirdparty）、`7359287`（MQ）、`a0a724e`（Storage）和 `8ec2d9d`（Vector）；源码公开面已分别包含 `AdministratorEligibility`、`DistributedTokenBucket`/`DistributedSemaphore`、`PixelFootprintEstimator`、`ObjectStorage.copy`、AI role quota 与三方法 `VectorSearch`。
+
+- Observation: `GeneratedAssetPublicationPort`、`GeneratedAssetCandidate` 和 canonical `AssetReference` 类型尚未出现在 Contracts、File、Task 或 App 生产源码，不能把 Storage stable key/copy 或 Permission direct-confirm 的完成状态扩大为 Milestone 1、3 或完整端到端链完成。
+  Evidence: `docs/design-docs/exec-plans/small-infrastructure-alignment-refactor-plan.md` 的 Milestone 4 保持未完成，并明确等待 Task-owned publication seam；本计划的 Milestone 1、3 和 7 仍未完成。
+
+- Observation: 基础设施统一测试已在当前 Docker 环境真实执行，但扩大到 Permission 直接消费者的 `-am test` 会被范围外 Eval 测试先行阻断。
+  Evidence: 八个 infra 模块、Permission 与 Common 的 11 模块 reactor 于 2026-07-17 18:59+08:00 `BUILD SUCCESS`，Qdrant/Redis/MinIO 零跳过；触达 reactor 首个失败为 `TraceRecorderTest.recordsOpenAndCommittedTurnWithoutLeakingSecrets:39`，随后独立 File 33、Conversation 40 项测试全绿。
+
+- Observation: 目标模块直接严格门禁全绿，但全依赖严格 reactor 当前仍受活动 Lint 计划中的 Loop 文件阻断。
+  Evidence: Permission、八个 infra、Tools、File、Conversation、App 共 13 模块直接 `-DskipTests verify` 全部零 Checkstyle/SpotBugs；带 `-am` 的完整 30 模块 reactor 在 `pixflow-loop/RuntimeState.java` 报 4 条 `EmptyLineSeparator` 和 1 条 `MethodName` 后停止。
 
 ## Decision Log
 
@@ -77,9 +90,15 @@ This ExecPlan is a living document. The sections `Progress`, `Surprises & Discov
   Rationale: DAG 与 Vision、Vision 与 Memory、Rubrics 与 Vision/Memory 可以并行；Task 必须等待 DAG/Imagegen/State 接口。串行 Maven 避免共享 `target/spotbugsTemp.xml` 冲突。
   Date/Author: 2026-07-17 / Codex
 
+- Decision: 将八个已实施的基础设施模块作为后续里程碑的固定输入，而不是再次安排同义重构；后续工作只允许在新属主边界需要时增加窄 adapter 或测试，并须保持 infra 的既有依赖方向。
+  Rationale: 专项计划已证明这些模块的目标契约和定向验证完成。重复改动会扩大风险，并可能重新引入已删除的 token、写侧 Vector 或宽泛配置兼容层。
+  Date/Author: 2026-07-17 / Codex
+
 ## Outcomes & Retrospective
 
-当前仅完成调研和总计划，没有实施生产重构。实施完成后，本节必须逐个里程碑记录实际新增、删除和保留的公开接口、数据库表或 migration、各测试命令的通过数量、真实依赖故障注入结果、与目标设计的任何偏差，以及用户可观察的端到端行为。不能以“编译成功”代替 Proposal、执行 fencing、资产发布、视觉事实、只读召回和 Rubrics 证据语义的行为证明。
+Milestone 0 与基础设施子范围已完成，生产重构不再处于纯调研阶段。Auth、Cache、Image、MQ、Storage、Thirdparty、AI、Vector 和 Permission 已提供后续业务链所需的最小能力；其中 Vector/Memory 的真实 Qdrant 只读合同和无副作用召回、Storage 的真实 MinIO copy、Cache 的真实 Redis 故障注入均在专项计划中记录为已执行验证。本轮又以真实 Docker 环境统一复验全部八个 infra 模块与 Permission，并补齐 Permission proof dependency 到 Task 创建边界的 fault-isolation 证据。
+
+尚未达成用户可观察的完整结果：canonical Asset Reference、File resolver、Generated Asset publication、可恢复 Product Visual Facts、Task 到 File 的结果发布、Rubrics 和 App/前端组合仍待后续里程碑完成。完整 `mvn verify` 也不能因各模块定向验证成功而视为通过；必须在 Conversation/Loop 的并行迁移恢复可编译后重新执行。
 
 ## Context and Orientation
 
@@ -326,6 +345,20 @@ Proposal 丢失按设计恢复为重新生成，不从 transcript、Redis 或 pe
     Vision || Rubrics
     Context/Session || Image/Execution foundations
 
+已实现的基础设施输入：
+
+    infra/auth: Configured Administrator eligibility；注册路径已删除。
+    infra/cache: Redis semaphore 与 weighted token bucket；不再存储 confirmation token。
+    infra/image: PixelBudget 依赖的确定性 footprint estimation。
+    infra/mq: 三次重试与 5s / 30s / 2m 默认退避。
+    infra/storage: archive/stable asset keys 与 server-side ObjectStorage.copy。
+    infra/thirdparty: 每 attempt quota admission，Redis 故障 fail-closed。
+    infra/ai: role-scoped quota、三次 retry 与 App-owned quota adapter seam。
+    infra/vector: verify/search/get only；在线运行时无写侧能力。
+    permission: 五个 current-facts proof port 和 direct-confirm policy。
+
+这些实现不是完整业务路径：Asset Reference parser/resolver、GeneratedAssetPublicationPort、Task publication adapter 和 Vision work-item owner 仍由后续属主里程碑实现。
+
 最终旧路径清理搜索至少覆盖：
 
     ConfirmationToken / ConfirmationLevel / challenge
@@ -417,6 +450,10 @@ Rubrics 最终以一个深模块 service 隐藏 template、Evidence Pack、rollo
 Rubrics 只依赖 Task public outcome/event、Eval read contract、infra/ai、infra/storage、infra/image 和自己的 persistence。它不依赖 Vision、File 内部实现、Memory、Agent、Loop、Tools 或 Hooks。
 
 ## Revision Notes
+
+2026-07-17 / Codex: 完成基础设施子范围最终复验与 Permission fault-isolation 收尾。统一运行八个 infra 模块、Permission 和 Common 的测试，真实 Redis/MinIO/Qdrant 零跳过；新增 File/Conversation proof adapter 异常及 confirm/replay 五 proof 失败矩阵，证明失败不 claim Proposal、不创建 Task。保留 Storage candidate 切 TMP、canonical owner namespace、Task/File publication 与 tool capability catalog 给 Milestone 1/3/7，未把基础设施通过扩大为端到端完成。
+
+2026-07-17 / Codex: 根据当前工作树、基础设施专项计划和源码公开接口更新 Milestone 0 与基础设施交接状态。记录八个已实施基础设施/授权子范围及其边界，补充“稳定 infra 输入不等于端到端完成”的发现和决策；保留 Milestone 1、3、4、6、7 的未完成状态，尤其不把尚不存在的 canonical Asset Reference 或 GeneratedAssetPublicationPort 虚报为已交付。
 
 2026-07-17 / Codex: 更新 Milestone 2 交接：Auth、Permission、ephemeral Proposal、direct confirm/reject 与 Task 幂等 replay 已落地并完成定向验证；明确 canonical Asset Reference 工具合同仍受 Milestone 1 前置阻塞，因此总里程碑保持未完成。
 

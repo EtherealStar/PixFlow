@@ -24,7 +24,7 @@ This ExecPlan is a living document. The sections `Progress`, `Surprises & Discov
 - [x] (2026-07-17) Milestone 1：以固定顺序 deny-first policy、两态 decision 和八类终态错误替换 token/BULK/三态内核；Permission 12 tests passed，其中 ApplicationContext 测试证明五个 required proof 缺任一项都会启动失败。
 - [x] (2026-07-17) Milestone 2：Loop 显式传递可信 principal/runtime/Plan mode；Tools 在 handler 前授权、hook 改写后重授权，并在属主深校验后使用服务端注入的最小能力再次授权 Proposal publication。
 - [x] (2026-07-17) Milestone 3：接入 Auth/File/Conversation/Task 当前事实 proof，切换空 body direct confirm/reject，补齐 ephemeral Proposal、Task proposalId 幂等 replay 和并发 CAS；删除 confirmation contracts、pending-plan 表与 Web challenge/token 路径。
-- [ ] Milestone 4：App proof adapters、required-proof ApplicationContext、并发 confirm、负向扫描、触达模块 verify 和前端验收已完成；四个属主 proof 的完整 side-effect fault-injection 矩阵尚未补齐，全 reactor test 仍被工作树中两个无关 Loop 测试失败阻塞。
+- [x] (2026-07-17 19:06+08:00) Milestone 4 的 Permission 基础设施子范围：App proof adapters、required-proof ApplicationContext、并发 confirm、负向扫描、触达模块 verify、前端验收和属主 proof fault-isolation 矩阵已完成。新增测试证明 Auth、Conversation、Asset、Proposal 任一当前事实不可用时 Proposal 保持 `PENDING` 且 Task 创建次数为零，Task proof 不可用时 durable replay 不创建第二个 Task；File 与 Conversation concrete adapters 的依赖异常都映射为 `UNAVAILABLE`。canonical Asset Reference owner namespace 与完整 tool capability catalog 仍属于总计划 Milestone 1/7，不在本基础设施子范围虚报完成。
 
 ## Surprises & Discoveries
 
@@ -65,7 +65,13 @@ This ExecPlan is a living document. The sections `Progress`, `Surprises & Discov
   Evidence: review 发现按工具名前缀猜只读能力、缺 runtime scope 默认 Main、缺 Plan view 默认 OFF 会把“不知道”提升为 allow。实现现改为使用 `ToolDescriptor.readOnlyHint()`，并让缺 scope/Plan mode 在 policy 中 fail closed；对应 Permission 可见性回归测试已加入。
 
 - Observation: 最终 review 仍确认两个依赖上游领域模型的缺口，不能在本计划内用猜测补齐。
-  Evidence: File 当前是单管理员且 Asset 实体没有 owner namespace 事实，`AssetPermissionProof` 只能验证 canonical grammar、package/image/SKU 关联、删除状态和处理就绪；Tools descriptor 也只有 `readOnlyHint`，没有 direct execution / proposal publication / auth mutation capability 或 Explore allowlist。Canonical Asset Reference 总计划 Milestone 1 与工具 capability catalog 扩展完成前，本计划 Milestone 4 保持未完成。未知 Proposal 类型静默降级为 DAG 的独立 fail-open 已改成显式拒绝并补回归测试。
+  Evidence: File 当前是单管理员且 Asset 实体没有 owner namespace 事实，`AssetPermissionProof` 只能验证 canonical grammar、package/image/SKU 关联、删除状态和处理就绪；Tools descriptor 也只有 `readOnlyHint`，没有 direct execution / proposal publication / auth mutation capability 或 Explore allowlist。Permission 基础设施 Milestone 4 已完成当前 proof/fault-isolation 责任；canonical Asset Reference 与 capability catalog 的完整业务接线由总计划 Milestone 1/7 继续。未知 Proposal 类型静默降级为 DAG 的独立 fail-open 已改成显式拒绝并补回归测试。
+
+- Observation: 先前阻断 Permission reactor 的 Loop 两项失败已经不再是当前首个组合阻断；本轮完整触达 reactor 更早失败于 Eval 的既有 trace 测试，但 Permission/File/Conversation 可独立全绿。
+  Evidence: `mvn -pl pixflow-permission,pixflow-tools,pixflow-module-file,pixflow-conversation -am test` 失败于 `TraceRecorderTest.recordsOpenAndCommittedTurnWithoutLeakingSecrets:39` 的空 `Optional`；随后 `mvn -pl pixflow-module-file,pixflow-conversation test` 得到 File 33、Conversation 40 项测试全部通过。
+
+- Observation: 全依赖严格 verify 当前还会暴露活动 Lint 计划范围内的 Loop 新违规，但不影响本计划目标模块自身的严格门禁结论。
+  Evidence: `-am -DskipTests verify` 在 `pixflow-loop/RuntimeState.java` 报 4 条 `EmptyLineSeparator` 和 1 条 `MethodName`；不带 `-am` 对 Permission、八个 infra、Tools、File、Conversation、App 共 13 模块运行严格 verify 全部成功，零 Checkstyle/SpotBugs。
 
 ## Decision Log
 
@@ -117,7 +123,7 @@ This ExecPlan is a living document. The sections `Progress`, `Surprises & Discov
 
 生产重构已完成原子切换。Permission 现在保留 `PermissionPrincipal`、`PermissionRuntimeScope`、`PermissionPlanMode`、sealed `PermissionSubject`、两态 `PermissionDecision` 和五个 proof ports；不再依赖 Contracts confirmation、Cache、业务模块或 token store。Auth/Task proof 位于 App，Asset proof 位于 File，Conversation/Proposal proof 位于 Conversation。Proposal publication 在 Tools 注入的可信能力处二次评估，confirmation 会重查 reference、pending/hash，并以 CAS + Task `proposal:{proposalId}` 幂等事实处理并发和重放。
 
-验证证据：Permission 12、Tools 3、Conversation 33、DAG 143、Imagegen 80、App 16、Web 116 tests passed；Web typecheck/build passed；触达模块 `-DskipTests verify` 全部 0 Checkstyle 违规；旧 confirmation/pending-plan 精确负向搜索和 Permission 反向依赖扫描均无输出；`git diff --check` 只有现有 CRLF 提示。全 reactor test 尚未声明通过，因为 Loop 的两条无关现有测试失败，Agent 在该 reactor 中因此被跳过。Milestone 4 仍不标记完成，直到四类 proof dependency 的 side-effect fault-injection 矩阵与 reactor 回归均通过。
+验证证据更新为：Permission 12、File 33、Conversation 40 项测试通过；新增 fault-isolation 测试覆盖 Administrator、Conversation、Asset、Proposal 和 Task 五个 proof 位置，所有 confirm/replay 故障都在 Task 创建前 fail closed。Tools 入口 3 项与 App proof adapter 4 项定向测试继续证明授权拒绝时 handler/publication side effect 不执行、concrete adapters fail closed。八个 infra 模块与 Permission 的统一 reactor 在真实 Docker 环境中 `BUILD SUCCESS`，Redis、MinIO、Qdrant 用例零跳过；Permission、八个 infra、Tools、File、Conversation、App 共 13 个目标模块的直接严格 verify 全部零 Checkstyle/SpotBugs。完整触达 reactor 仍未声明通过，因为范围外 Eval trace 测试失败，`-am` 严格 reactor 又被活动 Lint 计划范围内的 Loop 5 条违规阻断；本计划未越界修改它们。canonical Asset Reference owner namespace 和 tool capability catalog 的业务接线留给总计划 Milestone 1/7。
 
 ## Context and Orientation
 
@@ -346,6 +352,8 @@ Proof ports 应具有语义等价形状：
 `ProofResult` 至少区分 `PROVED`、`DENIED`、`UNAVAILABLE`，并且不携带秘密。Permission 直接 Maven 依赖最终只保留 Common 和自动配置所需 Spring API；必须删除 Contracts 依赖以及 confirmation/proposal 共享类型，不留待实施者选择。Auth、File、Conversation、Task 与 App 依赖 Permission-owned 端口来提供 adapter；Permission 不 import 它们的内部实现。
 
 ## Revision Notes
+
+2026-07-17 / Codex: 完成 Permission 基础设施子范围的 fault-isolation 收尾。新增 File/Conversation concrete proof adapter 的依赖异常测试，并用真实 `DefaultPermissionPolicy` 覆盖 Administrator、Conversation、Asset、Proposal、Task 五个 proof 失败位置，证明 Proposal 不被 claim、Task 不创建、durable replay 不创建第二个 Task。复验 File 33、Conversation 40 项测试和八个 infra 模块 + Permission 的真实依赖 reactor；记录完整触达 reactor 当前被无关 Eval trace 测试阻断，并把 canonical owner namespace/tool capability catalog 明确保留给总计划后续里程碑。
 
 2026-07-17 / Codex: 执行 Milestone 0-3 并完成 Milestone 4 的组合根、required-proof 启动失败测试、负向扫描、触达模块与前端验收。记录服务端注入的 Proposal publication 二次授权、ephemeral Proposal/Task 幂等前置能力补齐、并发 confirm 完成信号，以及阻止全 reactor 通过的两条无关 Loop 失败。根据完成后的双轴 code review，进一步修复 task-bound replay、`CONFIRMING` proof、payload 重算、descriptor capability 和缺 runtime/Plan fact 的 fail-closed 行为；Milestone 4 因完整 fault-injection 矩阵尚未完成而继续保持未完成。
 
