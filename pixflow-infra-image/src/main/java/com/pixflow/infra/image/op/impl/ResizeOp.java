@@ -2,6 +2,8 @@ package com.pixflow.infra.image.op.impl;
 
 import com.pixflow.infra.image.ImageProcessingException;
 import com.pixflow.infra.image.RasterImage;
+import com.pixflow.infra.image.geometry.RasterDimensions;
+import com.pixflow.infra.image.geometry.ResizeGeometry;
 import com.pixflow.infra.image.op.ImageOp;
 import com.pixflow.infra.image.op.ResizeSpec;
 import java.awt.Graphics2D;
@@ -23,14 +25,14 @@ public class ResizeOp implements ImageOp {
     @Override
     public RasterImage apply(RasterImage src) {
         try {
-            Dimensions dims = dimensions(src);
+            RasterDimensions dims = ResizeGeometry.resolve(
+                    new RasterDimensions(src.width(), src.height()),
+                    spec);
             BufferedImage resized = switch (spec.mode()) {
-                case EXACT -> Thumbnails.of(src.borrowBuffer()).forceSize(dims.width, dims.height).asBufferedImage();
-                case FIT -> Thumbnails.of(src.borrowBuffer())
-                        .size(dims.width, dims.height)
-                        .keepAspectRatio(true)
+                case EXACT, FIT -> Thumbnails.of(src.borrowBuffer())
+                        .forceSize(dims.intWidth(), dims.intHeight())
                         .asBufferedImage();
-                case FILL -> fill(src, dims.width, dims.height);
+                case FILL -> fill(src, dims.intWidth(), dims.intHeight());
             };
             return RasterImage.takeOwnership(resized, src.sourceFormat());
         } catch (IOException | RuntimeException ex) {
@@ -44,24 +46,12 @@ public class ResizeOp implements ImageOp {
         }
     }
 
-    private Dimensions dimensions(RasterImage src) {
-        int targetWidth = spec.width() != null
-                ? spec.width()
-                : Math.round(src.width() * (spec.height() / (float) src.height()));
-        int targetHeight = spec.height() != null
-                ? spec.height()
-                : Math.round(src.height() * (spec.width() / (float) src.width()));
-        if (!spec.upscale()) {
-            targetWidth = Math.min(targetWidth, src.width());
-            targetHeight = Math.min(targetHeight, src.height());
-        }
-        return new Dimensions(Math.max(1, targetWidth), Math.max(1, targetHeight));
-    }
-
     private BufferedImage fill(RasterImage src, int targetWidth, int targetHeight) throws IOException {
-        double scale = Math.max(targetWidth / (double) src.width(), targetHeight / (double) src.height());
-        int scaledWidth = Math.max(1, (int) Math.round(src.width() * scale));
-        int scaledHeight = Math.max(1, (int) Math.round(src.height() * scale));
+        RasterDimensions scaledDimensions = ResizeGeometry.fillIntermediate(
+                new RasterDimensions(src.width(), src.height()),
+                new RasterDimensions(targetWidth, targetHeight));
+        int scaledWidth = scaledDimensions.intWidth();
+        int scaledHeight = scaledDimensions.intHeight();
         BufferedImage scaled = Thumbnails.of(src.borrowBuffer())
                 .forceSize(scaledWidth, scaledHeight)
                 .asBufferedImage();
@@ -87,8 +77,5 @@ public class ResizeOp implements ImageOp {
         } finally {
             scaled.flush();
         }
-    }
-
-    private record Dimensions(int width, int height) {
     }
 }

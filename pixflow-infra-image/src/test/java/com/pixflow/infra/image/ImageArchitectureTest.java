@@ -18,9 +18,13 @@ class ImageArchitectureTest {
 
         assertThat(source)
                 .doesNotContain("com.pixflow.infra.storage")
-                .doesNotContain("com.pixflow.module.dag")
-                .doesNotContain("com.pixflow.module.task")
-                .doesNotContain("com.pixflow.infra.mq");
+                .doesNotContain("com.pixflow.module")
+                .doesNotContain("com.pixflow.infra.mq")
+                .doesNotContain("com.pixflow.infra.cache")
+                .doesNotContain("com.pixflow.infra.thirdparty")
+                .doesNotContain("com.pixflow.infra.ai")
+                .doesNotContain("com.pixflow.harness")
+                .doesNotContain("com.pixflow.agent");
     }
 
     private static String readString(Path path) {

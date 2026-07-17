@@ -7,12 +7,17 @@ import com.pixflow.infra.image.EncodeSpec;
 import com.pixflow.infra.image.ImageCodec;
 import com.pixflow.infra.image.ImageFormat;
 import com.pixflow.infra.image.ImageProbe;
+import com.pixflow.infra.image.ImageProcessingException;
 import com.pixflow.infra.image.RasterImage;
 import com.pixflow.infra.image.ReopenableImageSource;
 import com.pixflow.infra.image.budget.DefaultPixelBudget;
+import com.pixflow.infra.image.op.ComposeSpec;
 import com.pixflow.infra.image.op.ImageOp;
+import com.pixflow.infra.image.op.ResizeSpec;
 import com.pixflow.infra.image.op.impl.CompressOp;
 import com.pixflow.infra.image.op.CompressSpec;
+import com.pixflow.infra.image.op.impl.ComposeGroupOp;
+import com.pixflow.infra.image.op.impl.ResizeOp;
 import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
@@ -27,7 +32,7 @@ class DefaultImagePipelineTest {
     void decodesOnceAppliesOpsAndEncodesOnce() {
         CountingCodec codec = new CountingCodec();
         DefaultImagePipeline pipeline = pipeline(codec);
-        ImageOp op = src -> RasterImage.takeOwnership(new BufferedImage(4, 4, BufferedImage.TYPE_INT_RGB), src.sourceFormat());
+        ImageOp op = new ResizeOp(new ResizeSpec(4, 4, ResizeSpec.Mode.EXACT, false));
 
         byte[] bytes = pipeline.run(source(), List.of(op), EncodeSpec.of(ImageFormat.PNG));
 
@@ -56,7 +61,8 @@ class DefaultImagePipelineTest {
         CountingCodec codec = new CountingCodec();
         DefaultImagePipeline pipeline = pipeline(codec);
 
-        pipeline.runComposed(List.of(source(), source()), List.of(), images -> images.get(0),
+        pipeline.runComposed(List.of(source(), source()), List.of(), new ComposeGroupOp(
+                        new ComposeSpec(ComposeSpec.Layout.HORIZONTAL, List.of(), 0, Color.WHITE)),
                 List.of(), EncodeSpec.of(ImageFormat.PNG));
 
         assertThat(codec.probeCalls).isEqualTo(2);
@@ -78,6 +84,83 @@ class DefaultImagePipelineTest {
                 .containsExactly(9, 9, 9);
     }
 
+    @Test
+    void oneSidedResizeIsRejectedBeforeDecodeWhenProjectedRasterExceedsBudget() {
+        CountingCodec codec = new CountingCodec();
+        DefaultImagePipeline pipeline = new DefaultImagePipeline(
+                codec,
+                new DefaultPixelBudget(95),
+                100,
+                100,
+                1.25,
+                java.time.Duration.ofMillis(50));
+
+        assertThatThrownBy(() -> pipeline.run(
+                source(),
+                List.of(new ResizeOp(new ResizeSpec(8, null, ResizeSpec.Mode.FIT, true))),
+                EncodeSpec.of(ImageFormat.PNG)))
+                .isInstanceOf(ImageProcessingException.class);
+
+        assertThat(codec.decodeCalls).isZero();
+    }
+
+    @Test
+    void composeGapIsRejectedBeforeAnyMemberDecodeWhenCanvasExceedsBudget() {
+        CountingCodec codec = new CountingCodec();
+        DefaultImagePipeline pipeline = new DefaultImagePipeline(
+                codec,
+                new DefaultPixelBudget(121),
+                100,
+                100,
+                1.25,
+                java.time.Duration.ofMillis(50));
+        ComposeGroupOp compose = new ComposeGroupOp(
+                new ComposeSpec(ComposeSpec.Layout.HORIZONTAL, List.of(), 2, Color.WHITE));
+
+        assertThatThrownBy(() -> pipeline.runComposed(
+                List.of(source(), source()),
+                List.of(),
+                compose,
+                List.of(),
+                EncodeSpec.of(ImageFormat.PNG)))
+                .isInstanceOf(ImageProcessingException.class);
+
+        assertThat(codec.decodeCalls).isZero();
+    }
+
+    @Test
+    void fillIntermediateRasterIsRejectedBeforeDecodeWhenItExceedsBudget() {
+        CountingCodec codec = new CountingCodec(100, 1);
+        DefaultImagePipeline pipeline = new DefaultImagePipeline(
+                codec,
+                new DefaultPixelBudget(12_724),
+                1_000,
+                1_000,
+                1.25,
+                java.time.Duration.ofMillis(50));
+
+        assertThatThrownBy(() -> pipeline.run(
+                source(),
+                List.of(new ResizeOp(new ResizeSpec(10, 10, ResizeSpec.Mode.FILL, true))),
+                EncodeSpec.of(ImageFormat.PNG)))
+                .isInstanceOf(ImageProcessingException.class);
+
+        assertThat(codec.decodeCalls).isZero();
+    }
+
+    @Test
+    void unknownRasterOperationIsRejectedBeforeDecode() {
+        CountingCodec codec = new CountingCodec();
+
+        assertThatThrownBy(() -> pipeline(codec).run(
+                source(),
+                List.of(image -> image),
+                EncodeSpec.of(ImageFormat.PNG)))
+                .isInstanceOf(ImageProcessingException.class);
+
+        assertThat(codec.decodeCalls).isZero();
+    }
+
     private static DefaultImagePipeline pipeline(CountingCodec codec) {
         return new DefaultImagePipeline(codec, new DefaultPixelBudget(1_000),
                 100, 100, 1.25, java.time.Duration.ofMillis(50));
@@ -88,6 +171,8 @@ class DefaultImagePipelineTest {
     }
 
     private static class CountingCodec implements ImageCodec {
+        private final int width;
+        private final int height;
         int decodeCalls;
         int encodeCalls;
         int probeCalls;
@@ -96,10 +181,19 @@ class DefaultImagePipelineTest {
         boolean failEncode;
         EncodeSpec lastSpec;
 
+        CountingCodec() {
+            this(4, 4);
+        }
+
+        CountingCodec(int width, int height) {
+            this.width = width;
+            this.height = height;
+        }
+
         @Override
         public ImageProbe probe(InputStream data) {
             probeCalls++;
-            return new ImageProbe(ImageFormat.PNG, 4, 4, false);
+            return new ImageProbe(ImageFormat.PNG, width, height, false);
         }
 
         @Override
@@ -107,11 +201,11 @@ class DefaultImagePipelineTest {
             probedBeforeDecode = probeCalls > 0;
             allMembersProbedBeforeDecode &= probeCalls >= 2;
             decodeCalls++;
-            BufferedImage image = new BufferedImage(4, 4, BufferedImage.TYPE_INT_RGB);
+            BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
             Graphics2D g = image.createGraphics();
             try {
                 g.setColor(Color.RED);
-                g.fillRect(0, 0, 4, 4);
+                g.fillRect(0, 0, width, height);
             } finally {
                 g.dispose();
             }

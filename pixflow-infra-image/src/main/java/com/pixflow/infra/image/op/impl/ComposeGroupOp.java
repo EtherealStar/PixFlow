@@ -3,6 +3,8 @@ package com.pixflow.infra.image.op.impl;
 import com.pixflow.infra.image.ImageFormat;
 import com.pixflow.infra.image.ImageProcessingException;
 import com.pixflow.infra.image.RasterImage;
+import com.pixflow.infra.image.geometry.ComposeGeometry;
+import com.pixflow.infra.image.geometry.RasterDimensions;
 import com.pixflow.infra.image.op.ComposeSpec;
 import com.pixflow.infra.image.op.MultiImageOp;
 import java.awt.Graphics2D;
@@ -15,6 +17,10 @@ public class ComposeGroupOp implements MultiImageOp {
 
     public ComposeGroupOp(ComposeSpec spec) {
         this.spec = spec;
+    }
+
+    public ComposeSpec spec() {
+        return spec;
     }
 
     @Override
@@ -36,15 +42,15 @@ public class ComposeGroupOp implements MultiImageOp {
     }
 
     private RasterImage horizontal(List<RasterImage> members) {
-        int width = members.stream().mapToInt(RasterImage::width).sum() + spec.gap() * (members.size() - 1);
-        int height = members.stream().mapToInt(RasterImage::height).max().orElseThrow();
-        return draw(members, width, height, positionsHorizontal(members), members.get(0).sourceFormat());
+        RasterDimensions dimensions = dimensions(members);
+        return draw(members, dimensions.intWidth(), dimensions.intHeight(),
+                positionsHorizontal(members), members.get(0).sourceFormat());
     }
 
     private RasterImage vertical(List<RasterImage> members) {
-        int width = members.stream().mapToInt(RasterImage::width).max().orElseThrow();
-        int height = members.stream().mapToInt(RasterImage::height).sum() + spec.gap() * (members.size() - 1);
-        return draw(members, width, height, positionsVertical(members), members.get(0).sourceFormat());
+        RasterDimensions dimensions = dimensions(members);
+        return draw(members, dimensions.intWidth(), dimensions.intHeight(),
+                positionsVertical(members), members.get(0).sourceFormat());
     }
 
     private RasterImage grid(List<RasterImage> members) {
@@ -54,8 +60,7 @@ public class ComposeGroupOp implements MultiImageOp {
         int rows = (int) Math.ceil(count / (double) columns);
         int cellWidth = members.stream().mapToInt(RasterImage::width).max().orElseThrow();
         int cellHeight = members.stream().mapToInt(RasterImage::height).max().orElseThrow();
-        int width = columns * cellWidth + spec.gap() * (columns - 1);
-        int height = rows * cellHeight + spec.gap() * (rows - 1);
+        RasterDimensions dimensions = dimensions(members);
         List<Point> points = new ArrayList<>();
         for (int i = 0; i < members.size(); i++) {
             RasterImage image = members.get(i);
@@ -65,7 +70,14 @@ public class ComposeGroupOp implements MultiImageOp {
             int y = row * (cellHeight + spec.gap()) + (cellHeight - image.height()) / 2;
             points.add(new Point(x, y));
         }
-        return draw(members, width, height, points, members.get(0).sourceFormat());
+        return draw(members, dimensions.intWidth(), dimensions.intHeight(),
+                points, members.get(0).sourceFormat());
+    }
+
+    private RasterDimensions dimensions(List<RasterImage> members) {
+        return ComposeGeometry.resolve(members.stream()
+                .map(image -> new RasterDimensions(image.width(), image.height()))
+                .toList(), spec);
     }
 
     private RasterImage draw(

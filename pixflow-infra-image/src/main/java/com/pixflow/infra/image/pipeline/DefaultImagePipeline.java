@@ -13,7 +13,6 @@ import com.pixflow.infra.image.op.ImageOp;
 import com.pixflow.infra.image.op.MultiImageOp;
 import com.pixflow.infra.image.op.impl.CompressOp;
 import com.pixflow.infra.image.op.impl.ConvertFormatOp;
-import com.pixflow.infra.image.op.impl.ResizeOp;
 import java.io.IOException;
 import java.io.InputStream;
 import java.time.Duration;
@@ -34,6 +33,8 @@ public class DefaultImagePipeline implements ImagePipeline {
 
     private final Duration acquireTimeout;
 
+    private final PixelFootprintEstimator footprintEstimator;
+
     public DefaultImagePipeline(ImageCodec codec, PixelBudget pixelBudget, long maxSourcePixels,
                                 int maxDimension, double targetHeadroomFactor, Duration acquireTimeout) {
         this.codec = Objects.requireNonNull(codec, "codec must not be null");
@@ -42,13 +43,14 @@ public class DefaultImagePipeline implements ImagePipeline {
         this.maxDimension = maxDimension;
         this.targetHeadroomFactor = targetHeadroomFactor;
         this.acquireTimeout = Objects.requireNonNull(acquireTimeout, "acquireTimeout must not be null");
+        this.footprintEstimator = new PixelFootprintEstimator(targetHeadroomFactor);
     }
 
     @Override
     public byte[] run(ReopenableImageSource source, List<ImageOp> ops, EncodeSpec encode) {
         ImageProbe probe = probe(source);
-        long sourcePixels = pixels(probe);
-        long weightedPixels = weightedPixels(sourcePixels, targetPixels(sourcePixels, ops));
+        pixels(probe);
+        long weightedPixels = estimate(() -> footprintEstimator.estimateSingle(probe, ops), probe);
         // 许可覆盖 decode、全部像素操作和 encode，异常也必须在同一作用域释放。
         try (PixelBudget.Permit ignored = pixelBudget.acquire(weightedPixels, acquireTimeout);
              InputStream decodeStream = source.openStream()) {
@@ -74,14 +76,11 @@ public class DefaultImagePipeline implements ImagePipeline {
             List<ImageOp> postOps,
             EncodeSpec encode) {
         List<ImageProbe> probes = members.stream().map(this::probe).toList();
-        long sourcePixels = probes.stream().mapToLong(this::pixels).reduce(0L, Math::addExact);
-        long maxMemberPixels = probes.stream().mapToLong(this::pixels).max().orElseThrow();
-        // 未知 compose 布局时按“成员数 × 最大成员面积”估算画布，宁可提前拒绝也不能低估峰值。
-        long composeUpperBound = Math.multiplyExact(maxMemberPixels, probes.size());
-        long memberTargetPixels = members.size() * targetPixels(maxMemberPixels, perMemberOps);
-        long admissionPixels = Math.addExact(sourcePixels, Math.max(composeUpperBound, memberTargetPixels));
-        try (PixelBudget.Permit ignored = pixelBudget.acquire(
-                weightedPixels(sourcePixels, admissionPixels), acquireTimeout)) {
+        probes.forEach(this::pixels);
+        long weightedPixels = estimate(
+                () -> footprintEstimator.estimateComposed(probes, perMemberOps, compose, postOps),
+                probes.get(0));
+        try (PixelBudget.Permit ignored = pixelBudget.acquire(weightedPixels, acquireTimeout)) {
             List<RasterImage> processed = new ArrayList<>();
             RasterImage composed = null;
             PipelineResult result = null;
@@ -138,21 +137,18 @@ public class DefaultImagePipeline implements ImagePipeline {
         return pixels;
     }
 
-    private long weightedPixels(long sourcePixels, long targetPixels) {
-        return Math.addExact(sourcePixels, (long) Math.ceil(targetPixels * targetHeadroomFactor));
-    }
-
-    private long targetPixels(long sourcePixels, List<ImageOp> ops) {
-        long target = sourcePixels;
-        for (ImageOp op : ops == null ? List.<ImageOp>of() : ops) {
-            if (op instanceof ResizeOp resize) {
-                var spec = resize.spec();
-                if (spec.width() != null && spec.height() != null) {
-                    target = Math.max(target, Math.multiplyExact((long) spec.width(), spec.height()));
-                }
-            }
+    private long estimate(Estimation estimation, ImageProbe probe) {
+        try {
+            return estimation.estimate();
+        } catch (ArithmeticException | IllegalArgumentException failure) {
+            throw new ImageProcessingException(
+                    ImageProcessingException.Reason.SOURCE_TOO_LARGE,
+                    probe.format(),
+                    probe.width(),
+                    probe.height(),
+                    "projected raster footprint exceeds supported limits",
+                    failure);
         }
-        return target;
     }
 
     private PipelineResult applyOps(RasterImage start, List<ImageOp> ops) {
@@ -198,5 +194,10 @@ public class DefaultImagePipeline implements ImagePipeline {
                     compress.targetBytes(),
                     base.flattenBackground());
         }
+    }
+
+    @FunctionalInterface
+    private interface Estimation {
+        long estimate();
     }
 }
