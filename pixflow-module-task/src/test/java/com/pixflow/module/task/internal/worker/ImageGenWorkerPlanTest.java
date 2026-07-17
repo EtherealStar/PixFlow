@@ -17,7 +17,8 @@ class ImageGenWorkerPlanTest {
     void rebuildsDerivedRetryFromFrozenSelectionWithoutRereadingAssets() throws Exception {
         ObjectMapper mapper = new ObjectMapper();
         String payload = mapper.writeValueAsString(
-                new ImagegenPlan(List.of("11", "12"), "redraw", Map.of(), null, "c1", "7"));
+                new ImagegenPlan(
+                        "package:7/image:12", "redraw", Map.of(), null, "c1", 7L));
         WorkUnitSelection retrySelection = new WorkUnitSelection(List.of(
                 new WorkUnitSelection.Item(UnitKind.GENERATIVE, "12", "GENERATIVE",
                         List.of(new ImageDescriptor("12", "SKU-12", null, null,

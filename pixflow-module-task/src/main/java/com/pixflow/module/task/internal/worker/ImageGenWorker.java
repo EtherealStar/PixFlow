@@ -2,6 +2,12 @@ package com.pixflow.module.task.internal.worker;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pixflow.common.error.PixFlowException;
+import com.pixflow.contracts.asset.ImageAssetReferenceKey;
+import com.pixflow.harness.state.model.UnitKey;
+import com.pixflow.harness.state.model.UnitKeyCodec;
+import com.pixflow.harness.state.model.UnitKind;
+import com.pixflow.infra.storage.BucketType;
+import com.pixflow.infra.storage.ObjectLocation;
 import com.pixflow.module.imagegen.exec.GeneratedArtifact;
 import com.pixflow.module.imagegen.exec.GenerativeUnitSpec;
 import com.pixflow.module.imagegen.exec.ImageGenExecutor;
@@ -12,22 +18,21 @@ import com.pixflow.module.task.infra.metrics.TaskMetrics;
 import com.pixflow.module.task.internal.cancel.CancellationService;
 import com.pixflow.module.task.internal.failure.FailureIsolator;
 import com.pixflow.module.task.internal.planning.WorkUnitSelection;
-import com.pixflow.harness.state.model.UnitKey;
-import com.pixflow.harness.state.model.UnitKeyCodec;
-import com.pixflow.harness.state.model.UnitKind;
-import com.pixflow.infra.storage.BucketType;
-import com.pixflow.infra.storage.ObjectLocation;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.List;
-import java.util.HashSet;
 
 public class ImageGenWorker {
     private final ObjectMapper objectMapper;
+
     private final ImageGenExecutor executor;
+
     private final FailureIsolator failureIsolator;
+
     private final CancellationService cancellationService;
+
     private final TaskMetrics metrics;
+
     private final Clock clock;
 
     public ImageGenWorker(ObjectMapper objectMapper,
@@ -48,11 +53,12 @@ public class ImageGenWorker {
         try {
             ImagegenPlan plan = objectMapper.readValue(payload, ImagegenPlan.class);
             WorkUnitSelection selection = objectMapper.readValue(selectionJson, WorkUnitSelection.class);
-            var plannedSourceIds = new HashSet<>(plan.sourceImageIds());
+            ImageAssetReferenceKey sourceReference = plan.sourceReference();
+            String plannedSourceId = Long.toString(sourceReference.imageId());
             return selection.items().stream()
                     .map(item -> {
                         if (item.kind() != UnitKind.GENERATIVE || !"GENERATIVE".equals(item.branchId())
-                                || !plannedSourceIds.contains(item.memberId()) || item.images().size() != 1) {
+                                || !plannedSourceId.equals(item.memberId()) || item.images().size() != 1) {
                             throw new IllegalStateException("冻结的生成式 selection 与 Imagegen Plan 不一致");
                         }
                         var source = item.images().getFirst();

@@ -1,20 +1,24 @@
 package com.pixflow.module.task.internal.planning;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.pixflow.contracts.asset.ImageAssetReferenceKey;
+import com.pixflow.harness.state.model.UnitKind;
 import com.pixflow.module.dag.DagFacade;
 import com.pixflow.module.dag.expand.ExecutableBranch;
 import com.pixflow.module.dag.expand.ImageDescriptor;
 import com.pixflow.module.dag.ir.DagJsonReader;
 import com.pixflow.module.dag.ir.DagSchemaVersion;
-import com.pixflow.module.task.api.port.TaskAssetReader;
 import com.pixflow.module.imagegen.proposal.ImagegenPlan;
-import com.pixflow.harness.state.model.UnitKind;
+import com.pixflow.module.task.api.port.TaskAssetReader;
 import java.util.List;
 
 public final class WorkUnitPlanner {
     private final ObjectMapper objectMapper;
+
     private final DagJsonReader reader;
+
     private final DagFacade dagFacade;
+
     private final TaskAssetReader assets;
 
     public WorkUnitPlanner(ObjectMapper objectMapper, DagJsonReader reader,
@@ -29,7 +33,9 @@ public final class WorkUnitPlanner {
         try {
             var root = objectMapper.readTree(canonicalJson);
             var version = root.path("schemaVersion").asText(null);
-            if (version == null) throw new IllegalArgumentException("canonical DAG 缺 schemaVersion");
+            if (version == null) {
+                throw new IllegalArgumentException("canonical DAG 缺 schemaVersion");
+            }
             var typed = dagFacade.compile(dagFacade.validateToCanonical(
                     reader.readTree(root), new DagSchemaVersion(version)));
             List<ImageDescriptor> images = assets.listImages(packageId);
@@ -45,16 +51,17 @@ public final class WorkUnitPlanner {
     public WorkUnitSelection planGenerative(long packageId, String imagegenPlanJson) {
         try {
             ImagegenPlan plan = objectMapper.readValue(imagegenPlanJson, ImagegenPlan.class);
-            return new WorkUnitSelection(plan.sourceImageIds().stream()
-                    .map(imageId -> {
-                        TaskAssetReader.GenerativeSource source = assets.sourceImage(packageId, imageId);
-                        // 生成式任务同样冻结源图对象 key；恢复时不能重新读取可变的 asset_image 行。
-                        ImageDescriptor image = new ImageDescriptor(source.sourceImageId(), source.skuId(),
-                                null, null, source.location().key(), null);
-                        return new WorkUnitSelection.Item(UnitKind.GENERATIVE, source.sourceImageId(),
-                                "GENERATIVE", List.of(image));
-                    })
-                    .toList());
+            ImageAssetReferenceKey reference = plan.sourceReference();
+            if (reference.packageId() != packageId) {
+                throw new IllegalArgumentException("Imagegen Plan package 不匹配");
+            }
+            TaskAssetReader.GenerativeSource source = assets.sourceImage(
+                    packageId, Long.toString(reference.imageId()));
+            // 生成式任务冻结源图对象 key；恢复时不能重新读取可变的 asset_image 行。
+            ImageDescriptor image = new ImageDescriptor(source.sourceImageId(), source.skuId(),
+                    null, null, source.location().key(), null);
+            return new WorkUnitSelection(List.of(new WorkUnitSelection.Item(
+                    UnitKind.GENERATIVE, source.sourceImageId(), "GENERATIVE", List.of(image))));
         } catch (Exception e) {
             throw new IllegalArgumentException("无法从 Imagegen Plan 生成冻结执行选择", e);
         }

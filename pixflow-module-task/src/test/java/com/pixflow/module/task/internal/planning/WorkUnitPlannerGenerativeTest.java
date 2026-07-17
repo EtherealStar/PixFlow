@@ -27,7 +27,8 @@ class WorkUnitPlannerGenerativeTest {
         };
         WorkUnitPlanner planner = new WorkUnitPlanner(objectMapper, null, null, assets);
         String payload = objectMapper.writeValueAsString(
-                new ImagegenPlan(List.of("11"), "redraw", Map.of(), null, "c1", "7"));
+                new ImagegenPlan(
+                        "package:7/image:11", "redraw", Map.of(), null, "c1", 7L));
 
         WorkUnitSelection selection = planner.planGenerative(7L, payload);
 
