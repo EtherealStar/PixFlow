@@ -29,6 +29,30 @@ class ThirdPartyAutoConfigurationTest {
         }
     }
 
+    @Test
+    void bindsOutboundQuotaPolicy() {
+        SpringApplication app = new SpringApplication(TestApp.class);
+        app.setWebApplicationType(WebApplicationType.NONE);
+        app.setDefaultProperties(java.util.Map.of(
+                "pixflow.thirdparty.bg-removal.default-provider", "missing",
+                "pixflow.thirdparty.outbound-quota.p1.bg-removal.capacity", "20",
+                "pixflow.thirdparty.outbound-quota.p1.bg-removal.refill-tokens", "5",
+                "pixflow.thirdparty.outbound-quota.p1.bg-removal.refill-period", "2s",
+                "pixflow.thirdparty.outbound-quota.p1.bg-removal.idle-ttl", "3m",
+                "pixflow.thirdparty.outbound-quota.p1.bg-removal.cost-per-attempt", "2"));
+
+        try (ConfigurableApplicationContext context = app.run()) {
+            ThirdPartyProperties.OutboundQuota quota = context.getBean(ThirdPartyProperties.class)
+                    .outboundQuota("p1", "bg-removal");
+
+            assertThat(quota.capacity()).isEqualTo(20);
+            assertThat(quota.refillTokens()).isEqualTo(5);
+            assertThat(quota.refillPeriod()).isEqualTo(Duration.ofSeconds(2));
+            assertThat(quota.idleTtl()).isEqualTo(Duration.ofMinutes(3));
+            assertThat(quota.costPerAttempt()).isEqualTo(2);
+        }
+    }
+
     @Configuration
     @Import(ThirdPartyAutoConfiguration.class)
     static class TestApp {

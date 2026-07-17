@@ -96,14 +96,16 @@ public class ThirdPartyAutoConfiguration {
             CacheNamespace cacheNamespace,
             ThirdPartyResilienceRegistry resilienceRegistry,
             ThirdPartyErrorMapper errorMapper,
-            ThirdPartyProperties properties) {
+            ThirdPartyProperties properties,
+            ThirdPartyMetrics metrics) {
         return new ThirdPartyCallTemplate(
                 distributedSemaphore,
                 distributedTokenBucket,
                 cacheNamespace,
                 resilienceRegistry,
                 errorMapper,
-                properties);
+                properties,
+                metrics);
     }
 
     @Bean
@@ -131,7 +133,15 @@ public class ThirdPartyAutoConfiguration {
             } else if ("configurable-http".equals(type)) {
                 providers.add(new ConfigurableHttpBackgroundRemovalProvider(providerId, provider, callTemplate, httpInvoker, authStrategy, errorMapper, metrics, objectMapper));
             } else if ("async".equals(type) || "async-polling".equals(type)) {
-                providers.add(new AsyncPollingBackgroundRemovalProvider(providerId, provider, callTemplate, httpInvoker, authStrategy, errorMapper, metrics, objectMapper));
+                providers.add(new AsyncPollingBackgroundRemovalProvider(
+                        providerId,
+                        provider,
+                        callTemplate,
+                        httpInvoker,
+                        authStrategy,
+                        errorMapper,
+                        metrics,
+                        objectMapper));
             }
         }
         return providers;
@@ -139,7 +149,9 @@ public class ThirdPartyAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public BackgroundRemovalClient backgroundRemovalClient(ThirdPartyProperties properties, List<BackgroundRemovalProvider> providers) {
+    public BackgroundRemovalClient backgroundRemovalClient(
+            ThirdPartyProperties properties,
+            List<BackgroundRemovalProvider> providers) {
         return new RoutingBackgroundRemovalClient(properties, providers);
     }
 }

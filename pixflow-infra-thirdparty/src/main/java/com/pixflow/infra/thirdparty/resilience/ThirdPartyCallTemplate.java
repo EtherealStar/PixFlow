@@ -12,6 +12,7 @@ import com.pixflow.infra.cache.error.CacheException;
 import com.pixflow.infra.thirdparty.config.ThirdPartyProperties;
 import com.pixflow.infra.thirdparty.error.ThirdPartyErrorCode;
 import com.pixflow.infra.thirdparty.error.ThirdPartyErrorMapper;
+import com.pixflow.infra.thirdparty.observability.ThirdPartyMetrics;
 import io.github.resilience4j.bulkhead.Bulkhead;
 import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
@@ -26,7 +27,10 @@ public final class ThirdPartyCallTemplate {
     private final CacheNamespace cacheNamespace;
     private final ThirdPartyResilienceRegistry resilienceRegistry;
     private final ThirdPartyErrorMapper errorMapper;
+
     private final ThirdPartyProperties properties;
+
+    private final ThirdPartyMetrics metrics;
 
     public ThirdPartyCallTemplate(
             DistributedSemaphore distributedSemaphore,
@@ -34,13 +38,15 @@ public final class ThirdPartyCallTemplate {
             CacheNamespace cacheNamespace,
             ThirdPartyResilienceRegistry resilienceRegistry,
             ThirdPartyErrorMapper errorMapper,
-            ThirdPartyProperties properties) {
+            ThirdPartyProperties properties,
+            ThirdPartyMetrics metrics) {
         this.distributedSemaphore = Objects.requireNonNull(distributedSemaphore, "distributedSemaphore");
         this.distributedTokenBucket = Objects.requireNonNull(distributedTokenBucket, "distributedTokenBucket");
         this.cacheNamespace = Objects.requireNonNull(cacheNamespace, "cacheNamespace");
         this.resilienceRegistry = Objects.requireNonNull(resilienceRegistry, "resilienceRegistry");
         this.errorMapper = Objects.requireNonNull(errorMapper, "errorMapper");
         this.properties = Objects.requireNonNull(properties, "properties");
+        this.metrics = Objects.requireNonNull(metrics, "metrics");
     }
 
     public <T> T execute(ThirdPartyCallContext context, Supplier<T> action) {
@@ -94,6 +100,7 @@ public final class ThirdPartyCallTemplate {
                                 quota.idleTtl()),
                         quota.costPerAttempt());
             } catch (CacheException ex) {
+                metrics.recordQuota(context.providerId(), context.api(), ThirdPartyMetrics.QuotaResult.ERROR);
                 throw new PixFlowException(
                         ThirdPartyErrorCode.THIRDPARTY_QUOTA_UNAVAILABLE,
                         "第三方出站额度服务不可用",
@@ -104,6 +111,7 @@ public final class ThirdPartyCallTemplate {
                         null);
             }
             if (!decision.allowed()) {
+                metrics.recordQuota(context.providerId(), context.api(), ThirdPartyMetrics.QuotaResult.REJECTED);
                 throw new PixFlowException(
                         ThirdPartyErrorCode.THIRDPARTY_LOCAL_RATE_LIMITED,
                         "第三方出站额度暂时不足",
@@ -113,6 +121,7 @@ public final class ThirdPartyCallTemplate {
                         decision.retryAfter(),
                         null);
             }
+            metrics.recordQuota(context.providerId(), context.api(), ThirdPartyMetrics.QuotaResult.ALLOWED);
             return action.get();
         }
     }

@@ -268,7 +268,8 @@ class BackgroundRemovalProviderHttpTest {
                 namespace,
                 new ThirdPartyResilienceRegistry(properties),
                 new ThirdPartyErrorMapper(),
-                properties);
+                properties,
+                metrics());
     }
 
     private static RestClientThirdPartyHttpInvoker httpInvoker() {

@@ -8,7 +8,14 @@ import java.util.Objects;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public final class ThirdPartyMetrics {
+    public enum QuotaResult {
+        ALLOWED,
+        REJECTED,
+        ERROR
+    }
+
     private final MeterRegistry registry;
+
     private final AtomicInteger inFlight = new AtomicInteger();
 
     public ThirdPartyMetrics(MeterRegistry registry) {
@@ -32,6 +39,15 @@ public final class ThirdPartyMetrics {
         Counter.builder("pixflow.thirdparty.retry")
                 .tag("api", api)
                 .tag("provider", provider)
+                .register(registry)
+                .increment();
+    }
+
+    public void recordQuota(String provider, String api, QuotaResult result) {
+        Counter.builder("pixflow.thirdparty.quota")
+                .tag("provider", provider)
+                .tag("api", api)
+                .tag("result", result.name().toLowerCase(java.util.Locale.ROOT))
                 .register(registry)
                 .increment();
     }
