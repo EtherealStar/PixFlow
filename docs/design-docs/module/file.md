@@ -51,6 +51,8 @@ UPLOADED -> EXTRACTING -> READY | PARTIAL | FAILED
 
 READY means every admitted original image completed. PARTIAL means at least one processable original image exists and at least one entry failed admission/extraction. FAILED contributes no mention candidates.
 
+After READY/PARTIAL extraction, File publishes a package-ready domain event for initial Product Visual Facts analysis. Afterward, an Original Image add, delete, replacement, or content-hash change publishes an SKU-scoped visual-input-changed event. Rename, display ordering, and preview-URL changes do not. File owns the image/content facts but not the Vision work item; an application bridge connects these events without a File-to-Vision compile dependency.
+
 Extraction applies format-specific path traversal, entry-count, decompressed-size, per-entry-size, compression-ratio, extension, encrypted-entry, and magic-byte controls. Password-protected archives are rejected rather than prompting for a password. Failure details are paginated and safe for user display.
 
 ## Cancellation

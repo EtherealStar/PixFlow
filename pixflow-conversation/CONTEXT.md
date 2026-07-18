@@ -26,3 +26,10 @@ _Avoid_: pending-plan row, queued task
 **Proposal Decision**:
 The user's single confirm or reject action for one Proposal.
 _Avoid_: second confirmation, challenge answer
+
+## Current Boundaries
+
+- Message admission proves conversation ownership before reading Asset facts, then validates each ordered reference through Permission `INSPECT` and the File resolver before acquiring the turn lock.
+- A valid submission appends one durable USER message containing the original prompt and typed references. Conversation does not create attachment messages or bind a conversation to one package.
+- History is read through Session's typed transcript view. Raw metadata JSON, storage locations, and deleted `attachedPackageId` fields do not cross this boundary.
+- Display-path snapshots are historical labels only. `referenceKey` remains the identity and must be revalidated at later side-effect boundaries.

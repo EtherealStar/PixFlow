@@ -9,7 +9,7 @@ PixFlow is a multi-context repository. Context documents are added lazily when a
 - [Task Execution](./pixflow-module-task/CONTEXT.md) - schedules work units, records their outcomes, and owns task terminal states.
 - [Execution State](./pixflow-state/CONTEXT.md) - projects durable work-unit outcomes into recovery and progress read models.
 - [Rubrics Evaluation](./pixflow-module-rubrics/CONTEXT.md) - evaluates typed artifacts and decisions against evidence-grounded criteria.
-- [Product Vision Understanding](./pixflow-module-vision/CONTEXT.md) - records durable, observation-only facts from product images.
+- [Product Vision Understanding](./pixflow-module-vision/CONTEXT.md) - owns the current durable, observation-only facts derived from product images.
 - [Asset Library](./pixflow-module-file/CONTEXT.md) - owns packages, original/generated image identities, references, and deletion.
 - [Conversation](./pixflow-conversation/CONTEXT.md) - owns turns, message references, ephemeral Proposals, and user decisions.
 - [Image Generation](./pixflow-module-imagegen/CONTEXT.md) - validates and executes one-image redraw requests.
@@ -33,5 +33,6 @@ PixFlow is a multi-context repository. Context documents are added lazily when a
 - **Image Generation -> Asset Library**: a Generated Artifact becomes a Generated Image only after successful asset publication.
 - **Web Workspace -> Conversation**: Proposal cards and Queued Messages live only in the current browser application; messages remain durable through Conversation history.
 - **Web Workspace -> Asset Library**: Materials shows originals, Outputs shows generated images, and both supply canonical Mention Tokens.
+- **Web Workspace -> Product Vision Understanding**: a Materials image detail resolves its SKU scope and reads or replaces that SKU's current Product Visual Facts; the Web does not own analysis history.
 - **Web Workspace -> Task Execution**: Activity projects task state but does not own task outcomes or Generated Images.
 - **Administrator Authentication -> all authenticated contexts**: every request must remain eligible as the Configured Administrator; historical accounts have no application authority.

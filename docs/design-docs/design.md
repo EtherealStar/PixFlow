@@ -28,9 +28,9 @@
 
 ## 一、文档定位与范围
 
-PixFlow 面向电商运营人员，以对话窗口为主要工作入口，由 Agent 消费用户指令、canonical Asset References 与外部电商数据，在 Human-in-the-loop（HITL）约束下给出数据支撑的处理建议，确认后执行图片处理。系统以 **DAG 引擎为确定性执行核心、子 Agent 为视觉/生成辅助、Rubrics 为后端离线评估能力、Harness 为横切安全约束层**；当前只读召回已有记忆，不把对话或任务结果写回业务记忆。
+PixFlow 面向电商运营人员，以对话窗口为主要工作入口，由 Agent 消费用户指令、canonical Asset References 与外部电商数据，在 Human-in-the-loop（HITL）约束下给出数据支撑的处理建议，确认后执行图片处理。系统以 **DAG 引擎为确定性执行核心、持久 Product Visual Facts 与生图能力为辅助、Rubrics 为后端离线评估能力、Harness 为横切安全约束层**；当前只读召回已有记忆，不把对话或任务结果写回业务记忆。
 
-本文覆盖：总体架构、技术选型、Maven 多模块组织、Harness 六件套、Agent 决策循环、三类子 Agent、两条产图路径、RAG 记忆、电商数据接入、异步执行、数据模型、技术风险。
+本文覆盖：总体架构、技术选型、Maven 多模块组织、Harness 六件套、Agent 决策循环、Product Visual Facts、生图辅助、两条产图路径、RAG 记忆、电商数据接入、异步执行、数据模型、技术风险。
 
 不覆盖（见 [十六](#十六暂不考虑)）：视频处理、用户/租户级计费预算与真实账单核算、外部电商平台真实 API 对接、参数自动猜测、Rubrics evaluator 后训练与依赖滞后电商反馈的判定。出站 provider attempt 的 Redis 请求权重桶属于基础设施保护，不等同于业务计费。
 
@@ -46,7 +46,7 @@ PixFlow 面向电商运营人员，以对话窗口为主要工作入口，由 Ag
 
 4. **Harness 是横切 services 层，不是领域模块**。六件套贯穿执行各阶段，靠注册/注入接入，不按业务领域切分。
 
-5. **测试/评估与主循环解耦**。Rubrics 评估是独立离线阶段，消费 Evaluation Interface 的 trace + 本地数据集，与主循环无关。主循环中的子 Agent 是辅助能力（视觉理解、生图），不是测试工具。
+5. **测试/评估与主循环解耦**。Rubrics 评估是独立离线阶段，消费 Evaluation Interface 的 trace + 本地数据集，与主循环无关。商品视觉理解由持久 Product Visual Facts 提供，生图辅助也不是测试工具。
 
 6. **完整项目标准**。对象存储、异步、断点恢复、可观测、韧性都按生产标准设计，不做 MVP 式简化。
 
@@ -236,7 +236,7 @@ requirement 的强规则拦截落点：
 UserPromptSubmit
   → 注入用户 prompt + referenceKey/display snapshot；按需只读召回已有记忆
   → search(发现候选 SKU) / read(include=["data"] 时读取电商指标)
-  → [按需] get_product_visual_facts(referenceKey)(读取或补偿当前商品视觉事实)
+  → [按需] get_product_visual_facts(referenceKey)(读取当前商品视觉事实；IMAGE 可补齐目标图事实)
   → [可选] agent(type=explore)(探索关联 SKU)
   → 生成带数据支撑的处理建议(确定性 DAG 方案 和/或 生成式重绘方案)
   → submit_image_plan(referenceKeys, dag) / submit_imagegen_plan(referenceKey, prompt, params)
@@ -375,8 +375,10 @@ Prompt 缓存 = 动态组装 + section 级缓存（**不依赖服务商 context 
 - 素材包解压完成后，按 `(packageId, skuId)` 创建内部异步分析批次；每个 SKU 是独立可恢复工作项。
 - 同 SKU 确定性伪随机抽最多两张图（仅一张则只发一张），经最长边 1280、约 1.6MP、JPEG 0.85、透明铺白、不放大的统一预处理后，一次多图调用视觉模型。
 - 沿用 `VisionModelClient -> ChatModelClient -> OpenAI-compatible /v1/chat/completions`，强制模型调用 `submit_product_visual_facts` 输出观察事实；模型不生成营销文案或重绘 Prompt。
-- SKU 与具体目标图事实分别持久化。主 Agent 只通过 `get_product_visual_facts(referenceKey)` 读取；缺失时工具先解析 canonical key，再在同一工作项、锁、epoch 与调用预算下补偿分析。
-- 视觉事实不进入 Qdrant 或自动 Memory recall。通用 `agent(type=vision)` / 任意图片问答入口取消；完整设计见 `module/vision.md` 与 ADR 0004。
+- 每个 SKU 与具体目标图只保留一份可变当前事实和一个当前工作项，不保留事实修订或已完成运行历史。管理员可在 Materials 的商品视觉分析表单直接覆盖 SKU 事实，或显式发起重新分析。
+- 只有同 SKU Original Image 的新增、删除、替换或内容哈希变化会清空当前 SKU 事实并自动重新分析；模型、提示词、预处理和事实 schema 版本变化不自动重跑。相同图片集合的手动重新分析继续使用同一组确定性样本。
+- 主 Agent 只通过 `get_product_visual_facts(referenceKey)` 读取当前事实，不接收 AI/人工来源元数据，也不会因普通 lookup 启动新的 SKU 分析 generation。
+- 视觉事实不进入 Qdrant 或自动 Memory recall。通用 `agent(type=vision)` / 任意图片问答入口取消；完整设计见 `module/vision.md` 与 ADR 0008。
 
 ### 10.2 生图子 Agent（生成式重绘路径）
 
@@ -467,7 +469,7 @@ spring-boot 主工程
 │   ├── task/                   任务调度（RocketMQ 消费、进度、断点恢复、下载）
 │   ├── memory/                 RAG 记忆（偏好/SKU历史/分析结论；Qdrant+MySQL）
 │   ├── commerce/               电商数据接入（本地导入 + 预留 API）
-│   ├── vision/                 视觉理解子 Agent
+│   ├── vision/                 当前 Product Visual Facts 与可恢复分析
 │   ├── imagegen/               生图子 Agent
 │   └── rubrics/                Rubrics 离线评估
 ├── infra/
@@ -506,10 +508,10 @@ graph TD
 | `asset_package` | id, name, source_object_key, archive_format, image_count, status, created_at | ZIP/RAR/7z 素材包；metadata 文档只来自压缩包内部 |
 | `asset_image` | id, package_id, sku_id, source_type, source_task_id, source_result_id, source_image_id, group_key, view_id, minio_key, original_path, created_at | ORIGINAL/GENERATED 图片；生成结果获得新 id 并记录 lineage，绝不复用源图 id |
 | `asset_copy` | id, package_id, sku_id, product_name, keywords, description | 文案条目 |
-| `vision_analysis_job` | id, package_id, status, total_count, success_count, failed_count, created_at, finished_at | 内部包级视觉分析批次；不作为用户可见 process task |
-| `vision_analysis_item` | id, job_id, package_id, sku_id, image_id, scope, input_fingerprint, status, run_epoch, heartbeat_at, provider_attempt_count, structure_round_count, failure_* | SKU/目标图级可恢复分析工作项；实际 provider attempt 跨 MQ 重投累计，最多 3 次 |
-| `asset_visual_analysis` | id, package_id, sku_id, input_fingerprint, facts_json, operational_metadata_json, created_at | 不可变 SKU Visual Snapshot；只有当前输入指纹对应的成功事实可供 Agent 读取 |
-| `asset_image_visual_analysis` | id, package_id, sku_id, image_id, input_fingerprint, facts_json, operational_metadata_json, created_at | 不可变目标图 Visual Snapshot；用于具体图片重绘 Prompt |
+| `vision_analysis_job` | id, package_id, status, total_count, success_count, failed_count, updated_at | 每包一条当前视觉分析聚合；重置而不追加，不作为用户可见 process task |
+| `vision_analysis_item` | id, package_id, sku_id, image_id, scope, input_fingerprint, status, analysis_generation, run_epoch, heartbeat_at, provider_attempt_count, structure_round_count, last_request_id, failure_* | SKU/目标图各一条当前可恢复工作项；每 generation 最多 3 次实际 provider attempt，不累积已完成运行历史 |
+| `asset_visual_analysis` | id, package_id, sku_id, input_fingerprint, facts_json, version, last_writer, operational_metadata_json, updated_at | 每 SKU 一条可变当前 Product Visual Facts；管理员编辑或分析成功原地覆盖，不保留历史 |
+| `asset_image_visual_analysis` | id, package_id, sku_id, image_id, input_fingerprint, facts_json, version, operational_metadata_json, updated_at | 每目标图一条可变当前 Image Visual Facts；用于具体图片重绘 Prompt，不保留历史 |
 | `conversation` | id, title, created_at, updated_at | 对话 |
 | `message` | id, conversation_id, seq, role, content, tool_call_id, compaction_marker, metadata, task_id, created_at | 消息 transcript append-only 事实源；USER message 的 metadata 保存有序 `referenceKey + displayPathSnapshot`，不保存单一 attached_package_id 或文件字节；由 `harness/session` 唯一写入，`module/conversation` 只读 |
 | `message_compaction` | id, conversation_id, boundary_message_id, summary_message_id, covered_up_to_seq, trigger, created_at | session 自治压缩纪元表；记录最近 destructive compaction 如何把 append-only transcript 派生成压缩后活动链；`covered_up_to_seq` 只按普通消息 seq 取值 |
@@ -535,7 +537,7 @@ graph TD
 | 键 | 用途 |
 |---|---|
 | `lock:task:{taskId}:execution` | Redisson `RLock` 任务互斥；watchdog 续期，禁止 recovery 强制解锁 |
-| `lock:vision:{packageId}:{skuId}:{scope}:{target}:{inputFingerprint}` | SKU/目标图视觉分析互斥；异步 consumer 与工具补偿共享 watchdog 锁，MySQL `run_epoch` 负责迟到写 fencing |
+| `lock:vision:{packageId}:{skuId}:{scope}:{target}` | SKU/目标图当前视觉分析互斥；异步 consumer、恢复、手动重分析与目标图补偿共享 watchdog 锁，MySQL `analysis_generation + run_epoch` 负责迟到写 fencing |
 | `task:idempotency:{businessIdentity}` | 任务业务身份到 taskId 的缓存映射；Proposal=`proposalId`，重试=`retry-failed:{sourceTaskId}`，MySQL UNIQUE 为事实源 |
 | `progress:task:{taskId}` | 进度计数(原子 incr) |
 | `cancel:task:{taskId}` | 取消标志位 |

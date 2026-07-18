@@ -20,7 +20,7 @@ This ExecPlan is a living document. The sections `Progress`, `Surprises & Discov
 - [x] (2026-07-17 13:23+08:00) Milestone 1：删除 Cache confirmation 适配器、Bean、测试、指标、错误码、Contracts 依赖和精确 suppression，增加只允许 Common 的 Maven 依赖守护；20 项 Cache 测试（含真实 Redis 故障注入）通过。
 - [x] (2026-07-17 13:15+08:00) Milestone 2：MQ 默认值与开发配置收敛为三次和 5s/30s/2m，新增配置绑定、retry boundary、AckDrop 与 schema 测试；17 项测试通过。
 - [x] (2026-07-17 13:22+08:00) Milestone 3：Storage 新增严格 archive/stable asset keys 和 MinIO server-side `copy`；按用户要求删除一参数兼容入口并原子迁移 ZIP 调用方；19 项测试（含 4 项真实 MinIO 集成测试）通过。
-- [ ] Milestone 4：等待后端总计划提供 Task-owned `GeneratedAssetPublicationPort`、File 幂等 publication 和 App 接线；当前源码全仓搜索确认这些接口尚不存在，因此未提前把 candidate 切到 TMP。
+- [x] (2026-07-18) Milestone 4：Task-owned `GeneratedAssetPublicationPort`、File 幂等 publication 和 App 接线已落地；DAG/Imagegen candidate 已原子切到 TMP，生成式与确定性前缀分离，旧稳定桶 producer/reader 合同已删除。
 - [ ] Milestone 5（已完成：三个 infra 模块统一严格 lint、依赖负向搜索、真实 Redis/MinIO 测试；剩余：publication seam 后的直接消费者/全仓端到端门禁）。
 
 ## Surprises & Discoveries
@@ -301,3 +301,5 @@ Storage 不公开 `publishAsset`，不依赖 Task 或 File。Task-owned `Generat
 2026-07-17 / Codex: 创建本计划。依据提交 `0faa171` 相对 `b620027` 的 infra 文档差异，选择 Cache、MQ、Storage 三个变更量较小的模块；通过源码审计区分了可独立完成的 Cache/MQ 切片和必须等待 Task/File publication seam 的 Storage candidate 切换。计划明确保留现有 watchdog/epoch 机制、维持 MQ 领域无关、把 Storage copy 限定为纯 I/O，并提供了微提交、串行验证、工作树保护与快速搜索关键词。
 
 2026-07-17 / Codex: 实施 Milestone 0-3 并完成三个 infra 模块统一 lint。Cache confirmation 全链路和 Contracts 依赖已删除；MQ 三次重试边界已由测试固定；Storage archive/stable keys 与跨桶 copy 已通过真实 MinIO。根据用户“不要为了兼容性保留旧代码”的要求删除一参数 archive key 入口并迁移 ZIP 调用方。由于 Task/File publication seam 尚不存在，Milestone 4 保持未完成，未制造 TMP producer 与稳定 reader 并存的半迁移。
+
+2026-07-18 / Codex: 后端 publication 专项计划已满足 Milestone 4 的进入条件并完成原子切换：Task/File owner-defined seam、App adapter、TMP candidate 与稳定 File publication 同批存在，Imagegen 裸 object-key/default bucket 旧合同也已删除。真实 MinIO/MySQL publication 故障矩阵仍由专项计划负责，Milestone 5 端到端交接保持部分完成。

@@ -170,6 +170,86 @@ DELETE /api/files/packages/{packageId}/images/{imageId}
 
 `/api/files/images` is the required global original-image pager. The response never includes generated images.
 
+Original-image views expose `packageId`, `skuId`, `imageId`, canonical IMAGE `referenceKey`, current display name, dimensions/size metadata, and a short-lived preview URL. This lets the image-detail route resolve its SKU-scoped Product Visual Analysis without parsing a display path.
+
+## Product Visual Analysis
+
+Materials reads and replaces the one current SKU Visual Facts document through:
+
+```text
+GET  /api/vision/packages/{packageId}/skus/{skuId}/facts
+PUT  /api/vision/packages/{packageId}/skus/{skuId}/facts
+POST /api/vision/packages/{packageId}/skus/{skuId}/reanalyze
+```
+
+`skuId` is URL encoded and remains scoped by `packageId`. GET returns fact availability and the current analysis status independently:
+
+```json
+{
+  "packageId": 123,
+  "skuId": "SKU-001",
+  "analysisStatus": "RUNNING",
+  "analysisGeneration": 4,
+  "facts": {
+    "common": {
+      "categoryAppearance": "handbag",
+      "dominantColors": ["black"],
+      "visibleMaterials": ["leather-like textured surface"],
+      "shapes": ["rectangular silhouette"],
+      "visibleComponents": ["two handles"],
+      "patterns": [],
+      "visibleText": [],
+      "background": "white",
+      "viewTypes": ["front three-quarter"]
+    },
+    "attributes": [{"name": "closure", "value": "top zipper"}],
+    "limitations": [],
+    "conflicts": []
+  },
+  "version": 7,
+  "writer": "ADMINISTRATOR_EDITED",
+  "updatedAt": "..."
+}
+```
+
+`analysisStatus` is `PENDING | RUNNING | SUCCEEDED | FAILED`. `facts` may be present while status is RUNNING or FAILED because manual reanalysis retains the current document until success. `facts: null` means there is no current document; a deliberately saved all-empty Product Visual Facts object is non-null and remains available. `writer` is `AI_GENERATED | ADMINISTRATOR_EDITED | null` and exists only for administrator presentation. The Agent lookup contract returns facts without writer metadata.
+
+PUT replaces the complete document and never appends a revision:
+
+```json
+{
+  "expectedVersion": 7,
+  "facts": {
+    "common": {
+      "categoryAppearance": "",
+      "dominantColors": [],
+      "visibleMaterials": [],
+      "shapes": [],
+      "visibleComponents": [],
+      "patterns": [],
+      "visibleText": [],
+      "background": "",
+      "viewTypes": []
+    },
+    "attributes": [],
+    "limitations": [],
+    "conflicts": []
+  }
+}
+```
+
+All-empty facts are valid. The backend trims and bounds scalar/list values and rejects unknown or nested fields. A stale `expectedVersion` returns `409 VISUAL_FACTS_VERSION_CONFLICT` without changing current facts. Replacement while analysis is active returns `409 VISUAL_ANALYSIS_ACTIVE`. Success returns the complete updated GET view with an incremented version and `writer=ADMINISTRATOR_EDITED`.
+
+POST reanalysis accepts the current generation and one client-generated identity per deliberate click:
+
+```json
+{ "expectedGeneration": 4, "requestId": "01J..." }
+```
+
+Retrying the current row's same request ID returns the same analysis generation. A stale `expectedGeneration` returns `409 VISUAL_ANALYSIS_GENERATION_CONFLICT`, preventing a delayed retry from an older click from starting another run. A different request ID with the current generation starts a new generation only when none is active, resets the same work row's provider budget to three actual attempts, and retains existing facts until success. It creates no completed-run or fact-history row. The response is the complete current GET view. Reanalysis has no cancel endpoint and requires no confirmation.
+
+The Web polls GET every two seconds only while detail is open and `analysisStatus` is PENDING or RUNNING. Network failure is not an analysis failure. Vision work is not returned by Global Activity.
+
 ## Outputs
 
 Output browsing uses dedicated lazy queries:

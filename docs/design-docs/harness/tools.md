@@ -133,10 +133,10 @@ PixFlow 的 Agent 级工具是一组**粗粒度、固定、领域化的决策动
 ### 3.3.1 get_product_visual_facts
 
 - **入参**：`referenceKey` 必填；工具声明允许的 PACKAGE/SKU/IMAGE 种类。
-- **行为**：不传目标图时读取当前 SKU Visual Snapshot；传目标图时同时确保该图片的 Image Visual Snapshot 可用。当前事实缺失时，handler 可在 `module/vision` 的同一工作项、Redisson 锁、MySQL epoch 与 provider-attempt 预算下完成补偿分析。
-- **结果**：`AVAILABLE` 返回结构化事实/限制/冲突；`ANALYSIS_PENDING` 表示已有 owner 正在分析；`UNAVAILABLE` 表示无图、预算耗尽或终态失败。历史输入指纹的事实不作为当前结果返回。
+- **行为**：SKU key 只读取该商品的一份当前 SKU Visual Facts，不因 lookup 创建新分析 generation；IMAGE key 返回当前 SKU context，并在需要具体构图事实时确保该图片的一份当前 Image Visual Facts 可用。目标图聚焦分析仍复用 `module/vision` 的当前工作项、Redisson 锁、MySQL generation/epoch 与 provider-attempt 预算。
+- **结果**：`AVAILABLE` 只返回当前结构化事实/限制/冲突，不包含 AI/管理员 writer 元数据；`ANALYSIS_PENDING` 表示当前事实尚不存在且已有 owner 正在分析；`UNAVAILABLE` 表示无图、预算耗尽或终态失败。Vision 不保留可由工具返回的历史事实。
 - **强制调用规则**：主 Agent 生成任何依赖商品外观的营销文案、描述、比较或 YAML 重绘 Prompt 前必须调用本工具；不可用时不得编造外观断言。
-- 只读、可并发、Plan 模式可见。其内部补偿不是用户域副作用，也不绕过 provider 额度与持久化执行边界。
+- 只读、可并发、Plan 模式可见。目标图聚焦分析不是用户域副作用，也不绕过 provider 额度与持久化执行边界。
 
 ### 3.4 submit_image_plan
 

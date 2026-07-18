@@ -8,6 +8,8 @@ Shell owns application startup, protected routing, responsive navigation panels,
 
 The route table is exactly the route set in `product.md`. `/login` is public and standalone. Every other route, including `/`, declares `requiresAuth`. `/` redirects to `/chat/new` after authentication.
 
+The Materials image-detail route is a normal protected child route. Browser back exits detail, while in-app leave guards may delay navigation until the Product Visual Analysis draft is saved, discarded, or resumed.
+
 Removed routes are not placeholders: `/rubrics`, `/settings`, `/tasks/:taskId`, the old combined `/files`, and a dashboard Home page do not exist. The left navigation links separately to Materials and Outputs. The administrator menu contains Logout and no non-functional Settings item.
 
 ## Authentication runtime

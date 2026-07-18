@@ -16,11 +16,11 @@ This ExecPlan is a living document. The sections `Progress`, `Surprises & Discov
 - [x] (2026-07-17) 阅读 File、Asset Reference、Storage、Task、Conversation 和前端 Files/API 目标设计，以及 ADR 0005、0006 和 `pixflow-module-file/CONTEXT.md`。
 - [x] (2026-07-17) 审计 `pixflow-module-file` 的 POM、schema、迁移、自动配置、上传/解压、查询、删除、Permission proof、Imagegen adapter 与测试，记录目标差距和现有工作树边界。
 - [x] (2026-07-17) 创建本中文 ExecPlan，固定机制、实施顺序、必读参考文档和“每轮测试前先 linting”的门禁。
-- [ ] Milestone 0：冻结工作树、数据库迁移策略、现有 API/测试基线和跨计划文件所有权。
-- [ ] Milestone 1（部分完成）：最低层 canonical Asset Reference 值对象、严格 codec 与 File permission parser 已完成；File resolve/inspect/expand 公共边界仍待实现。
+- [x] (2026-07-17 23:55+08:00) Milestone 0：冻结工作树、数据库迁移策略、现有 API/测试基线和跨计划文件所有权。工作树中的 DAG/Imagegen/Task Proposal 改动已确认属于现有工作；File strict verify 在当前环境两次超过 124 秒无输出，改以成功的 compile、定向 Checkstyle 和测试记录该门禁阻断。
+- [ ] Milestone 1（已完成 File 内首个切片）：新增 File `AssetReferenceResolver`、`AssetReferenceInspector`、`AssetReferenceExpander` 与不含存储位置的安全视图，默认实现位于 internal 包；Permission proof 改为先复用共享 codec 再调用 resolver。codec、resolver expansion 和 Permission proof 定向测试通过。按用户 2026-07-18 明确的 File-only 范围，Conversation 消费者迁移和旧 `PackageReference` 系列删除未执行；Generated Image source type、tombstone、`AssetContentReader` 和完整 owner fact 验证仍待完成，因此本里程碑保持未勾选。
 - [ ] Milestone 2：把归档上传和提取对齐为 ZIP/RAR/7z 分片协议、格式分派、安全限制与可恢复取消。
 - [ ] Milestone 3：完成 Materials/Outputs 的后端分页、搜索、层级浏览、预签名访问和 exact-key exclusion。
-- [ ] Milestone 4：实现 Generated Image reservation、幂等 publication、lineage、candidate 恢复和 Task/App 端口接线。
+- [ ] Milestone 4（主体实现与定向测试已完成）：Generated Image reservation、幂等 publication、完整 lineage、bounded candidate 恢复和 Task/App 端口已落地；File publisher/recovery 3 项与 App adapters 4 项通过。真实 MySQL/MinIO 并发和四个 crash point 因 Docker engine 不可用尚未验收，故里程碑保持未勾选。
 - [ ] Milestone 5：用 Reference Tombstone 替换软删除，完成 Package、Original Image、Generated Image 的真实字节清理语义。
 - [ ] Milestone 6：删除旧 multipart、object-key 泄漏、旧 package/image 身份和 File -> Imagegen 反向适配，完成组合与端到端验收。
 
@@ -49,6 +49,18 @@ This ExecPlan is a living document. The sections `Progress`, `Surprises & Discov
 
 - Observation: File 已经完成 Checkstyle 基线清理，新的业务开发不应恢复 suppression；共享 Maven reactor 不能并行运行，因为 SpotBugs 临时文件会互相争用。
   Evidence: `docs/design-docs/exec-plans/lint-baseline-remediation-plan.md` 记录 File 33 个 suppression 已删除、模块 32 项测试通过，并要求 reactor 串行验证。
+
+- Observation: File 的 `verify` 在当前环境连续两次超过 124 秒且没有 Maven 输出，但单独 `compile` 与 `checkstyle:check` 可以完成。
+  Evidence: `mvn -pl pixflow-module-file -am -DskipTests verify` 和同命令在 canonical 切片后均以 timeout 结束；`mvn -pl pixflow-module-file -DskipTests checkstyle:check` 返回 0 violations，定向 resolver 测试返回 1 passed。
+
+- Observation: Permission proof 不能只依赖可替换 resolver 负责语法准入，否则 mock 或错误实现返回空事实时会把非法 key 判为 PROVED。
+  Evidence: 首次迁移测试中 non-canonical `package:01/image:2` 得到 PROVED；加入共享 codec 预解析并对 null resolver view deny 后，`AssetPermissionProofTest` 2 项全部通过。
+
+- Observation: 双轴 Spec 审查发现首个切片曾错误勾选整个 Milestone 1，并指出 PACKAGE/SKU 伪造 source type、INSPECT expansion 放过非终态 package 和实现类位于 public api 包；另指出 Conversation 仍是旧 attachment 契约。
+  Evidence: 审查后 Milestone 1 恢复未勾选；PACKAGE/SKU source type 改为 null，所有用途统一要求 READY/PARTIAL，并把默认实现移动到 `internal/reference`。Conversation 问题因用户随后明确 File-only 范围而只记录为后续跨模块迁移项。
+
+- Observation: Standards 审查发现 `DefaultAssetReferenceService` 加三个接口转发 Bean 会产生相同接口的重复候选。
+  Evidence: 删除三个转发 Bean，只保留实现三个接口的单一 service Bean；`FileAutoConfigurationTest` 断言三个接口各只有一个 Bean并通过。
 
 ## Decision Log
 
@@ -80,9 +92,17 @@ This ExecPlan is a living document. The sections `Progress`, `Surprises & Discov
   Rationale: 用户明确要求测试前先 linting，仓库 lint 规则也把 `-DskipTests verify` 作为后端严格门禁。编译、Checkstyle 或 SpotBugs 未通过时不得用测试结果掩盖。
   Date/Author: 2026-07-17 / Codex
 
+- Decision: 本轮实施范围收窄为 `pixflow-module-file`；不修改 Conversation 或 loop，也不在 File-only 改动中删除仍被外部模块编译依赖的旧 reference 类型。
+  Rationale: 用户在实施过程中明确只需要 File 模块。跨模块消费者迁移必须在另一次获得授权的原子切片中完成，不能把当前工作树留在无法编译的半迁移状态。
+  Date/Author: 2026-07-18 / Codex
+
+- Decision: Permission proof 在 resolver 前显式执行共享 `CanonicalAssetReferenceCodec` 的 parse/serialize round-trip，并拒绝 null resolved view。
+  Rationale: codec 是唯一 grammar owner，Permission 仍需在访问任何 owner fact 前 fail closed；resolver 负责数据库事实，不承担调用方可替换实现的语法安全假设。
+  Date/Author: 2026-07-18 / Codex
+
 ## Outcomes & Retrospective
 
-当前只完成研究和计划，没有修改生产代码。目标结果、里程碑和验收命令已经固定；实施完成后本节必须记录实际新增接口、迁移版本、测试数量、真实依赖结果、仍存在的缺口，以及是否实现“任务历史删除后 Generated Image 仍可浏览和 mention”。不得把 `-DskipTests verify`、被跳过的容器测试或只在 fake storage 上通过的 publication 测试记为完整行为验收。
+已完成 File canonical 解析的首个可运行切片。`pixflow-module-file` 新增三个 public 能力边界和安全 reference view，默认实现隐藏在 internal 包；Permission 通过共享 codec + resolver 复核权限，READ/INSPECT/PROCESS/GENERATE 映射已穷尽。resolver/permission 6 项与自动配置 1 项定向测试通过，File Checkstyle 为 0 violation，File `-am compile` 通过。按 File-only 范围，Conversation 迁移和旧跨模块类型删除未实施；完整上传格式分派、Materials/Outputs 查询、Generated Image publication、真实删除和全 reactor 验收仍未完成；strict `verify` 与 File 全测试因 124 秒超时不能记为通过。
 
 ## Context and Orientation
 
@@ -368,3 +388,5 @@ File publication seam 应等价于：
 ## Revision Notes
 
 2026-07-17 / Codex: 创建本计划。依据活动后端总计划的 Milestone 1/3、最新 File/Asset Reference 设计、ADR 0005/0006、当前源码和 Lint 计划，把 `pixflow-file` 拆成 canonical key、归档协议、查询、可恢复 publication、tombstone 删除和组合清理六个增量里程碑。明确使用 reservation 状态机弥合 MySQL/MinIO 非原子边界，使用 Task-owned port + App adapter 避免 Task/File 反向依赖，并按用户要求把每一轮验证固定为 strict lint/static analysis 成功后才运行测试。
+
+2026-07-18 / Codex: 同步 Generated Image publication 专项实施。File V4、PUBLISHING/READY publisher、lineage、metadata fail-closed、bounded recovery、Task/App adapters 和 READY public query 已完成；同时删除 Imagegen source facts 中裸 object key 的旧合同。定向测试与 17 模块 strict verify 通过；Docker 不可用，真实 MySQL/MinIO 并发/crash-window 仍未完成，因此 Milestone 4 不提前勾选。

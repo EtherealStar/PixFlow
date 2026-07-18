@@ -16,6 +16,7 @@ Authenticated routes are:
 /chat/:conversationId
 /materials
 /materials/packages/:packageId
+/materials/packages/:packageId/images/:imageId
 /outputs
 /outputs/conversations/:conversationId/tasks/:taskId
 ```
@@ -87,6 +88,12 @@ Uploading and Extracting can both be cancelled. Terminal cleanup removes the Act
 ## Materials and Outputs browsing
 
 Materials and original-image flat views use backend pagination. A global image query is mandatory; the client must not enumerate every package to build a flat gallery. Search, sort, and filters are backend operations for paginated data.
+
+Selecting an Original Image enters its dedicated detail route. The main area shows a large image with prominent previous/next controls, while a Materials-owned right column shows `商品视觉分析`. The helper text is `这是同商品的综合视觉分析，基于该商品中最多 2 张素材图片生成。` The facts belong to the image's `(packageId, skuId)`, so every image in the same SKU opens the same Product Visual Facts document.
+
+Previous/next follows the filtered, sorted, visible result order from which detail was opened and stops at the ends. A directly opened detail URL instead uses the containing package's default image order. Back returns to the originating gallery state when it still exists, otherwise to the package detail. Product Visual Analysis is page content, not the global Activity panel.
+
+The form shows every Product Visual Facts field and no additional summary. It is directly editable without an Edit mode. Save replaces the complete current document; Cancel restores the last loaded/saved document. Reanalysis is one click with no confirmation. Unsaved edits disable reanalysis and guard product changes, detail close, and in-app navigation with a PixFlow dialog; browser refresh/tab/window close uses the native unsaved-change warning.
 
 Outputs uses lazy `conversation -> task -> generated image` navigation and preserves task boundaries. Successful generated images follow the shared Asset Reference Contract and remain independently reusable even if their task execution record is deleted.
 

@@ -6,6 +6,10 @@ The shared client attaches an in-memory access token and request trace, unwraps 
 
 Only replay-safe GET requests retry once after a network failure or temporary 5xx. Authentication refresh is single-flight and replays at most once. Mutation retries belong to the owning runtime and require the stable business identity defined by that operation.
 
+Product Visual Analysis uses ordinary authenticated HTTP. Its detail runtime polls current state every two seconds only while analysis is active and the detail surface remains open. It aborts the prior request when the selected SKU changes and discards a response whose SKU identity no longer matches. A transport failure is distinct from terminal model failure and never clears current facts.
+
+Facts replacement is not automatically replayed after an ambiguous network failure; the runtime reloads current state and uses the expected fact version to reconcile. Reanalysis may retry with the same per-click request identity, which the backend stores only as the current work item's last request identity.
+
 Chunk PUT requests bypass the ordinary HTTP concurrency pool and are bounded by the upload worker pool.
 
 ## Agent SSE

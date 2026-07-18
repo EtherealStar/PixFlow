@@ -1276,7 +1276,7 @@ ToolHandlerOutput handle(ToolInvocation inv) {
 |---|:---:|---|
 | `search` | 是 | 只读探索 |
 | `read` | 是 | 只读 |
-| `get_product_visual_facts` | 是 | 只读；读取或补偿当前商品视觉事实 |
+| `get_product_visual_facts` | 是 | 只读；读取当前 SKU/图片视觉事实，普通 SKU lookup 不启动新分析 generation |
 | `agent(explore)` | 是 | 只读 |
 | `skill__*` | 是 | 只读 |
 | `plan` | **否** | 已在 Plan 模式 |
