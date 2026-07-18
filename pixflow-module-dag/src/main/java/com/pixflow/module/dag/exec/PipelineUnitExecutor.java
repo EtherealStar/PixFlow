@@ -9,6 +9,7 @@ import com.pixflow.infra.image.ImageFormat;
 import com.pixflow.infra.image.ReopenableImageSource;
 import com.pixflow.infra.image.op.ConvertFormatSpec;
 import com.pixflow.infra.image.op.ImageOp;
+import com.pixflow.infra.storage.ObjectLocation;
 import com.pixflow.module.dag.config.DagProperties;
 import com.pixflow.module.dag.error.DagErrorCode;
 import com.pixflow.module.dag.expand.ExecutableBranch;
@@ -39,9 +40,9 @@ public class PipelineUnitExecutor implements UnitExecutor {
 
     /** storage 抽象(里程碑 3 注入真实 ObjectStorage)。 */
     public interface SourceReader {
-        InputStream openStream(String objectKey);
+        InputStream openStream(ObjectLocation location);
 
-        long statSize(String objectKey);
+        long statSize(ObjectLocation location);
     }
 
     /** 第三方抠图抽象;返抠图后字节(带 alpha PNG)。 */
@@ -61,12 +62,19 @@ public class PipelineUnitExecutor implements UnitExecutor {
     }
 
     private final DagProperties properties;
+
     private final ErrorNormalizer normalizer;
+
     private final SourceReader sourceReader;
+
     private final BackgroundRemovalPort bgRemoval;
+
     private final PixelPipeline pixelPipeline;
+
     private final ResultWriter resultWriter;
+
     private final TypedImageOpFactory imageOpFactory;
+
     public PipelineUnitExecutor(DagProperties properties,
                                 ErrorNormalizer normalizer,
                                 SourceReader sourceReader,
@@ -109,7 +117,7 @@ public class PipelineUnitExecutor implements UnitExecutor {
 
     private UnitOutcome doExecute(ExecutableBranch branch, ImageDescriptor image, String outputKey) {
         // 大图防护
-        long size = sourceReader.statSize(image.objectKey());
+        long size = sourceReader.statSize(image.location());
         if (size > properties.getExecution().getSourceBytesLimit()) {
             return UnitOutcome.failed(branch.kind(), branch.branchId(), branch.memberId(),
                 new UnitOutcome.DagErrorView(DagErrorCode.DAG_SOURCE_BYTES_TOO_LARGE,
@@ -118,7 +126,7 @@ public class PipelineUnitExecutor implements UnitExecutor {
         }
         // 缝合 I/O
         try {
-            ReopenableImageSource source = () -> sourceReader.openStream(image.objectKey());
+            ReopenableImageSource source = () -> sourceReader.openStream(image.location());
             byte[] bytes = applyOps(branch.perMemberOps(), source);
             resultWriter.write(outputKey, bytes);
             return UnitOutcome.succeeded(branch.kind(), branch.branchId(), branch.memberId(),

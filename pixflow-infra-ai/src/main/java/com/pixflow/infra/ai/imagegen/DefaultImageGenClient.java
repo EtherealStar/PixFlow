@@ -68,7 +68,7 @@ public final class DefaultImageGenClient implements ImageGenClient {
                 payload.put("model", model.model());
                 payload.put("input", input);
                 return httpClient.postApiJson(model, "/api/v1/services/aigc/image2image/image-synthesis", payload, model.timeout())
-                        .map(this::parse)
+                        .map(root -> parse(root, model))
                         .doOnSuccess(result -> call.record(true, result))
                         .doOnError(error -> call.record(false, null))
                         .doFinally(signalType -> {
@@ -83,7 +83,7 @@ public final class DefaultImageGenClient implements ImageGenClient {
         });
     }
 
-    private ImageGenResult parse(JsonNode root) {
+    private ImageGenResult parse(JsonNode root, ResolvedModel model) {
         JsonNode imageNode = firstTextNode(
                 root.path("image_base64"),
                 root.path("image"),
@@ -97,7 +97,8 @@ public final class DefaultImageGenClient implements ImageGenClient {
                 root.path("contentType"),
                 root.path("output").path("content_type"),
                 root.path("output").path("contentType")).asText("image/png");
-        return new ImageGenResult(image, contentType, ProviderPayloads.usage(root.path("usage")));
+        return new ImageGenResult(image, contentType, ProviderPayloads.usage(root.path("usage")),
+                new ImageProducer(model.provider(), model.model()));
     }
 
     private static JsonNode firstTextNode(JsonNode... nodes) {
@@ -111,7 +112,9 @@ public final class DefaultImageGenClient implements ImageGenClient {
 
     private static final class AiMetricsCall {
         private final AiMetrics metrics;
+
         private final ResolvedModel model;
+
         private final io.micrometer.core.instrument.Timer.Sample sample;
 
         private AiMetricsCall(AiMetrics metrics, ResolvedModel model) {

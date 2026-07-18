@@ -15,8 +15,6 @@ import com.pixflow.infra.ai.model.ResolvedModel;
 import com.pixflow.infra.ai.model.TokenUsage;
 import com.pixflow.infra.ai.vision.VisionModelClient;
 import com.pixflow.infra.ai.vision.VisionRequest;
-import com.pixflow.infra.storage.BucketType;
-import com.pixflow.infra.storage.ObjectLocation;
 import com.pixflow.module.rubrics.evidence.EvidenceEntry;
 import com.pixflow.module.rubrics.evidence.EvidencePack;
 import com.pixflow.module.rubrics.model.CriterionKind;
@@ -98,7 +96,7 @@ class RepeatedLlmCriterionVerifierTest {
 
     private static ImageResultSubject subject() {
         return new ImageResultSubject("1", 2, "sku", "STANDARD", "image", null, null, "b", 10,
-                new ObjectLocation(BucketType.RESULTS, "result.png"), "snapshot");
+                "IMAGE:2:10", 10, "snapshot");
     }
 
     private static EvidencePack evidence() {

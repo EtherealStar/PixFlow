@@ -2,6 +2,7 @@ package com.pixflow.app.task;
 
 import com.pixflow.infra.storage.ObjectStorage;
 import com.pixflow.module.task.api.TaskQueryService;
+import com.pixflow.module.task.api.publication.PublishedAssetReader;
 import com.pixflow.module.task.config.TaskProperties;
 import com.pixflow.module.task.infra.metrics.TaskMetrics;
 import com.pixflow.module.task.infra.persistence.ProcessResultMapper;
@@ -24,8 +25,10 @@ public class TaskQueryConfiguration {
                                            DownloadBundleBuilder bundleBuilder,
                                            TaskProperties taskProperties,
                                            TaskMetrics taskMetrics,
-                                           Clock clock) {
-        return new DownloadService(resultMapper, objectStorage, bundleBuilder, taskProperties, taskMetrics, clock);
+                                           Clock clock,
+                                           PublishedAssetReader publishedAssets) {
+        return new DownloadService(resultMapper, objectStorage, bundleBuilder,
+                taskProperties, taskMetrics, clock, publishedAssets);
     }
 
     @Bean

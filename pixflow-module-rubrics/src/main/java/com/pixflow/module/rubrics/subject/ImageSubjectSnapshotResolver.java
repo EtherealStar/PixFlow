@@ -18,19 +18,23 @@ public final class ImageSubjectSnapshotResolver {
                 .orElseThrow(() -> new IllegalArgumentException("successful image result not found: " + subjectId));
         String canonical = canonical(snapshot);
         return new ImageResultSubject(subjectId, snapshot.taskId(), snapshot.skuId(), snapshot.unitKind(),
-                snapshot.imageId(), snapshot.groupKey(), snapshot.viewId(), snapshot.branchId(), snapshot.bytesOut(),
-                snapshot.output(), sha256(canonical.getBytes(StandardCharsets.UTF_8)));
+                snapshot.imageId(), snapshot.groupKey(), snapshot.viewId(), snapshot.branchId(),
+                snapshot.generatedImageId(), snapshot.referenceKey(), snapshot.bytesOut(),
+                sha256(canonical.getBytes(StandardCharsets.UTF_8)));
     }
 
     private String canonical(TaskOutcomeQuery.SuccessfulResultSnapshot snapshot) {
         return String.join("\n", Long.toString(snapshot.resultId()), Long.toString(snapshot.taskId()),
                 value(snapshot.unitKind()), value(snapshot.imageId()), value(snapshot.skuId()),
                 value(snapshot.groupKey()), value(snapshot.viewId()), value(snapshot.branchId()),
-                snapshot.output().bucket().name(), snapshot.output().key(), Long.toString(snapshot.bytesOut()),
+                Long.toString(snapshot.generatedImageId()), value(snapshot.referenceKey()),
+                Long.toString(snapshot.bytesOut()),
                 snapshot.completedAt() == null ? "" : snapshot.completedAt().toString());
     }
 
-    private static String value(String value) { return value == null ? "" : value; }
+    private static String value(String value) {
+        return value == null ? "" : value;
+    }
 
     public static String sha256(byte[] bytes) {
         try {

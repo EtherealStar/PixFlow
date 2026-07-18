@@ -5,6 +5,7 @@ import com.pixflow.infra.image.ImageCodec;
 import com.pixflow.infra.storage.ObjectStorage;
 import com.pixflow.module.rubrics.model.EvidenceType;
 import com.pixflow.module.rubrics.subject.ImageResultSubject;
+import com.pixflow.module.task.api.publication.PublishedAssetReader;
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
@@ -15,16 +16,23 @@ import static com.pixflow.module.rubrics.subject.ImageSubjectSnapshotResolver.sh
 
 public final class ImageEvidencePackBuilder {
     private final ObjectStorage storage;
+    private final PublishedAssetReader publishedAssets;
+
     private final ImageCodec codec;
+
     private final ObjectMapper mapper;
+
     private final Clock clock;
 
-    public ImageEvidencePackBuilder(ObjectStorage storage, ImageCodec codec, ObjectMapper mapper) {
-        this(storage, codec, mapper, Clock.systemUTC());
+    public ImageEvidencePackBuilder(ObjectStorage storage, PublishedAssetReader publishedAssets,
+            ImageCodec codec, ObjectMapper mapper) {
+        this(storage, publishedAssets, codec, mapper, Clock.systemUTC());
     }
 
-    public ImageEvidencePackBuilder(ObjectStorage storage, ImageCodec codec, ObjectMapper mapper, Clock clock) {
+    public ImageEvidencePackBuilder(ObjectStorage storage, PublishedAssetReader publishedAssets,
+            ImageCodec codec, ObjectMapper mapper, Clock clock) {
         this.storage = storage;
+        this.publishedAssets = publishedAssets;
         this.codec = codec;
         this.mapper = mapper;
         this.clock = clock;
@@ -32,7 +40,11 @@ public final class ImageEvidencePackBuilder {
 
     public EvidencePack build(ImageResultSubject subject) {
         try {
-            byte[] bytes = storage.getBytes(subject.output());
+            var published = publishedAssets.require(subject.referenceKey());
+            if (published.imageId() != subject.generatedImageId()) {
+                throw new IllegalStateException("published image identity mismatch");
+            }
+            byte[] bytes = storage.getBytes(published.location());
             var probe = codec.probe(new ByteArrayInputStream(bytes));
             Map<String, Object> metadata = new java.util.TreeMap<>();
             metadata.put("format", probe.format().name());
@@ -41,7 +53,7 @@ public final class ImageEvidencePackBuilder {
             metadata.put("size", bytes.length);
             metadata.put("width", probe.width());
             Instant capturedAt = clock.instant();
-            String sourceRef = subject.output().bucket().name() + "/" + subject.output().key();
+            String sourceRef = subject.referenceKey();
             var image = new EvidenceEntry("E1", EvidenceType.OUTPUT_IMAGE, sourceRef,
                     sha256(bytes), capturedAt, Map.of("size", bytes.length));
             byte[] canonical = mapper.writeValueAsString(metadata).getBytes(StandardCharsets.UTF_8);

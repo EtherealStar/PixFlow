@@ -22,7 +22,7 @@ class ImagegenPlanValidatorTest {
     @BeforeEach
     void setUp() {
         reader = (imageIds, packageId) -> List.of(new SourceImageInfo(
-                imageIds.getFirst(), packageId, "sku-1", "key/1", "image/png", null, null));
+                imageIds.getFirst(), packageId, "image/png"));
         validator = new ImagegenPlanValidator(new ImagegenProperties(), reader);
     }
 
@@ -73,7 +73,7 @@ class ImagegenPlanValidatorTest {
 
         ImagegenPlanValidator unsupported = new ImagegenPlanValidator(
                 new ImagegenProperties(), (ids, packageId) -> List.of(new SourceImageInfo(
-                        "11", "7", "sku", "key", "image/gif", null, null)));
+                        "11", "7", "image/gif")));
         assertThatThrownBy(() -> unsupported.validate(new ImagegenPlanInputs(
                 "package:7/image:11", "重绘", null, Map.of()), "conv-1"))
                 .isInstanceOf(PixFlowException.class)

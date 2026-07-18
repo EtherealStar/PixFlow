@@ -14,51 +14,64 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 
 public class WorkUnitScheduler implements AutoCloseable {
-    private final ThreadPoolExecutor processExecutor;
-    private final ThreadPoolExecutor imagegenExecutor;
+  private final ThreadPoolExecutor processExecutor;
 
-    public WorkUnitScheduler(TaskProperties properties, TaskMetrics metrics) {
-        this.processExecutor = executor("process", "pixflow-task-process-",
-                properties.getWorker().getProcessPool(), metrics);
-        this.imagegenExecutor = executor("imagegen", "pixflow-task-imagegen-",
-                properties.getWorker().getImagegenPool(), metrics);
-        metrics.bindPool("process", processExecutor);
-        metrics.bindPool("imagegen", imagegenExecutor);
-    }
+  private final ThreadPoolExecutor imagegenExecutor;
 
-    public List<CompletableFuture<WorkUnitCompletion>> submitAll(
-            List<WorkUnit> units, Function<WorkUnit, WorkUnitCompletion> runner) {
-        return units.stream()
-                .map(unit -> CompletableFuture.supplyAsync(() -> runner.apply(unit), executor(unit.taskType())))
-                .toList();
-    }
+  public WorkUnitScheduler(TaskProperties properties, TaskMetrics metrics) {
+    this.processExecutor =
+        executor(
+            "process", "pixflow-task-process-", properties.getWorker().getProcessPool(), metrics);
+    this.imagegenExecutor =
+        executor(
+            "imagegen",
+            "pixflow-task-imagegen-",
+            properties.getWorker().getImagegenPool(),
+            metrics);
+    metrics.bindPool("process", processExecutor);
+    metrics.bindPool("imagegen", imagegenExecutor);
+  }
 
-    private Executor executor(TaskType type) {
-        return type == TaskType.IMAGE_GEN ? imagegenExecutor : processExecutor;
-    }
+  public List<CompletableFuture<WorkUnitCompletion>> submitAll(
+      List<WorkUnit> units, Function<WorkUnit, WorkUnitCompletion> runner) {
+    return units.stream()
+        .map(
+            unit ->
+                CompletableFuture.supplyAsync(() -> runner.apply(unit), executor(unit.taskType())))
+        .toList();
+  }
 
-    private static ThreadPoolExecutor executor(String poolName, String name, TaskProperties.Pool pool,
-                                               TaskMetrics metrics) {
-        ThreadPoolExecutor executor = new ThreadPoolExecutor(
-                pool.getCoreSize(), pool.getMaxSize(), 60, TimeUnit.SECONDS,
-                new LinkedBlockingQueue<>(pool.getQueueCapacity()),
-                runnable -> {
-                    Thread thread = new Thread(runnable);
-                    thread.setName(name + thread.threadId());
-                    thread.setDaemon(true);
-                    return thread;
-                });
-        var callerRuns = new ThreadPoolExecutor.CallerRunsPolicy();
-        executor.setRejectedExecutionHandler((task, rejectedExecutor) -> {
-            metrics.recordPoolRejected(poolName);
-            callerRuns.rejectedExecution(task, rejectedExecutor);
+  private Executor executor(TaskType type) {
+    return type == TaskType.IMAGE_GEN ? imagegenExecutor : processExecutor;
+  }
+
+  private static ThreadPoolExecutor executor(
+      String poolName, String name, TaskProperties.Pool pool, TaskMetrics metrics) {
+    ThreadPoolExecutor executor =
+        new ThreadPoolExecutor(
+            pool.getCoreSize(),
+            pool.getMaxSize(),
+            60,
+            TimeUnit.SECONDS,
+            new LinkedBlockingQueue<>(pool.getQueueCapacity()),
+            runnable -> {
+              Thread thread = new Thread(runnable);
+              thread.setName(name + thread.threadId());
+              thread.setDaemon(true);
+              return thread;
+            });
+    var callerRuns = new ThreadPoolExecutor.CallerRunsPolicy();
+    executor.setRejectedExecutionHandler(
+        (task, rejectedExecutor) -> {
+          metrics.recordPoolRejected(poolName);
+          callerRuns.rejectedExecution(task, rejectedExecutor);
         });
-        return executor;
-    }
+    return executor;
+  }
 
-    @Override
-    public void close() {
-        processExecutor.shutdown();
-        imagegenExecutor.shutdown();
-    }
+  @Override
+  public void close() {
+    processExecutor.shutdown();
+    imagegenExecutor.shutdown();
+  }
 }

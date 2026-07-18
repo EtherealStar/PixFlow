@@ -24,13 +24,13 @@ class StorageKeysTest {
     }
 
     @Test
-    void buildsStableResultKeys() {
+    void separatesTemporaryCandidatesFromStableAssets() {
         assertThat(StorageKeys.resultUnit("1001", "abc123", 7, "webp"))
-                .isEqualTo(ObjectLocation.of(BucketType.RESULTS,
+                .isEqualTo(ObjectLocation.of(BucketType.TMP,
                         "results/1001/units/abc123/epochs/7/output.webp"));
         assertThat(StorageKeys.generatedUnit("1001", "def456", 8, "jpg"))
-                .isEqualTo(ObjectLocation.of(BucketType.GENERATED,
-                        "results/1001/units/def456/epochs/8/output.jpg"));
+                .isEqualTo(ObjectLocation.of(BucketType.TMP,
+                        "generated/1001/units/def456/epochs/8/output.jpg"));
         assertThat(StorageKeys.resultAsset(42, 101, "webp"))
                 .isEqualTo(ObjectLocation.of(BucketType.RESULTS, "42/images/101/output.webp"));
         assertThat(StorageKeys.generatedAsset(42, 102, "png"))

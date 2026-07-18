@@ -2,6 +2,8 @@ package com.pixflow.module.dag.expand;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.pixflow.infra.storage.BucketType;
+import com.pixflow.infra.storage.ObjectLocation;
 import com.pixflow.module.dag.ir.DagJsonReader;
 import com.pixflow.module.dag.ir.DagSchemaVersion;
 import com.pixflow.module.dag.ir.PixelTool;
@@ -38,8 +40,8 @@ class BranchExpanderTest {
             {"nodes":[{"id":"n1","tool":"resize","params":{"width":800}}],"edges":[]}
             """);
         List<ImageDescriptor> images = List.of(
-            ImageDescriptor.single("i1", "sku1", "p1/img1.jpg"),
-            ImageDescriptor.single("i2", "sku1", "p1/img2.jpg")
+            ImageDescriptor.single("i1", "sku1", location("p1/img1.jpg")),
+            ImageDescriptor.single("i2", "sku1", location("p1/img2.jpg"))
         );
         var branches = expander.expand(dag, images);
         assertThat(branches).hasSize(2);
@@ -65,7 +67,7 @@ class BranchExpanderTest {
               "edges":[{"from":"n1","to":"n2"},{"from":"n2","to":"n3"}]
             }
             """);
-        var branches = expander.expand(dag, List.of(ImageDescriptor.single("i1", "sku1", "k")));
+        var branches = expander.expand(dag, List.of(ImageDescriptor.single("i1", "sku1", location("k"))));
         assertThat(branches).hasSize(1);
         ExecutableBranch b = branches.get(0);
         assertThat(b.perMemberOps()).extracting(n -> n.nodeId())
@@ -85,7 +87,7 @@ class BranchExpanderTest {
               "edges":[{"from":"n1","to":"n2"},{"from":"n1","to":"n3"}]
             }
             """);
-        var branches = expander.expand(dag, List.of(ImageDescriptor.single("i1", "sku1", "k")));
+        var branches = expander.expand(dag, List.of(ImageDescriptor.single("i1", "sku1", location("k"))));
         // 应展开为 2 条(每张图 × 2 路径)
         assertThat(branches).hasSize(2);
         // 不同 branchId
@@ -110,8 +112,8 @@ class BranchExpanderTest {
             }
             """);
         var groups = List.of(
-            ImageDescriptor.grouped("i1", "g1", "v1", "k1"),
-            ImageDescriptor.grouped("i2", "g1", "v2", "k2")
+            ImageDescriptor.grouped("i1", "g1", "v1", location("k1")),
+            ImageDescriptor.grouped("i2", "g1", "v2", location("k2"))
         );
         var branches = expander.expand(dag, groups);
         var groupBranch = branches.stream()
@@ -135,7 +137,7 @@ class BranchExpanderTest {
               "edges":[{"from":"n1","to":"n2"}]
             }
             """);
-        var images = List.of(ImageDescriptor.single("i1", "sku1", "k1"));
+        var images = List.of(ImageDescriptor.single("i1", "sku1", location("k1")));
         var first = expander.expand(dag, images);
         var second = expander.expand(dag, images);
         assertThat(first).hasSize(second.size());
@@ -155,7 +157,7 @@ class BranchExpanderTest {
               "edges":[{"from":"n1","to":"n2"}]
             }
             """);
-        var branches = expander.expand(dag, List.of(ImageDescriptor.single("i1", "sku1", "k")));
+        var branches = expander.expand(dag, List.of(ImageDescriptor.single("i1", "sku1", location("k"))));
         assertThat(branches.get(0).encode().format()).isEqualTo("WEBP");
         assertThat(branches.get(0).encode().quality()).isEqualTo(80);
     }
@@ -165,7 +167,7 @@ class BranchExpanderTest {
         TypedExecutionPlan dag = parse("""
             {"nodes":[{"id":"n1","tool":"resize","params":{"width":800}}],"edges":[]}
             """);
-        var branches = expander.expand(dag, List.of(ImageDescriptor.single("i1", "sku1", "k")));
+        var branches = expander.expand(dag, List.of(ImageDescriptor.single("i1", "sku1", location("k"))));
         assertThat(branches.get(0).encode().format()).isEqualTo("JPEG");
         assertThat(branches.get(0).encode().quality()).isNull();
     }
@@ -191,13 +193,16 @@ class BranchExpanderTest {
             }
             """);
         var groups = List.of(
-            ImageDescriptor.grouped("i1", "groupA", "v1", "k1"),
-            ImageDescriptor.grouped("i2", "groupA", "v2", "k2")
+            ImageDescriptor.grouped("i1", "groupA", "v1", location("k1")),
+            ImageDescriptor.grouped("i2", "groupA", "v2", location("k2"))
         );
         var branches = expander.expand(dag, groups);
         var groupBranch = branches.stream()
             .filter(b -> b.kind() == com.pixflow.harness.state.model.UnitKind.GROUP)
             .findFirst().orElseThrow();
         assertThat(groupBranch.memberId()).isEqualTo("groupA");
+    }
+    private static ObjectLocation location(String key) {
+        return ObjectLocation.of(BucketType.PACKAGES, key);
     }
 }

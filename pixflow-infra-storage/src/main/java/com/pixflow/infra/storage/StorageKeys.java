@@ -26,11 +26,13 @@ public final class StorageKeys {
     }
 
     public static ObjectLocation resultUnit(String taskId, String unitKeyHash, long runEpoch, String ext) {
-        return ObjectLocation.of(BucketType.RESULTS, unitOutputKey(taskId, unitKeyHash, runEpoch, ext));
+        return ObjectLocation.of(BucketType.TMP,
+                unitOutputKey("results", taskId, unitKeyHash, runEpoch, ext));
     }
 
     public static ObjectLocation generatedUnit(String taskId, String unitKeyHash, long runEpoch, String ext) {
-        return ObjectLocation.of(BucketType.GENERATED, unitOutputKey(taskId, unitKeyHash, runEpoch, ext));
+        return ObjectLocation.of(BucketType.TMP,
+                unitOutputKey("generated", taskId, unitKeyHash, runEpoch, ext));
     }
 
     public static ObjectLocation resultAsset(long packageId, long imageId, String ext) {
@@ -52,9 +54,11 @@ public final class StorageKeys {
         return ObjectLocation.of(BucketType.TOOL_RESULTS, normalizeSegment(id) + ".txt");
     }
 
-    private static String unitOutputKey(String taskId, String unitKeyHash, long runEpoch, String ext) {
+    private static String unitOutputKey(String prefix, String taskId, String unitKeyHash,
+                                        long runEpoch, String ext) {
         requirePositiveEpoch(runEpoch);
-        return "results/" + normalizeSegment(taskId) + "/units/" + normalizeSegment(unitKeyHash)
+        return normalizeSegment(prefix) + "/" + normalizeSegment(taskId)
+                + "/units/" + normalizeSegment(unitKeyHash)
                 + "/epochs/" + runEpoch + "/output." + normalizeExtension(ext);
     }
 

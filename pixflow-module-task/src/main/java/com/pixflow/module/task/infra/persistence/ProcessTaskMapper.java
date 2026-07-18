@@ -12,58 +12,70 @@ import org.apache.ibatis.annotations.Update;
 
 @Mapper
 public interface ProcessTaskMapper extends BaseMapper<ProcessTask> {
-    @Select("select * from process_task where idempotency_key = #{key} limit 1")
-    ProcessTask findByIdempotencyKey(@Param("key") String key);
+  @Select("select * from process_task where idempotency_key = #{key} limit 1")
+  ProcessTask findByIdempotencyKey(@Param("key") String key);
 
-    @Select("select * from process_task where id = #{taskId} for update")
-    ProcessTask lockById(@Param("taskId") long taskId);
+  @Select("select * from process_task where id = #{taskId} for update")
+  ProcessTask lockById(@Param("taskId") long taskId);
 
-    @Select("""
+  @Select(
+      """
             select * from process_task
             where id = #{taskId} and conversation_id = #{conversationId}
             limit 1
             """)
-    ProcessTask findByIdAndConversation(@Param("taskId") long taskId, @Param("conversationId") String conversationId);
+  ProcessTask findByIdAndConversation(
+      @Param("taskId") long taskId, @Param("conversationId") String conversationId);
 
-    @Select("""
+  @Select(
+      """
             select * from process_task
             where id = #{taskId} and status = 'RUNNING' and run_epoch = #{epoch}
             for update
             """)
-    ProcessTask lockRunningEpoch(@Param("taskId") long taskId, @Param("epoch") long epoch);
+  ProcessTask lockRunningEpoch(@Param("taskId") long taskId, @Param("epoch") long epoch);
 
-    @Select("""
+  @Select(
+      """
             select * from process_task
             where status = #{status}
             order by started_at asc
             limit #{limit}
             """)
-    List<ProcessTask> findByStatus(@Param("status") TaskStatus status, @Param("limit") int limit);
+  List<ProcessTask> findByStatus(@Param("status") TaskStatus status, @Param("limit") int limit);
 
-    @Select("""
+  @Select(
+      """
             select * from process_task
             where status = 'RUNNING' and (heartbeat_at is null or heartbeat_at < #{staleBefore})
             order by heartbeat_at asc
             limit #{limit}
             """)
-    List<ProcessTask> findStaleRunning(@Param("staleBefore") Instant staleBefore, @Param("limit") int limit);
+  List<ProcessTask> findStaleRunning(
+      @Param("staleBefore") Instant staleBefore, @Param("limit") int limit);
 
-    @Update("""
+  @Update(
+      """
             update process_task
             set status = #{to}, updated_at = #{now}
             where id = #{taskId} and status = #{from}
             """)
-    int transit(@Param("taskId") long taskId, @Param("from") TaskStatus from,
-                @Param("to") TaskStatus to, @Param("now") Instant now);
+  int transit(
+      @Param("taskId") long taskId,
+      @Param("from") TaskStatus from,
+      @Param("to") TaskStatus to,
+      @Param("now") Instant now);
 
-    @Update("""
+  @Update(
+      """
             update process_task
             set status = 'PENDING', updated_at = #{now}
             where id = #{taskId} and status = 'QUEUED' and run_epoch = 0
             """)
-    int resetFailedEnqueue(@Param("taskId") long taskId, @Param("now") Instant now);
+  int resetFailedEnqueue(@Param("taskId") long taskId, @Param("now") Instant now);
 
-    @Update("""
+  @Update(
+      """
             update process_task
             set status = 'RUNNING', worker_id = #{workerId}, started_at = coalesce(started_at, #{now}),
                 run_epoch = run_epoch + 1, heartbeat_at = #{now}, updated_at = #{now}
@@ -71,24 +83,33 @@ public interface ProcessTaskMapper extends BaseMapper<ProcessTask> {
               and (status = 'QUEUED'
                 or (status = 'RUNNING' and (heartbeat_at is null or heartbeat_at < #{staleBefore})))
             """)
-    int claimExecution(@Param("taskId") long taskId, @Param("workerId") String workerId,
-                       @Param("now") Instant now, @Param("staleBefore") Instant staleBefore);
+  int claimExecution(
+      @Param("taskId") long taskId,
+      @Param("workerId") String workerId,
+      @Param("now") Instant now,
+      @Param("staleBefore") Instant staleBefore);
 
-    @Update("""
+  @Update(
+      """
             update process_task
             set status = #{status}, done_count = #{done}, total_count = #{total},
                 finished_at = #{now}, updated_at = #{now}, last_error = #{lastError}
             where id = #{taskId} and status = 'RUNNING' and run_epoch = #{epoch}
             """)
-    int markTerminalEpoch(@Param("taskId") long taskId, @Param("epoch") long epoch,
-                          @Param("status") TaskStatus status, @Param("total") int total,
-                          @Param("done") int done, @Param("lastError") String lastError,
-                          @Param("now") Instant now);
+  int markTerminalEpoch(
+      @Param("taskId") long taskId,
+      @Param("epoch") long epoch,
+      @Param("status") TaskStatus status,
+      @Param("total") int total,
+      @Param("done") int done,
+      @Param("lastError") String lastError,
+      @Param("now") Instant now);
 
-    @Update("""
+  @Update(
+      """
             update process_task set heartbeat_at = #{now}, updated_at = #{now}
             where id = #{taskId} and status = 'RUNNING' and run_epoch = #{epoch}
             """)
-    int heartbeatEpoch(@Param("taskId") long taskId, @Param("epoch") long epoch,
-                       @Param("now") Instant now);
+  int heartbeatEpoch(
+      @Param("taskId") long taskId, @Param("epoch") long epoch, @Param("now") Instant now);
 }

@@ -10,7 +10,7 @@ import java.util.List;
  * <ul>
  *   <li>仅返回 imageId 在入参集合内且归属 packageId 的源图元数据</li>
  *   <li>不存在或不归属的 imageId 不返回(由调用方通过结果集 size 判定)</li>
- *   <li>{@link SourceImageInfo#objectKey()} 是 MinIO 内桶 key,不包含桶名(由调用方决定桶类型)</li>
+ *   <li>只返回身份与媒体类型；对象位置由真正读取字节的端口以 typed location 传递</li>
  * </ul>
  */
 public interface SourceImageReader {

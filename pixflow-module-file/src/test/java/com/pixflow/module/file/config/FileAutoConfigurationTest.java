@@ -19,10 +19,14 @@ import com.pixflow.infra.storage.ObjectRef;
 import com.pixflow.infra.storage.ObjectStorage;
 import com.pixflow.infra.storage.StoredObjectMetadata;
 import com.pixflow.module.file.FileService;
+import com.pixflow.module.file.api.AssetReferenceExpander;
+import com.pixflow.module.file.api.AssetReferenceInspector;
+import com.pixflow.module.file.api.AssetReferenceResolver;
+import com.pixflow.module.file.api.AssetImageQuery;
+import com.pixflow.module.file.api.publication.GeneratedImagePublisher;
 import com.pixflow.module.file.pkg.ConservativePackageReferenceChecker;
 import com.pixflow.module.file.pkg.PackageReferenceChecker;
 import com.pixflow.module.file.web.FileController;
-import com.pixflow.module.imagegen.port.SourceImageReader;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.net.URL;
@@ -42,6 +46,7 @@ import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.transaction.PlatformTransactionManager;
 
 class FileAutoConfigurationTest {
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
@@ -53,7 +58,11 @@ class FileAutoConfigurationTest {
         contextRunner.run(context -> {
             assertThat(context).hasSingleBean(FileService.class);
             assertThat(context).hasSingleBean(FileController.class);
-            assertThat(context).hasSingleBean(SourceImageReader.class);
+            assertThat(context).hasSingleBean(AssetImageQuery.class);
+            assertThat(context).hasSingleBean(GeneratedImagePublisher.class);
+            assertThat(context).hasSingleBean(AssetReferenceResolver.class);
+            assertThat(context).hasSingleBean(AssetReferenceInspector.class);
+            assertThat(context).hasSingleBean(AssetReferenceExpander.class);
             assertThat(context.getBean(PackageReferenceChecker.class))
                     .isInstanceOf(ConservativePackageReferenceChecker.class);
         });
@@ -67,6 +76,11 @@ class FileAutoConfigurationTest {
             var environment = new Environment("test", new JdbcTransactionFactory(), mock(DataSource.class));
             when(sqlSessionFactory.getConfiguration()).thenReturn(new org.apache.ibatis.session.Configuration(environment));
             return sqlSessionFactory;
+        }
+
+        @Bean
+        PlatformTransactionManager transactionManager() {
+            return mock(PlatformTransactionManager.class);
         }
 
         @Bean

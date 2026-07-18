@@ -16,11 +16,16 @@ import com.pixflow.infra.storage.ObjectStorage;
 import com.pixflow.infra.storage.config.StorageAutoConfiguration;
 import com.pixflow.module.file.FileService;
 import com.pixflow.module.file.copydoc.AssetCopyMapper;
+import com.pixflow.contracts.asset.CanonicalAssetReferenceCodec;
 import com.pixflow.module.file.copydoc.CsvCopyDocParser;
 import com.pixflow.module.file.copydoc.ExcelCopyDocParser;
 import com.pixflow.module.file.error.AssetIngestErrorMapper;
 import com.pixflow.module.file.image.AssetImageMapper;
-import com.pixflow.module.file.image.DefaultSourceImageReader;
+import com.pixflow.module.file.api.AssetImageQuery;
+import com.pixflow.module.file.internal.image.DefaultAssetImageQuery;
+import com.pixflow.module.file.internal.publication.AssetImageLineageSourceMapper;
+import com.pixflow.module.file.internal.publication.DefaultGeneratedImagePublisher;
+import com.pixflow.module.file.internal.publication.GeneratedImagePublicationRecovery;
 import com.pixflow.module.file.ingest.ExtractionConsumer;
 import com.pixflow.module.file.ingest.ExtractionErrorHandler;
 import com.pixflow.module.file.ingest.ExtractionPublisher;
@@ -38,11 +43,12 @@ import com.pixflow.module.file.pkg.DefaultPackageReferenceResolver;
 import com.pixflow.module.file.pkg.PackageReferenceChecker;
 import com.pixflow.module.file.pkg.PackageReferenceResolver;
 import com.pixflow.module.file.permission.AssetPermissionProof;
+import com.pixflow.module.file.api.AssetReferenceResolver;
+import com.pixflow.module.file.internal.reference.DefaultAssetReferenceService;
 import com.pixflow.module.file.upload.UploadSessionService;
 import com.pixflow.module.file.upload.UploadSessionStore;
 import com.pixflow.module.file.upload.RedisUploadSessionStore;
 import com.pixflow.module.file.web.FileController;
-import com.pixflow.module.imagegen.port.SourceImageReader;
 import java.time.Clock;
 import org.apache.ibatis.annotations.Mapper;
 import org.springframework.scheduling.annotation.EnableScheduling;
@@ -52,6 +58,8 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.mybatis.spring.annotation.MapperScan;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @AutoConfiguration(after = {
         StorageAutoConfiguration.class,
@@ -65,6 +73,7 @@ import org.mybatis.spring.annotation.MapperScan;
         basePackageClasses = {
                 AssetPackageMapper.class,
                 AssetImageMapper.class,
+                AssetImageLineageSourceMapper.class,
                 AssetIngestErrorMapper.class,
                 AssetCopyMapper.class
         },
@@ -124,15 +133,53 @@ public class FileAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public AssetPermissionProof assetPermissionProof(
-            AssetPackageService packageService, AssetImageMapper imageMapper) {
-        return new AssetPermissionProof(packageService, imageMapper);
+    public CanonicalAssetReferenceCodec canonicalAssetReferenceCodec() {
+        return new CanonicalAssetReferenceCodec();
     }
 
     @Bean
     @ConditionalOnMissingBean
-    public SourceImageReader sourceImageReader(AssetImageMapper imageMapper) {
-        return new DefaultSourceImageReader(imageMapper);
+    public DefaultAssetReferenceService assetReferenceService(
+            CanonicalAssetReferenceCodec codec,
+            AssetPackageService packageService,
+            AssetImageMapper imageMapper) {
+        return new DefaultAssetReferenceService(codec, packageService, imageMapper);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public AssetPermissionProof assetPermissionProof(
+            CanonicalAssetReferenceCodec codec, AssetReferenceResolver referenceResolver) {
+        return new AssetPermissionProof(codec, referenceResolver);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public AssetImageQuery assetImageQuery(AssetImageMapper imageMapper) {
+        return new DefaultAssetImageQuery(imageMapper);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public DefaultGeneratedImagePublisher generatedImagePublisher(
+            AssetImageMapper imageMapper,
+            AssetImageLineageSourceMapper lineageMapper,
+            ObjectStorage objectStorage,
+            CanonicalAssetReferenceCodec codec,
+            PlatformTransactionManager transactionManager,
+            Clock clock) {
+        return new DefaultGeneratedImagePublisher(
+                imageMapper, lineageMapper, objectStorage, codec,
+                new TransactionTemplate(transactionManager), clock);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public GeneratedImagePublicationRecovery generatedImagePublicationRecovery(
+            AssetImageMapper imageMapper,
+            DefaultGeneratedImagePublisher publisher,
+            Clock clock) {
+        return new GeneratedImagePublicationRecovery(imageMapper, publisher, clock);
     }
 
     @Bean
@@ -164,7 +211,8 @@ public class FileAutoConfiguration {
             ExcelCopyDocParser excelCopyDocParser,
             ObjectStorage objectStorage,
             ExtractionPublisher extractionPublisher,
-            Clock clock) {
+            Clock clock,
+            CanonicalAssetReferenceCodec referenceCodec) {
         return new FileService(
                 packageService,
                 packageMapper,
@@ -175,7 +223,8 @@ public class FileAutoConfiguration {
                 excelCopyDocParser,
                 objectStorage,
                 extractionPublisher,
-                clock);
+                clock,
+                referenceCodec);
     }
 
     @Bean

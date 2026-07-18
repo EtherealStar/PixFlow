@@ -91,7 +91,8 @@ class ImagegenAutoConfigurationSentinelTest {
         @Bean
         ImageGenClient imageGenClient() {
             return req -> new com.pixflow.infra.ai.imagegen.ImageGenResult(
-                new byte[]{1, 2, 3}, "image/png", new com.pixflow.infra.ai.model.TokenUsage(0L, 0L, 0L));
+                new byte[]{1, 2, 3}, "image/png", new com.pixflow.infra.ai.model.TokenUsage(0L, 0L, 0L),
+                new com.pixflow.infra.ai.imagegen.ImageProducer("test-provider", "test-model"));
         }
 
         @Bean

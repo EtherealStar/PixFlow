@@ -15,6 +15,7 @@ import com.pixflow.infra.ai.error.AiErrorCode;
 import com.pixflow.infra.ai.imagegen.ImageGenClient;
 import com.pixflow.infra.ai.imagegen.ImageGenRequest;
 import com.pixflow.infra.ai.imagegen.ImageGenResult;
+import com.pixflow.infra.ai.imagegen.ImageProducer;
 import com.pixflow.infra.ai.model.TokenUsage;
 import com.pixflow.infra.storage.BucketType;
 import com.pixflow.infra.storage.ObjectLocation;
@@ -86,7 +87,7 @@ class DefaultImageGenExecutorTest {
     void redraw_happyPath() {
         byte[] generated = new byte[1024];
         when(imageGenClient.generate(any(ImageGenRequest.class))).thenReturn(
-            new ImageGenResult(generated, "image/png", new TokenUsage(10L, 0L, 10L)));
+            new ImageGenResult(generated, "image/png", new TokenUsage(10L, 0L, 10L), producer()));
         when(objectStorage.put(any(ObjectLocation.class), any(InputStream.class),
             anyLong(), anyString())).thenAnswer(inv -> {
                 ObjectLocation loc = inv.getArgument(0);
@@ -137,7 +138,7 @@ class DefaultImageGenExecutorTest {
     void redraw_outputTooLarge_throws_andDoesNotCallPut() {
         byte[] oversized = new byte[(int) (properties.getOutput().getMaxOutputBytes() + 1)];
         when(imageGenClient.generate(any(ImageGenRequest.class))).thenReturn(
-            new ImageGenResult(oversized, "image/png", new TokenUsage(0L, 0L, 0L)));
+            new ImageGenResult(oversized, "image/png", new TokenUsage(0L, 0L, 0L), producer()));
 
         assertThatThrownBy(() -> executor.redraw(spec()))
             .isInstanceOf(PixFlowException.class)
@@ -175,7 +176,7 @@ class DefaultImageGenExecutorTest {
     void redraw_putFailure_throwsImagegenStorageWriteFailed() {
         byte[] generated = new byte[1024];
         when(imageGenClient.generate(any(ImageGenRequest.class))).thenReturn(
-            new ImageGenResult(generated, "image/png", new TokenUsage(0L, 0L, 0L)));
+            new ImageGenResult(generated, "image/png", new TokenUsage(0L, 0L, 0L), producer()));
         when(objectStorage.put(any(), any(InputStream.class), anyLong(), anyString()))
             .thenThrow(new StorageException("put", BucketType.GENERATED, "key", false, "io error", null));
 
@@ -217,7 +218,7 @@ class DefaultImageGenExecutorTest {
             "用 A 风格重绘", Map.of(), "png");
         byte[] generated = new byte[]{9, 9, 9};
         when(imageGenClient.generate(any(ImageGenRequest.class))).thenReturn(
-            new ImageGenResult(generated, "image/png", new TokenUsage(0L, 0L, 0L)));
+            new ImageGenResult(generated, "image/png", new TokenUsage(0L, 0L, 0L), producer()));
         when(objectStorage.put(any(ObjectLocation.class), any(InputStream.class),
             anyLong(), anyString())).thenAnswer(inv -> {
                 ObjectLocation loc = inv.getArgument(0);
@@ -232,5 +233,9 @@ class DefaultImageGenExecutorTest {
         assertThat(a1.output().key())
             .isEqualTo("results/" + TASK_ID + "/units/unit-hash-2/epochs/4/output.png");
         assertThat(a1.output().key()).endsWith(".png");
+    }
+
+    private static ImageProducer producer() {
+        return new ImageProducer("test-provider", "test-model");
     }
 }

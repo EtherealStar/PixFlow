@@ -5,6 +5,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.pixflow.common.error.ErrorCategory;
 import com.pixflow.common.error.ErrorNormalizer;
 import com.pixflow.harness.state.model.UnitKind;
+import com.pixflow.infra.storage.BucketType;
+import com.pixflow.infra.storage.ObjectLocation;
 import com.pixflow.module.dag.config.DagProperties;
 import com.pixflow.module.dag.error.DagErrorCode;
 import com.pixflow.module.dag.expand.ExecutableBranch;
@@ -58,8 +60,8 @@ class GroupUnitExecutorTest {
             """;
         var dag = TestPlans.compile(json);
         var images = List.of(
-            ImageDescriptor.grouped("img1", "g1", "v1", "k1"),
-            ImageDescriptor.grouped("img2", "g1", "v2", "k2")
+            ImageDescriptor.grouped("img1", "g1", "v1", location("k1")),
+            ImageDescriptor.grouped("img2", "g1", "v2", location("k2"))
         );
         var branches = new com.pixflow.module.dag.expand.BranchExpander().expand(dag, images);
         return branches.stream()
@@ -80,10 +82,10 @@ class GroupUnitExecutorTest {
     @Test
     void execute_returnsSucceeded_onHappyPath() {
         var reader = new GroupUnitExecutor.SourceReader() {
-            @Override public InputStream openStream(String objectKey) {
+            @Override public InputStream openStream(ObjectLocation location) {
                 return new ByteArrayInputStream(new byte[]{1, 2, 3});
             }
-            @Override public long statSize(String objectKey) { return 10L; }
+            @Override public long statSize(ObjectLocation location) { return 10L; }
         };
         var bg = (GroupUnitExecutor.BackgroundRemovalPort) (b, o) -> b;
         AtomicInteger pipelineCalled = new AtomicInteger();
@@ -99,8 +101,8 @@ class GroupUnitExecutorTest {
         var ex = executor(reader, bg, pipeline, writer);
         UnitOutcome outcome = ex.execute(composeBranch(), UnitInput.images(
             List.of(
-                ImageDescriptor.grouped("img1", "g1", "v1", "k1"),
-                ImageDescriptor.grouped("img2", "g1", "v2", "k2")
+                ImageDescriptor.grouped("img1", "g1", "v1", location("k1")),
+                ImageDescriptor.grouped("img2", "g1", "v2", location("k2"))
             )
         ));
         assertThat(outcome.status()).isEqualTo(UnitOutcome.Status.SUCCEEDED);
@@ -113,19 +115,19 @@ class GroupUnitExecutorTest {
     @Test
     void execute_returnsFAILED_onMissingMember() {
         var reader = new GroupUnitExecutor.SourceReader() {
-            @Override public InputStream openStream(String objectKey) {
-                if (objectKey.equals("k1")) {
+            @Override public InputStream openStream(ObjectLocation location) {
+                if (location.key().equals("k1")) {
                     return new ByteArrayInputStream(new byte[]{1});
                 }
                 throw new RuntimeException("storage failure for k2");
             }
-            @Override public long statSize(String objectKey) { return 10L; }
+            @Override public long statSize(ObjectLocation location) { return 10L; }
         };
         var ex = executor(reader, (b, o) -> b, (m, p, c, po, e) -> new byte[]{}, (k, d) -> k);
         UnitOutcome outcome = ex.execute(composeBranch(), UnitInput.images(
             List.of(
-                ImageDescriptor.grouped("img1", "g1", "v1", "k1"),
-                ImageDescriptor.grouped("img2", "g1", "v2", "k2")
+                ImageDescriptor.grouped("img1", "g1", "v1", location("k1")),
+                ImageDescriptor.grouped("img2", "g1", "v2", location("k2"))
             )
         ));
         assertThat(outcome.status()).isEqualTo(UnitOutcome.Status.FAILED);
@@ -137,8 +139,8 @@ class GroupUnitExecutorTest {
     void execute_returnsFAILED_onEmptyImages() {
         var ex = executor(
             (GroupUnitExecutor.SourceReader) new GroupUnitExecutor.SourceReader() {
-                @Override public InputStream openStream(String objectKey) { return new ByteArrayInputStream(new byte[]{}); }
-                @Override public long statSize(String objectKey) { return 0L; }
+                @Override public InputStream openStream(ObjectLocation location) { return new ByteArrayInputStream(new byte[]{}); }
+                @Override public long statSize(ObjectLocation location) { return 0L; }
             },
             (b, o) -> b,
             (m, p, c, po, e) -> new byte[]{},
@@ -151,16 +153,16 @@ class GroupUnitExecutorTest {
     @Test
     void execute_returnsFAILED_onTooLargeSource() {
         var reader = new GroupUnitExecutor.SourceReader() {
-            @Override public InputStream openStream(String objectKey) {
+            @Override public InputStream openStream(ObjectLocation location) {
                 throw new AssertionError("不应调用 openStream");
             }
-            @Override public long statSize(String objectKey) {
+            @Override public long statSize(ObjectLocation location) {
                 return properties.getExecution().getSourceBytesLimit() + 1L;
             }
         };
         var ex = executor(reader, (b, o) -> b, (m, p, c, po, e) -> new byte[]{}, (k, d) -> k);
         UnitOutcome outcome = ex.execute(composeBranch(), UnitInput.images(
-            List.of(ImageDescriptor.grouped("img1", "g1", "v1", "k1"))));
+            List.of(ImageDescriptor.grouped("img1", "g1", "v1", location("k1")))));
         assertThat(outcome.status()).isEqualTo(UnitOutcome.Status.FAILED);
         assertThat(outcome.error().code()).isEqualTo(DagErrorCode.DAG_GROUP_MEMBER_MISSING);
     }
@@ -168,10 +170,10 @@ class GroupUnitExecutorTest {
     @Test
     void execute_neverThrows_businessException() {
         var reader = new GroupUnitExecutor.SourceReader() {
-            @Override public InputStream openStream(String objectKey) {
+            @Override public InputStream openStream(ObjectLocation location) {
                 throw new RuntimeException("catastrophic");
             }
-            @Override public long statSize(String objectKey) { return 10L; }
+            @Override public long statSize(ObjectLocation location) { return 10L; }
         };
         var pipeline = (GroupUnitExecutor.PixelPipeline) (members, perMember, compose, post, enc) -> {
             throw new RuntimeException("pipeline boom");
@@ -179,7 +181,10 @@ class GroupUnitExecutorTest {
         var ex = executor(reader, (b, o) -> b, pipeline, (k, d) -> k);
         // 即便读 / pipeline 都失败,GroupUnitExecutor 仍返回 UnitOutcome,绝不抛业务异常
         UnitOutcome outcome = ex.execute(composeBranch(), UnitInput.images(
-            List.of(ImageDescriptor.grouped("img1", "g1", "v1", "k1"))));
+            List.of(ImageDescriptor.grouped("img1", "g1", "v1", location("k1")))));
         assertThat(outcome.status()).isEqualTo(UnitOutcome.Status.FAILED);
+    }
+    private static ObjectLocation location(String key) {
+        return ObjectLocation.of(BucketType.PACKAGES, key);
     }
 }

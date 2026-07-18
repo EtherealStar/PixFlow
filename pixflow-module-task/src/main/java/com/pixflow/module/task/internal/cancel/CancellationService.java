@@ -9,40 +9,44 @@ import com.pixflow.module.task.infra.persistence.ProcessTaskMapper;
 import java.time.Clock;
 
 public class CancellationService {
-    private final ProcessTaskMapper taskMapper;
-    private final TaskCancelFlag cancelFlag;
-    private final TaskMetrics metrics;
-    private final Clock clock;
+  private final ProcessTaskMapper taskMapper;
 
-    public CancellationService(ProcessTaskMapper taskMapper, TaskCancelFlag cancelFlag,
-                               TaskMetrics metrics, Clock clock) {
-        this.taskMapper = taskMapper;
-        this.cancelFlag = cancelFlag;
-        this.metrics = metrics;
-        this.clock = clock;
-    }
+  private final TaskCancelFlag cancelFlag;
 
-    public boolean cancel(CancelTaskCommand command) {
-        ProcessTask task = taskMapper.findByIdAndConversation(command.taskId(), command.conversationId());
-        if (task == null) {
-            metrics.recordCancel("missing");
-            return false;
-        }
-        if (task.getStatus().terminal()) {
-            metrics.recordCancel("terminal");
-            return false;
-        }
-        cancelFlag.requestCancel(Long.toString(command.taskId()), command.reason());
-        if (task.getStatus() == TaskStatus.QUEUED) {
-            taskMapper.transit(task.getId(), TaskStatus.QUEUED, TaskStatus.CANCELLED, clock.instant());
-            metrics.recordCancel("queued");
-            return true;
-        }
-        metrics.recordCancel("running");
-        return true;
-    }
+  private final TaskMetrics metrics;
 
-    public boolean isCancelRequested(String taskId) {
-        return cancelFlag.isCancelRequested(taskId);
+  private final Clock clock;
+
+  public CancellationService(
+      ProcessTaskMapper taskMapper, TaskCancelFlag cancelFlag, TaskMetrics metrics, Clock clock) {
+    this.taskMapper = taskMapper;
+    this.cancelFlag = cancelFlag;
+    this.metrics = metrics;
+    this.clock = clock;
+  }
+
+  public boolean cancel(CancelTaskCommand command) {
+    ProcessTask task =
+        taskMapper.findByIdAndConversation(command.taskId(), command.conversationId());
+    if (task == null) {
+      metrics.recordCancel("missing");
+      return false;
     }
+    if (task.getStatus().terminal()) {
+      metrics.recordCancel("terminal");
+      return false;
+    }
+    cancelFlag.requestCancel(Long.toString(command.taskId()), command.reason());
+    if (task.getStatus() == TaskStatus.QUEUED) {
+      taskMapper.transit(task.getId(), TaskStatus.QUEUED, TaskStatus.CANCELLED, clock.instant());
+      metrics.recordCancel("queued");
+      return true;
+    }
+    metrics.recordCancel("running");
+    return true;
+  }
+
+  public boolean isCancelRequested(String taskId) {
+    return cancelFlag.isCancelRequested(taskId);
+  }
 }

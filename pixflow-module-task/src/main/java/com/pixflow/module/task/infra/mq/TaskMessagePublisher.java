@@ -9,22 +9,26 @@ import com.pixflow.module.task.config.TaskProperties;
 import com.pixflow.module.task.domain.error.TaskErrorCode;
 
 public class TaskMessagePublisher {
-    private final MessagePublisher publisher;
-    private final TaskProperties properties;
+  private final MessagePublisher publisher;
 
-    public TaskMessagePublisher(MessagePublisher publisher, TaskProperties properties) {
-        this.publisher = publisher;
-        this.properties = properties;
-    }
+  private final TaskProperties properties;
 
-    public void publish(TaskMessage message) {
-        MessageDestination destination = TaskMessageDestination.destination(properties, message.taskId());
-        PublishRequest request = PublishRequest.of(destination.topic(), destination.tag(), message)
-                .withKeys(destination.keys())
-                .withSendTimeout(properties.getMq().getSendTimeout());
-        PublishResult result = publisher.publish(request);
-        if (result.failed()) {
-            throw new PixFlowException(TaskErrorCode.TASK_ENQUEUE_FAILED, "task message publish failed: " + result.failure());
-        }
+  public TaskMessagePublisher(MessagePublisher publisher, TaskProperties properties) {
+    this.publisher = publisher;
+    this.properties = properties;
+  }
+
+  public void publish(TaskMessage message) {
+    MessageDestination destination =
+        TaskMessageDestination.destination(properties, message.taskId());
+    PublishRequest request =
+        PublishRequest.of(destination.topic(), destination.tag(), message)
+            .withKeys(destination.keys())
+            .withSendTimeout(properties.getMq().getSendTimeout());
+    PublishResult result = publisher.publish(request);
+    if (result.failed()) {
+      throw new PixFlowException(
+          TaskErrorCode.TASK_ENQUEUE_FAILED, "task message publish failed: " + result.failure());
     }
+  }
 }

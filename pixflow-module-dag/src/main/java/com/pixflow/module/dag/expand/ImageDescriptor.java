@@ -1,5 +1,6 @@
 package com.pixflow.module.dag.expand;
 
+import com.pixflow.infra.storage.ObjectLocation;
 import java.util.Objects;
 
 /**
@@ -15,25 +16,25 @@ public record ImageDescriptor(
     String skuId,
     String groupKey,
     String viewId,
-    String objectKey,
+    ObjectLocation location,
     String contentType
 ) {
     public ImageDescriptor {
         Objects.requireNonNull(imageId, "imageId");
-        Objects.requireNonNull(objectKey, "objectKey");
+        Objects.requireNonNull(location, "location");
         // skuId 可空(分组成员只看 groupKey)
         // groupKey / viewId 可空(普通支路)
         // contentType 可空(image 模块会 probe)
     }
 
     /** 普通支路用便捷构造。 */
-    public static ImageDescriptor single(String imageId, String skuId, String objectKey) {
-        return new ImageDescriptor(imageId, skuId, null, null, objectKey, null);
+    public static ImageDescriptor single(String imageId, String skuId, ObjectLocation location) {
+        return new ImageDescriptor(imageId, skuId, null, null, location, null);
     }
 
     /** 分组成员便捷构造。 */
     public static ImageDescriptor grouped(String imageId, String groupKey, String viewId,
-                                          String objectKey) {
-        return new ImageDescriptor(imageId, null, groupKey, viewId, objectKey, null);
+                                          ObjectLocation location) {
+        return new ImageDescriptor(imageId, null, groupKey, viewId, location, null);
     }
 }

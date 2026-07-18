@@ -10,6 +10,8 @@ import com.pixflow.infra.ai.chat.ChatStreamEvent;
 import com.pixflow.infra.ai.chat.StopReason;
 import com.pixflow.infra.ai.chat.ToolCall;
 import com.pixflow.infra.ai.model.TokenUsage;
+import com.pixflow.infra.storage.BucketType;
+import com.pixflow.infra.storage.ObjectLocation;
 import com.pixflow.module.dag.error.DagErrorCode;
 import com.pixflow.module.dag.expand.ExecutableBranch;
 import com.pixflow.module.dag.ir.DagJsonReader;
@@ -41,7 +43,8 @@ class CopyUnitExecutorTest {
             """;
         var dag = TestPlans.compile(json);
         var branches = new com.pixflow.module.dag.expand.BranchExpander()
-            .expand(dag, List.of(com.pixflow.module.dag.expand.ImageDescriptor.single("i1", "sku1", "k")));
+            .expand(dag, List.of(com.pixflow.module.dag.expand.ImageDescriptor.single(
+                    "i1", "sku1", ObjectLocation.of(BucketType.PACKAGES, "k"))));
         return branches.get(0);
     }
 

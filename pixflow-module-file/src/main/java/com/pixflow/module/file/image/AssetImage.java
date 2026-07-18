@@ -7,104 +7,334 @@ import java.time.Instant;
 
 @TableName("asset_image")
 public class AssetImage {
-    @TableId(type = IdType.AUTO)
-    private Long id;
+  @TableId(type = IdType.AUTO)
+  private Long id;
 
-    private Long packageId;
+  private Long packageId;
 
-    private String skuId;
+  private String skuId;
 
-    private String groupKey;
+  private String groupKey;
 
-    private String viewId;
+  private String viewId;
 
-    private String minioKey;
+  private String minioKey;
 
-    private String originalPath;
+  private String originalPath;
 
-    private String displayName;
+  private String displayName;
 
-    private Instant deletedAt;
+  private String sourceType;
 
-    private Instant createdAt;
+  private String publicationStatus;
 
-    public Long getId() {
-        return id;
-    }
+  private String candidateBucket;
 
-    public void setId(Long id) {
-        this.id = id;
-    }
+  private String candidateKey;
 
-    public Long getPackageId() {
-        return packageId;
-    }
+  private String stableBucket;
 
-    public void setPackageId(Long packageId) {
-        this.packageId = packageId;
-    }
+  private String contentType;
 
-    public String getSkuId() {
-        return skuId;
-    }
+  private Long byteSize;
 
-    public void setSkuId(String skuId) {
-        this.skuId = skuId;
-    }
+  private Long sourceTaskId;
 
-    public String getGroupKey() {
-        return groupKey;
-    }
+  private Long sourceResultId;
 
-    public void setGroupKey(String groupKey) {
-        this.groupKey = groupKey;
-    }
+  private String sourceUnitKey;
 
-    public String getViewId() {
-        return viewId;
-    }
+  private Long sourceRunEpoch;
 
-    public void setViewId(String viewId) {
-        this.viewId = viewId;
-    }
+  private String sourceImageId;
 
-    public String getMinioKey() {
-        return minioKey;
-    }
+  private String producerKind;
 
-    public void setMinioKey(String minioKey) {
-        this.minioKey = minioKey;
-    }
+  private String producerProvider;
 
-    public String getOriginalPath() {
-        return originalPath;
-    }
+  private String producerModel;
 
-    public void setOriginalPath(String originalPath) {
-        this.originalPath = originalPath;
-    }
+  private String producerTool;
 
-    public String getDisplayName() {
-        return displayName;
-    }
+  private String producerNodeId;
 
-    public void setDisplayName(String displayName) {
-        this.displayName = displayName;
-    }
+  private String publicationError;
 
-    public Instant getDeletedAt() {
-        return deletedAt;
-    }
+  private Instant publicationUpdatedAt;
 
-    public void setDeletedAt(Instant deletedAt) {
-        this.deletedAt = deletedAt;
-    }
+  private Instant readyAt;
 
-    public Instant getCreatedAt() {
-        return createdAt;
-    }
+  private String cleanupStatus;
 
-    public void setCreatedAt(Instant createdAt) {
-        this.createdAt = createdAt;
-    }
+  private Integer cleanupAttemptCount;
+
+  private String cleanupLastError;
+
+  private Instant deletedAt;
+
+  private Instant createdAt;
+
+  public Long getId() {
+    return id;
+  }
+
+  public void setId(Long id) {
+    this.id = id;
+  }
+
+  public Long getPackageId() {
+    return packageId;
+  }
+
+  public void setPackageId(Long packageId) {
+    this.packageId = packageId;
+  }
+
+  public String getSkuId() {
+    return skuId;
+  }
+
+  public void setSkuId(String skuId) {
+    this.skuId = skuId;
+  }
+
+  public String getGroupKey() {
+    return groupKey;
+  }
+
+  public void setGroupKey(String groupKey) {
+    this.groupKey = groupKey;
+  }
+
+  public String getViewId() {
+    return viewId;
+  }
+
+  public void setViewId(String viewId) {
+    this.viewId = viewId;
+  }
+
+  public String getMinioKey() {
+    return minioKey;
+  }
+
+  public void setMinioKey(String minioKey) {
+    this.minioKey = minioKey;
+  }
+
+  public String getOriginalPath() {
+    return originalPath;
+  }
+
+  public void setOriginalPath(String originalPath) {
+    this.originalPath = originalPath;
+  }
+
+  public String getDisplayName() {
+    return displayName;
+  }
+
+  public void setDisplayName(String displayName) {
+    this.displayName = displayName;
+  }
+
+  public String getSourceType() {
+    return sourceType;
+  }
+
+  public void setSourceType(String sourceType) {
+    this.sourceType = sourceType;
+  }
+
+  public String getPublicationStatus() {
+    return publicationStatus;
+  }
+
+  public void setPublicationStatus(String publicationStatus) {
+    this.publicationStatus = publicationStatus;
+  }
+
+  public String getCandidateBucket() {
+    return candidateBucket;
+  }
+
+  public void setCandidateBucket(String candidateBucket) {
+    this.candidateBucket = candidateBucket;
+  }
+
+  public String getCandidateKey() {
+    return candidateKey;
+  }
+
+  public void setCandidateKey(String candidateKey) {
+    this.candidateKey = candidateKey;
+  }
+
+  public String getStableBucket() {
+    return stableBucket;
+  }
+
+  public void setStableBucket(String stableBucket) {
+    this.stableBucket = stableBucket;
+  }
+
+  public String getContentType() {
+    return contentType;
+  }
+
+  public void setContentType(String contentType) {
+    this.contentType = contentType;
+  }
+
+  public Long getByteSize() {
+    return byteSize;
+  }
+
+  public void setByteSize(Long byteSize) {
+    this.byteSize = byteSize;
+  }
+
+  public Long getSourceTaskId() {
+    return sourceTaskId;
+  }
+
+  public void setSourceTaskId(Long sourceTaskId) {
+    this.sourceTaskId = sourceTaskId;
+  }
+
+  public Long getSourceResultId() {
+    return sourceResultId;
+  }
+
+  public void setSourceResultId(Long sourceResultId) {
+    this.sourceResultId = sourceResultId;
+  }
+
+  public String getSourceUnitKey() {
+    return sourceUnitKey;
+  }
+
+  public void setSourceUnitKey(String sourceUnitKey) {
+    this.sourceUnitKey = sourceUnitKey;
+  }
+
+  public Long getSourceRunEpoch() {
+    return sourceRunEpoch;
+  }
+
+  public void setSourceRunEpoch(Long sourceRunEpoch) {
+    this.sourceRunEpoch = sourceRunEpoch;
+  }
+
+  public String getSourceImageId() {
+    return sourceImageId;
+  }
+
+  public void setSourceImageId(String sourceImageId) {
+    this.sourceImageId = sourceImageId;
+  }
+
+  public String getProducerKind() {
+    return producerKind;
+  }
+
+  public void setProducerKind(String producerKind) {
+    this.producerKind = producerKind;
+  }
+
+  public String getProducerProvider() {
+    return producerProvider;
+  }
+
+  public void setProducerProvider(String producerProvider) {
+    this.producerProvider = producerProvider;
+  }
+
+  public String getProducerModel() {
+    return producerModel;
+  }
+
+  public void setProducerModel(String producerModel) {
+    this.producerModel = producerModel;
+  }
+
+  public String getProducerTool() {
+    return producerTool;
+  }
+
+  public void setProducerTool(String producerTool) {
+    this.producerTool = producerTool;
+  }
+
+  public String getProducerNodeId() {
+    return producerNodeId;
+  }
+
+  public void setProducerNodeId(String producerNodeId) {
+    this.producerNodeId = producerNodeId;
+  }
+
+  public String getPublicationError() {
+    return publicationError;
+  }
+
+  public void setPublicationError(String publicationError) {
+    this.publicationError = publicationError;
+  }
+
+  public Instant getPublicationUpdatedAt() {
+    return publicationUpdatedAt;
+  }
+
+  public void setPublicationUpdatedAt(Instant publicationUpdatedAt) {
+    this.publicationUpdatedAt = publicationUpdatedAt;
+  }
+
+  public Instant getReadyAt() {
+    return readyAt;
+  }
+
+  public void setReadyAt(Instant readyAt) {
+    this.readyAt = readyAt;
+  }
+
+  public String getCleanupStatus() {
+    return cleanupStatus;
+  }
+
+  public void setCleanupStatus(String cleanupStatus) {
+    this.cleanupStatus = cleanupStatus;
+  }
+
+  public Integer getCleanupAttemptCount() {
+    return cleanupAttemptCount;
+  }
+
+  public void setCleanupAttemptCount(Integer cleanupAttemptCount) {
+    this.cleanupAttemptCount = cleanupAttemptCount;
+  }
+
+  public String getCleanupLastError() {
+    return cleanupLastError;
+  }
+
+  public void setCleanupLastError(String cleanupLastError) {
+    this.cleanupLastError = cleanupLastError;
+  }
+
+  public Instant getDeletedAt() {
+    return deletedAt;
+  }
+
+  public void setDeletedAt(Instant deletedAt) {
+    this.deletedAt = deletedAt;
+  }
+
+  public Instant getCreatedAt() {
+    return createdAt;
+  }
+
+  public void setCreatedAt(Instant createdAt) {
+    this.createdAt = createdAt;
+  }
 }

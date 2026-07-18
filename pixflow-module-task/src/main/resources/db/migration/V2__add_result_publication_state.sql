@@ -1,0 +1,16 @@
+ALTER TABLE process_result
+  ADD COLUMN candidate_bucket VARCHAR(32) DEFAULT NULL AFTER output_minio_key,
+  ADD COLUMN candidate_content_type VARCHAR(128) DEFAULT NULL AFTER candidate_bucket,
+  ADD COLUMN candidate_extension VARCHAR(32) DEFAULT NULL AFTER candidate_content_type,
+  ADD COLUMN producer_kind VARCHAR(32) DEFAULT NULL AFTER candidate_extension,
+  ADD COLUMN producer_provider VARCHAR(128) DEFAULT NULL AFTER producer_kind,
+  ADD COLUMN producer_model VARCHAR(128) DEFAULT NULL AFTER producer_provider,
+  ADD COLUMN producer_tool VARCHAR(128) DEFAULT NULL AFTER producer_model,
+  ADD COLUMN producer_node_id VARCHAR(128) DEFAULT NULL AFTER producer_tool,
+  ADD COLUMN publication_status VARCHAR(32) NOT NULL DEFAULT 'NOT_APPLICABLE' AFTER producer_node_id,
+  ADD COLUMN generated_image_id BIGINT DEFAULT NULL AFTER publication_status,
+  ADD COLUMN published_reference_key VARCHAR(512) DEFAULT NULL AFTER generated_image_id,
+  ADD COLUMN published_at DATETIME(3) DEFAULT NULL AFTER published_reference_key,
+  ADD COLUMN publication_attempt_count INT NOT NULL DEFAULT 0 AFTER published_at,
+  ADD COLUMN publication_last_error VARCHAR(1000) DEFAULT NULL AFTER publication_attempt_count,
+  ADD KEY idx_process_result_publication_backlog (status, publication_status, task_id);

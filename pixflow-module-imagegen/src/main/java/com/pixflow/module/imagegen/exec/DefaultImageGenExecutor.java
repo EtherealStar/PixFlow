@@ -7,7 +7,6 @@ import com.pixflow.infra.ai.imagegen.ImageGenClient;
 import com.pixflow.infra.ai.imagegen.ImageGenRequest;
 import com.pixflow.infra.ai.imagegen.ImageGenResult;
 import com.pixflow.infra.ai.model.TokenUsage;
-import com.pixflow.infra.storage.BucketType;
 import com.pixflow.infra.storage.ObjectLocation;
 import com.pixflow.infra.storage.ObjectRef;
 import com.pixflow.infra.storage.ObjectStorage;
@@ -34,7 +33,7 @@ import org.slf4j.LoggerFactory;
  *   <li>{@code imageGenClient.generate} 重绘</li>
  *   <li>字节预检:result.image.length 超过 {@code output.max-output-bytes} → 抛 {@code IMAGEGEN_OUTPUT_BYTES_TOO_LARGE}
  *       (生成图字节防护;不调 put)</li>
- *   <li>{@code objectStorage.put} 落 {@code GENERATED} 桶，key 使用 Work Unit 与 execution epoch 寻址</li>
+ *   <li>{@code objectStorage.put} 落 TMP candidate，key 使用 Work Unit 与 execution epoch 寻址</li>
  *   <li>返回 {@link GeneratedArtifact}</li>
  * </ol>
  *
@@ -49,10 +48,12 @@ import org.slf4j.LoggerFactory;
  */
 public class DefaultImageGenExecutor implements ImageGenExecutor {
 
-    private static final Logger log = LoggerFactory.getLogger(DefaultImageGenExecutor.class);
+    private static final Logger LOG = LoggerFactory.getLogger(DefaultImageGenExecutor.class);
 
     private final ImageGenClient imageGenClient;
+
     private final ObjectStorage objectStorage;
+
     private final ImagegenProperties properties;
 
     public DefaultImageGenExecutor(ImageGenClient imageGenClient,
@@ -108,7 +109,7 @@ public class DefaultImageGenExecutor implements ImageGenExecutor {
                     + " (imageId=" + spec.sourceImageId() + ")");
         }
 
-        // 5. 落 GENERATED 桶
+        // 5. 执行器只写 TMP 候选；稳定资产必须由 File 发布边界创建。
         ObjectLocation outputLoc = StorageKeys.generatedUnit(
             spec.taskId(), spec.unitKeyHash(), spec.runEpoch(), spec.outputExt());
         ObjectRef ref;
@@ -122,9 +123,9 @@ public class DefaultImageGenExecutor implements ImageGenExecutor {
                 "生成图流处理失败: " + outputLoc, e);
         }
 
-        log.debug("redraw ok: taskId={}, skuId={}, imageId={}, outputKey={}, bytes={}",
+        LOG.debug("redraw ok: taskId={}, skuId={}, imageId={}, outputKey={}, bytes={}",
             spec.taskId(), spec.skuId(), spec.sourceImageId(), ref.key(), ref.size());
-        return new GeneratedArtifact(ref, result.contentType(), result.usage());
+        return new GeneratedArtifact(ref, result.contentType(), result.usage(), result.producer());
     }
 
     /** 读取源图字节;遇 StorageException 转 IMAGEGEN_STORAGE_WRITE_FAILED(读取失败同样归 storage 类)。 */
@@ -150,7 +151,11 @@ public class DefaultImageGenExecutor implements ImageGenExecutor {
         if (t instanceof Number n) {
             temp = n.doubleValue();
         } else if (t instanceof String s) {
-            try { temp = Double.parseDouble(s); } catch (NumberFormatException ignored) { /* keep null */ }
+            try {
+                temp = Double.parseDouble(s);
+            } catch (NumberFormatException ignored) {
+                // 非法可选参数按未提供处理。
+            }
         }
         Integer seed = null;
         Object seedObj = params.get("seed");
@@ -166,13 +171,10 @@ public class DefaultImageGenExecutor implements ImageGenExecutor {
         return properties.getOutput().getDefaultExt();
     }
 
-    /** 默认 task 落桶桶类型(暴露给上层确认是 GENERATED,避免硬编码)。 */
-    public static BucketType generatedBucket() {
-        return BucketType.GENERATED;
-    }
-
     private static String safe(String message) {
-        if (message == null) return "";
+        if (message == null) {
+            return "";
+        }
         // 简单截断防爆日志
         return message.length() > 256 ? message.substring(0, 256) + "..." : message;
     }

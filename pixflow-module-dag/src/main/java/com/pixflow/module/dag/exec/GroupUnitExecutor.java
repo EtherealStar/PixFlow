@@ -9,6 +9,7 @@ import com.pixflow.infra.image.op.MultiImageOp;
 import com.pixflow.infra.image.ReopenableImageSource;
 import com.pixflow.infra.image.op.ComposeSpec;
 import com.pixflow.infra.image.op.impl.ComposeGroupOp;
+import com.pixflow.infra.storage.ObjectLocation;
 import com.pixflow.module.dag.config.DagProperties;
 import com.pixflow.module.dag.error.DagErrorCode;
 import com.pixflow.module.dag.expand.ExecutableBranch;
@@ -34,8 +35,9 @@ public class GroupUnitExecutor implements UnitExecutor {
 
     /** storage 接口(里程碑 3 注入真实 ObjectStorage)。 */
     public interface SourceReader {
-        InputStream openStream(String objectKey);
-        long statSize(String objectKey);
+        InputStream openStream(ObjectLocation location);
+
+        long statSize(ObjectLocation location);
     }
 
     /** 第三方抠图(组支路内若有 remove_bg 节点需调用)。 */
@@ -58,12 +60,19 @@ public class GroupUnitExecutor implements UnitExecutor {
     }
 
     private final DagProperties properties;
+
     private final ErrorNormalizer normalizer;
+
     private final SourceReader sourceReader;
+
     private final BackgroundRemovalPort bgRemoval;
+
     private final PixelPipeline pixelPipeline;
+
     private final ResultWriter resultWriter;
+
     private final TypedImageOpFactory imageOpFactory;
+
     private final GroupRuntimeArtifactStore runtimeArtifacts;
 
     public GroupUnitExecutor(DagProperties properties,
@@ -108,7 +117,7 @@ public class GroupUnitExecutor implements UnitExecutor {
         GroupRuntimeArtifactStore.Session runtimeSession = runtimeSession(branch, input);
         try (runtimeSession) {
             for (ImageDescriptor img : images) {
-                long size = sourceReader.statSize(img.objectKey());
+                long size = sourceReader.statSize(img.location());
                 if (size > properties.getExecution().getSourceBytesLimit()) {
                     missingViews.add(img.viewId() == null ? img.imageId() : img.viewId());
                     continue;
@@ -119,12 +128,12 @@ public class GroupUnitExecutor implements UnitExecutor {
                         memberSources.add(() -> new ByteArrayInputStream(prepared));
                     } else {
                         // 无外部字节型操作时保留可重开来源，让 image pipeline 先 probe 再 decode。
-                        try (InputStream ignored = sourceReader.openStream(img.objectKey())) {
+                        try (InputStream ignored = sourceReader.openStream(img.location())) {
                             // 只验证对象存在与流可打开，不在预算准入前读取像素字节。
                         }
-                        memberSources.add(() -> sourceReader.openStream(img.objectKey()));
+                        memberSources.add(() -> sourceReader.openStream(img.location()));
                     }
-                    members.add(new UnitOutcome.MemberRef(img.imageId(), img.viewId(), img.objectKey()));
+                    members.add(new UnitOutcome.MemberRef(img.imageId(), img.viewId(), img.location().key()));
                 } catch (Throwable t) {
                     missingViews.add(img.viewId() == null ? img.imageId() : img.viewId());
                 }
@@ -174,7 +183,7 @@ public class GroupUnitExecutor implements UnitExecutor {
     private byte[] prepareMember(GroupRuntimeArtifactStore.Session session,
                                  ExecutableBranch branch, ImageDescriptor image) {
         java.util.function.Supplier<byte[]> producer = () -> {
-            try (InputStream source = sourceReader.openStream(image.objectKey())) {
+            try (InputStream source = sourceReader.openStream(image.location())) {
                 return applyBgRemoval(branch.perMemberOps(), readAllBytes(source));
             } catch (Exception ex) {
                 throw new IllegalStateException("组成员预处理失败", ex);

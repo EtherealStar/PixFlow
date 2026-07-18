@@ -21,13 +21,51 @@ CREATE TABLE IF NOT EXISTS asset_image (
     group_key VARCHAR(128),
     view_id VARCHAR(128),
     minio_key VARCHAR(512),
-    original_path VARCHAR(512) NOT NULL,
+    original_path VARCHAR(512),
     display_name VARCHAR(255),
+    source_type VARCHAR(16) NOT NULL DEFAULT 'ORIGINAL',
+    publication_status VARCHAR(16) NOT NULL DEFAULT 'READY',
+    candidate_bucket VARCHAR(32),
+    candidate_key VARCHAR(512),
+    stable_bucket VARCHAR(32),
+    content_type VARCHAR(128),
+    byte_size BIGINT,
+    source_task_id BIGINT,
+    source_result_id BIGINT,
+    source_unit_key VARCHAR(512),
+    source_run_epoch BIGINT,
+    source_image_id VARCHAR(64),
+    producer_kind VARCHAR(32),
+    producer_provider VARCHAR(128),
+    producer_model VARCHAR(128),
+    producer_tool VARCHAR(128),
+    producer_node_id VARCHAR(128),
+    publication_error VARCHAR(1000),
+    publication_updated_at TIMESTAMP NULL,
+    ready_at TIMESTAMP NULL,
+    cleanup_status VARCHAR(32),
+    cleanup_attempt_count INT NOT NULL DEFAULT 0,
+    cleanup_last_error VARCHAR(1000),
     deleted_at TIMESTAMP NULL,
     created_at TIMESTAMP NOT NULL,
-    CONSTRAINT uk_asset_image_package_path UNIQUE (package_id, original_path)
+    CONSTRAINT uk_asset_image_package_path UNIQUE (package_id, original_path),
+    CONSTRAINT uq_asset_image_source_result UNIQUE (source_task_id, source_result_id)
 );
 CREATE INDEX idx_asset_image_package_visible ON asset_image (package_id, deleted_at, id);
+CREATE INDEX idx_asset_image_publication_recovery
+    ON asset_image (publication_status, publication_updated_at);
+CREATE INDEX idx_asset_image_cleanup_recovery
+    ON asset_image (cleanup_status, publication_updated_at);
+
+CREATE TABLE IF NOT EXISTS asset_image_lineage_source (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    asset_image_id BIGINT NOT NULL,
+    ordinal INT NOT NULL,
+    source_image_id VARCHAR(64) NOT NULL,
+    created_at TIMESTAMP NOT NULL,
+    CONSTRAINT uq_asset_image_lineage_ordinal UNIQUE (asset_image_id, ordinal),
+    CONSTRAINT uq_asset_image_lineage_source UNIQUE (asset_image_id, source_image_id)
+);
 
 CREATE TABLE IF NOT EXISTS asset_copy (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,

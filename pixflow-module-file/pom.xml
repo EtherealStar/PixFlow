@@ -38,10 +38,6 @@
             <artifactId>pixflow-infra-cache</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.pixflow</groupId>
-            <artifactId>pixflow-module-imagegen</artifactId>
-        </dependency>
-        <dependency>
             <groupId>com.baomidou</groupId>
             <artifactId>mybatis-plus-spring-boot3-starter</artifactId>
             <version>${mybatis-plus.version}</version>

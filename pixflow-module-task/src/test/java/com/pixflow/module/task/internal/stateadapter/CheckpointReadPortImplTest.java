@@ -17,37 +17,37 @@ import org.junit.jupiter.api.Test;
 
 class CheckpointReadPortImplTest {
 
-    private final ProcessTaskMapper taskMapper = mock(ProcessTaskMapper.class);
-    private final ProcessResultMapper resultMapper = mock(ProcessResultMapper.class);
-    private final CheckpointReadPortImpl port = new CheckpointReadPortImpl(taskMapper, resultMapper);
+  private final ProcessTaskMapper taskMapper = mock(ProcessTaskMapper.class);
+  private final ProcessResultMapper resultMapper = mock(ProcessResultMapper.class);
+  private final CheckpointReadPortImpl port = new CheckpointReadPortImpl(taskMapper, resultMapper);
 
-    @Test
-    void returnsAllSuccessfulWorkUnitKindsFromExplicitUnitKeys() {
-        ProcessTask task = new ProcessTask();
-        task.setId(42L);
-        when(taskMapper.selectById(42L)).thenReturn(task);
-        UnitKey branch = UnitKey.branch("42", "image-1", "branch-a");
-        UnitKey group = UnitKey.group("42", "group-1", "branch-b");
-        UnitKey generative = UnitKey.generative("42", "image-2");
-        when(resultMapper.findByTaskIdAndStatus(42L, ResultStatus.SUCCESS))
-                .thenReturn(List.of(result(branch), result(group), result(generative)));
+  @Test
+  void returnsAllSuccessfulWorkUnitKindsFromExplicitUnitKeys() {
+    ProcessTask task = new ProcessTask();
+    task.setId(42L);
+    when(taskMapper.selectById(42L)).thenReturn(task);
+    UnitKey branch = UnitKey.branch("42", "image-1", "branch-a");
+    UnitKey group = UnitKey.group("42", "group-1", "branch-b");
+    UnitKey generative = UnitKey.generative("42", "image-2");
+    when(resultMapper.findByTaskIdAndStatus(42L, ResultStatus.SUCCESS))
+        .thenReturn(List.of(result(branch), result(group), result(generative)));
 
-        var skippable = port.loadSkippableWorkUnits("42").orElseThrow();
+    var skippable = port.loadSkippableWorkUnits("42").orElseThrow();
 
-        assertThat(skippable.succeeded()).containsExactlyInAnyOrder(branch, group, generative);
-        verify(resultMapper).findByTaskIdAndStatus(42L, ResultStatus.SUCCESS);
-    }
+    assertThat(skippable.succeeded()).containsExactlyInAnyOrder(branch, group, generative);
+    verify(resultMapper).findByTaskIdAndStatus(42L, ResultStatus.SUCCESS);
+  }
 
-    @Test
-    void missingTaskDoesNotMasqueradeAsEmptyCheckpointSet() {
-        when(taskMapper.selectById(404L)).thenReturn(null);
+  @Test
+  void missingTaskDoesNotMasqueradeAsEmptyCheckpointSet() {
+    when(taskMapper.selectById(404L)).thenReturn(null);
 
-        assertThat(port.loadSkippableWorkUnits("404")).isEmpty();
-    }
+    assertThat(port.loadSkippableWorkUnits("404")).isEmpty();
+  }
 
-    private static ProcessResult result(UnitKey key) {
-        ProcessResult result = new ProcessResult();
-        result.setUnitKey(UnitKeyCodec.encode(key));
-        return result;
-    }
+  private static ProcessResult result(UnitKey key) {
+    ProcessResult result = new ProcessResult();
+    result.setUnitKey(UnitKeyCodec.encode(key));
+    return result;
+  }
 }

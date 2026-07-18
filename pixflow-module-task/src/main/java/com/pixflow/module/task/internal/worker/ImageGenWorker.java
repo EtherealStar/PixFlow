@@ -6,12 +6,14 @@ import com.pixflow.contracts.asset.ImageAssetReferenceKey;
 import com.pixflow.harness.state.model.UnitKey;
 import com.pixflow.harness.state.model.UnitKeyCodec;
 import com.pixflow.harness.state.model.UnitKind;
-import com.pixflow.infra.storage.BucketType;
 import com.pixflow.infra.storage.ObjectLocation;
 import com.pixflow.module.imagegen.exec.GeneratedArtifact;
 import com.pixflow.module.imagegen.exec.GenerativeUnitSpec;
 import com.pixflow.module.imagegen.exec.ImageGenExecutor;
 import com.pixflow.module.imagegen.proposal.ImagegenPlan;
+import com.pixflow.module.task.api.publication.CandidateKind;
+import com.pixflow.module.task.api.publication.ProducerIdentity;
+import com.pixflow.module.task.api.publication.SourceImageIdentity;
 import com.pixflow.module.task.domain.error.TaskErrorCode;
 import com.pixflow.module.task.domain.model.WorkUnit;
 import com.pixflow.module.task.infra.metrics.TaskMetrics;
@@ -23,77 +25,99 @@ import java.time.Duration;
 import java.util.List;
 
 public class ImageGenWorker {
-    private final ObjectMapper objectMapper;
+  private final ObjectMapper objectMapper;
 
-    private final ImageGenExecutor executor;
+  private final ImageGenExecutor executor;
 
-    private final FailureIsolator failureIsolator;
+  private final FailureIsolator failureIsolator;
 
-    private final CancellationService cancellationService;
+  private final CancellationService cancellationService;
 
-    private final TaskMetrics metrics;
+  private final TaskMetrics metrics;
 
-    private final Clock clock;
+  private final Clock clock;
 
-    public ImageGenWorker(ObjectMapper objectMapper,
-                          ImageGenExecutor executor,
-                          FailureIsolator failureIsolator,
-                          CancellationService cancellationService,
-                          TaskMetrics metrics,
-                          Clock clock) {
-        this.objectMapper = objectMapper;
-        this.executor = executor;
-        this.failureIsolator = failureIsolator;
-        this.cancellationService = cancellationService;
-        this.metrics = metrics;
-        this.clock = clock;
+  public ImageGenWorker(
+      ObjectMapper objectMapper,
+      ImageGenExecutor executor,
+      FailureIsolator failureIsolator,
+      CancellationService cancellationService,
+      TaskMetrics metrics,
+      Clock clock) {
+    this.objectMapper = objectMapper;
+    this.executor = executor;
+    this.failureIsolator = failureIsolator;
+    this.cancellationService = cancellationService;
+    this.metrics = metrics;
+    this.clock = clock;
+  }
+
+  public List<WorkUnit> plan(String taskId, long runEpoch, String payload, String selectionJson) {
+    try {
+      ImagegenPlan plan = objectMapper.readValue(payload, ImagegenPlan.class);
+      WorkUnitSelection selection = objectMapper.readValue(selectionJson, WorkUnitSelection.class);
+      ImageAssetReferenceKey sourceReference = plan.sourceReference();
+      String plannedSourceId = Long.toString(sourceReference.imageId());
+      return selection.items().stream()
+          .map(
+              item -> {
+                if (item.kind() != UnitKind.GENERATIVE
+                    || !"GENERATIVE".equals(item.branchId())
+                    || !plannedSourceId.equals(item.memberId())
+                    || item.images().size() != 1) {
+                  throw new IllegalStateException("冻结的生成式 selection 与 Imagegen Plan 不一致");
+                }
+                var source = item.images().getFirst();
+                if (!item.memberId().equals(source.imageId())
+                    || source.skuId() == null
+                    || source.skuId().isBlank()) {
+                  throw new IllegalStateException("冻结的生成式源图快照不完整");
+                }
+                UnitKey unitKey = UnitKey.generative(taskId, source.imageId());
+                GenerativeUnitSpec spec =
+                    new GenerativeUnitSpec(
+                        taskId,
+                        UnitKeyCodec.sha256(unitKey),
+                        runEpoch,
+                        source.skuId(),
+                        source.imageId(),
+                        source.location(),
+                        plan.prompt(),
+                        plan.params(),
+                        "png");
+                return WorkUnit.generative(taskId, spec);
+              })
+          .toList();
+    } catch (Exception e) {
+      throw new PixFlowException(
+          TaskErrorCode.TASK_IMAGEGEN_PAYLOAD_INVALID, "invalid imagegen payload", e);
     }
+  }
 
-    public List<WorkUnit> plan(String taskId, long runEpoch, String payload, String selectionJson) {
-        try {
-            ImagegenPlan plan = objectMapper.readValue(payload, ImagegenPlan.class);
-            WorkUnitSelection selection = objectMapper.readValue(selectionJson, WorkUnitSelection.class);
-            ImageAssetReferenceKey sourceReference = plan.sourceReference();
-            String plannedSourceId = Long.toString(sourceReference.imageId());
-            return selection.items().stream()
-                    .map(item -> {
-                        if (item.kind() != UnitKind.GENERATIVE || !"GENERATIVE".equals(item.branchId())
-                                || !plannedSourceId.equals(item.memberId()) || item.images().size() != 1) {
-                            throw new IllegalStateException("冻结的生成式 selection 与 Imagegen Plan 不一致");
-                        }
-                        var source = item.images().getFirst();
-                        if (!item.memberId().equals(source.imageId()) || source.skuId() == null
-                                || source.skuId().isBlank()) {
-                            throw new IllegalStateException("冻结的生成式源图快照不完整");
-                        }
-                        UnitKey unitKey = UnitKey.generative(taskId, source.imageId());
-                        GenerativeUnitSpec spec = new GenerativeUnitSpec(taskId, UnitKeyCodec.sha256(unitKey), runEpoch,
-                                source.skuId(), source.imageId(),
-                                ObjectLocation.of(BucketType.PACKAGES, source.objectKey()),
-                                plan.prompt(), plan.params(), "png");
-                        return WorkUnit.generative(taskId, spec);
-                    })
-                    .toList();
-        } catch (Exception e) {
-            throw new PixFlowException(TaskErrorCode.TASK_IMAGEGEN_PAYLOAD_INVALID,
-                    "invalid imagegen payload", e);
-        }
+  public WorkUnitCompletion execute(WorkUnit unit, ExecutionRun run) {
+    java.time.Instant started = clock.instant();
+    if (cancellationService.isCancelRequested(unit.taskId())) {
+      metrics.recordWorker(unit.taskType(), "skipped", Duration.ZERO);
+      return new WorkUnitCompletion.Skipped(unit, run.epoch(), started, clock.instant());
     }
-
-    public WorkUnitCompletion execute(WorkUnit unit, ExecutionRun run) {
-        java.time.Instant started = clock.instant();
-        if (cancellationService.isCancelRequested(unit.taskId())) {
-            metrics.recordWorker(unit.taskType(), "skipped", Duration.ZERO);
-            return new WorkUnitCompletion.Skipped(unit, run.epoch(), started, clock.instant());
-        }
-        try {
-            GeneratedArtifact artifact = executor.redraw(unit.generativeSpec());
-            metrics.recordWorker(unit.taskType(), "success", Duration.between(started, clock.instant()));
-            return new WorkUnitCompletion.Succeeded(unit, run.epoch(), started, clock.instant(),
-                    artifact.output().key(), null, artifact.output().size(), List.of());
-        } catch (Exception t) {
-            metrics.recordWorker(unit.taskType(), "failed", Duration.between(started, clock.instant()));
-            return failureIsolator.isolate(unit, t, run.epoch(), started);
-        }
+    try {
+      GeneratedArtifact artifact = executor.redraw(unit.generativeSpec());
+      metrics.recordWorker(unit.taskType(), "success", Duration.between(started, clock.instant()));
+      CandidateArtifact candidate =
+          new CandidateArtifact(
+              ObjectLocation.of(artifact.output().bucket(), artifact.output().key()),
+              artifact.output().size(),
+              artifact.contentType(),
+              unit.generativeSpec().outputExt(),
+              CandidateKind.GENERATIVE,
+              List.of(new SourceImageIdentity(unit.generativeSpec().sourceImageId())),
+              ProducerIdentity.generative(
+                  artifact.producer().provider(), artifact.producer().model()));
+      return new WorkUnitCompletion.Succeeded(
+          unit, run.epoch(), started, clock.instant(), candidate, null, List.of());
+    } catch (Exception t) {
+      metrics.recordWorker(unit.taskType(), "failed", Duration.between(started, clock.instant()));
+      return failureIsolator.isolate(unit, t, run.epoch(), started);
     }
+  }
 }

@@ -44,19 +44,14 @@ public class DagAutoConfiguration {
     public PipelineUnitExecutor.SourceReader pipelineSourceReader(
             com.pixflow.infra.storage.ObjectStorage storage) {
         return new PipelineUnitExecutor.SourceReader() {
-            private com.pixflow.infra.storage.ObjectLocation location(String key) {
-                return com.pixflow.infra.storage.ObjectLocation.of(
-                        com.pixflow.infra.storage.BucketType.PACKAGES, key);
+            @Override
+            public java.io.InputStream openStream(com.pixflow.infra.storage.ObjectLocation location) {
+                return storage.getStream(location);
             }
 
             @Override
-            public java.io.InputStream openStream(String key) {
-                return storage.getStream(location(key));
-            }
-
-            @Override
-            public long statSize(String key) {
-                return storage.stat(location(key)).size();
+            public long statSize(com.pixflow.infra.storage.ObjectLocation location) {
+                return storage.stat(location).size();
             }
         };
     }
@@ -86,8 +81,22 @@ public class DagAutoConfiguration {
     public PipelineUnitExecutor.ResultWriter pipelineResultWriter(
             com.pixflow.infra.storage.ObjectStorage storage) {
         return (key, data) -> storage.put(com.pixflow.infra.storage.ObjectLocation.of(
-                com.pixflow.infra.storage.BucketType.RESULTS, key),
-                new java.io.ByteArrayInputStream(data), data.length, "application/octet-stream").key();
+                com.pixflow.infra.storage.BucketType.TMP, key),
+                new java.io.ByteArrayInputStream(data), data.length, imageContentType(key)).key();
+    }
+
+    private static String imageContentType(String key) {
+        String lower = key.toLowerCase(java.util.Locale.ROOT);
+        if (lower.endsWith(".png")) {
+            return "image/png";
+        }
+        if (lower.endsWith(".webp")) {
+            return "image/webp";
+        }
+        if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) {
+            return "image/jpeg";
+        }
+        throw new IllegalArgumentException("不支持的图片结果扩展名: " + key);
     }
 
     @Bean
@@ -95,13 +104,13 @@ public class DagAutoConfiguration {
     public GroupUnitExecutor.SourceReader groupSourceReader(PipelineUnitExecutor.SourceReader reader) {
         return new GroupUnitExecutor.SourceReader() {
             @Override
-            public java.io.InputStream openStream(String key) {
-                return reader.openStream(key);
+            public java.io.InputStream openStream(com.pixflow.infra.storage.ObjectLocation location) {
+                return reader.openStream(location);
             }
 
             @Override
-            public long statSize(String key) {
-                return reader.statSize(key);
+            public long statSize(com.pixflow.infra.storage.ObjectLocation location) {
+                return reader.statSize(location);
             }
         };
     }

@@ -9,6 +9,9 @@ import com.pixflow.infra.mq.PublishResult;
 import com.pixflow.infra.storage.BucketType;
 import com.pixflow.infra.storage.ObjectLocation;
 import com.pixflow.infra.storage.ObjectStorage;
+import com.pixflow.contracts.asset.CanonicalAssetReferenceCodec;
+import com.pixflow.contracts.asset.ImageAssetReferenceKey;
+import com.pixflow.module.file.api.AssetSourceType;
 import com.pixflow.infra.storage.StorageKeys;
 import com.pixflow.infra.storage.StoredObjectMetadata;
 import com.pixflow.module.file.copydoc.AssetCopy;
@@ -61,6 +64,8 @@ public class FileService {
 
     private final Clock clock;
 
+    private final CanonicalAssetReferenceCodec referenceCodec;
+
     public FileService(
             AssetPackageService packageService,
             AssetPackageMapper packageMapper,
@@ -71,7 +76,8 @@ public class FileService {
             ExcelCopyDocParser excelCopyDocParser,
             ObjectStorage objectStorage,
             ExtractionPublisher extractionPublisher,
-            Clock clock) {
+            Clock clock,
+            CanonicalAssetReferenceCodec referenceCodec) {
         this.packageService = packageService;
         this.packageMapper = packageMapper;
         this.imageMapper = imageMapper;
@@ -82,6 +88,7 @@ public class FileService {
         this.objectStorage = objectStorage;
         this.extractionPublisher = extractionPublisher;
         this.clock = clock;
+        this.referenceCodec = referenceCodec;
     }
 
     public UploadPackageResponse upload(MultipartFile zip, MultipartFile doc) throws IOException {
@@ -130,6 +137,7 @@ public class FileService {
                 new Page<>(page, size),
                 new LambdaQueryWrapper<AssetImage>()
                         .eq(AssetImage::getPackageId, packageId)
+                        .eq(AssetImage::getPublicationStatus, "READY")
                         .isNull(AssetImage::getDeletedAt)
                         .orderByAsc(AssetImage::getId));
         List<AssetImageView> views = result.getRecords().stream().map(this::toView).toList();
@@ -230,6 +238,8 @@ public class FileService {
         AssetImage image = imageMapper.selectOne(new LambdaQueryWrapper<AssetImage>()
                 .eq(AssetImage::getPackageId, packageId)
                 .eq(AssetImage::getId, imageId)
+                .eq(AssetImage::getPublicationStatus, "READY")
+                .isNull(AssetImage::getDeletedAt)
                 .last("limit 1"));
         if (image == null) {
             throw new PixFlowException(FileErrorCode.ASSET_IMAGE_NOT_FOUND,
@@ -239,11 +249,16 @@ public class FileService {
     }
 
     private AssetImageView toView(AssetImage image) {
-        ObjectLocation location = ObjectLocation.of(BucketType.PACKAGES, image.getMinioKey());
+        AssetSourceType sourceType = AssetSourceType.valueOf(image.getSourceType());
+        BucketType bucket = sourceType == AssetSourceType.GENERATED
+                ? BucketType.valueOf(image.getStableBucket()) : BucketType.PACKAGES;
+        ObjectLocation location = ObjectLocation.of(bucket, image.getMinioKey());
         URL url = objectStorage.presignGet(location, IMAGE_PREVIEW_TTL);
         return new AssetImageView(
                 String.valueOf(image.getId()),
                 image.getPackageId(),
+                referenceCodec.serialize(new ImageAssetReferenceKey(image.getPackageId(), image.getId())),
+                sourceType,
                 filename(image),
                 image.getDisplayName(),
                 image.getOriginalPath(),

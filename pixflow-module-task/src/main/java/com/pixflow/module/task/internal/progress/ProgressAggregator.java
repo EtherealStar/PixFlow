@@ -9,52 +9,59 @@ import java.time.Clock;
 import org.springframework.context.ApplicationEventPublisher;
 
 public class ProgressAggregator {
-    private final TaskProgressCounter counter;
-    private final ApplicationEventPublisher publisher;
-    private final TaskMetrics metrics;
-    private final Clock clock;
+  private final TaskProgressCounter counter;
 
-    public ProgressAggregator(TaskProgressCounter counter, ApplicationEventPublisher publisher,
-                              TaskMetrics metrics, Clock clock) {
-        this.counter = counter;
-        this.publisher = publisher;
-        this.metrics = metrics;
-        this.clock = clock;
-    }
+  private final ApplicationEventPublisher publisher;
 
-    public void success(String taskId, int total) {
-        counter.incrementDone(taskId);
-        publish(taskId, total, TaskStatus.RUNNING);
-    }
+  private final TaskMetrics metrics;
 
-    public void failed(String taskId, int total) {
-        counter.incrementDone(taskId);
-        counter.incrementFailed(taskId);
-        publish(taskId, total, TaskStatus.RUNNING);
-    }
+  private final Clock clock;
 
-    public void skipped(String taskId, int total) {
-        counter.incrementDone(taskId);
-        counter.incrementSkipped(taskId);
-        publish(taskId, total, TaskStatus.RUNNING);
-    }
+  public ProgressAggregator(
+      TaskProgressCounter counter,
+      ApplicationEventPublisher publisher,
+      TaskMetrics metrics,
+      Clock clock) {
+    this.counter = counter;
+    this.publisher = publisher;
+    this.metrics = metrics;
+    this.clock = clock;
+  }
 
-    public ProgressSnapshot snapshot(String taskId, int total) {
-        return counter.snapshot(taskId, total);
-    }
+  public void success(String taskId, int total) {
+    counter.incrementDone(taskId);
+    publish(taskId, total, TaskStatus.RUNNING);
+  }
 
-    public void clear(String taskId) {
-        counter.reset(taskId);
-    }
+  public void failed(String taskId, int total) {
+    counter.incrementDone(taskId);
+    counter.incrementFailed(taskId);
+    publish(taskId, total, TaskStatus.RUNNING);
+  }
 
-    private void publish(String taskId, int total, TaskStatus status) {
-        try {
-            ProgressSnapshot s = counter.snapshot(taskId, total);
-            publisher.publishEvent(new ProgressEvent(taskId, total, s.done(), s.failed(), s.skipped(),
-                    status, clock.instant()));
-            metrics.recordProgressPublish("ok");
-        } catch (RuntimeException e) {
-            metrics.recordProgressPublish("failed");
-        }
+  public void skipped(String taskId, int total) {
+    counter.incrementDone(taskId);
+    counter.incrementSkipped(taskId);
+    publish(taskId, total, TaskStatus.RUNNING);
+  }
+
+  public ProgressSnapshot snapshot(String taskId, int total) {
+    return counter.snapshot(taskId, total);
+  }
+
+  public void clear(String taskId) {
+    counter.reset(taskId);
+  }
+
+  private void publish(String taskId, int total, TaskStatus status) {
+    try {
+      ProgressSnapshot s = counter.snapshot(taskId, total);
+      publisher.publishEvent(
+          new ProgressEvent(
+              taskId, total, s.done(), s.failed(), s.skipped(), status, clock.instant()));
+      metrics.recordProgressPublish("ok");
+    } catch (RuntimeException e) {
+      metrics.recordProgressPublish("failed");
     }
+  }
 }

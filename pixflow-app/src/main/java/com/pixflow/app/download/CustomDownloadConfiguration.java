@@ -1,7 +1,8 @@
 package com.pixflow.app.download;
 
 import com.pixflow.infra.storage.ObjectStorage;
-import com.pixflow.module.file.image.AssetImageMapper;
+import com.pixflow.module.file.api.AssetImageQuery;
+import com.pixflow.module.task.api.publication.PublishedAssetReader;
 import com.pixflow.module.task.config.TaskProperties;
 import com.pixflow.module.task.infra.persistence.ProcessResultMapper;
 import com.pixflow.module.task.internal.download.DownloadBundleBuilder;
@@ -20,12 +21,14 @@ public class CustomDownloadConfiguration {
 
     @Bean
     public CustomDownloadService customDownloadService(
-            AssetImageMapper assetImageMapper,
+            AssetImageQuery assetImages,
+            PublishedAssetReader publishedAssets,
             ProcessResultMapper resultMapper,
             DownloadBundleBuilder bundleBuilder,
             ObjectStorage objectStorage,
             TaskProperties taskProperties,
             Clock clock) {
-        return new CustomDownloadService(assetImageMapper, resultMapper, bundleBuilder, objectStorage, taskProperties, clock);
+        return new CustomDownloadService(assetImages, publishedAssets, resultMapper,
+                bundleBuilder, objectStorage, taskProperties, clock);
     }
 }

@@ -12,19 +12,19 @@ import com.pixflow.module.task.api.query.TaskSummary;
 import reactor.core.publisher.Flux;
 
 public interface TaskQueryService {
-    TaskStatusView getStatus(TaskId taskId);
+  TaskStatusView getStatus(TaskId taskId);
 
-    Flux<ProgressEvent> subscribe(TaskId taskId);
+  Flux<ProgressEvent> subscribe(TaskId taskId);
 
-    PageResult<TaskSummary> listByConversation(String conversationId, PageQuery query);
+  PageResult<TaskSummary> listByConversation(String conversationId, PageQuery query);
 
-    PageResult<TaskResultView> listResults(TaskId taskId, PageQuery query);
+  PageResult<TaskResultView> listResults(TaskId taskId, PageQuery query);
 
-    PageResult<TaskResultView> listConversationImages(String conversationId, PageQuery query);
+  PageResult<TaskResultView> listConversationImages(String conversationId, PageQuery query);
 
-    DownloadHandle getResultDownload(TaskId taskId, ResultSelector selector);
+  DownloadHandle getResultDownload(TaskId taskId, ResultSelector selector);
 
-    void deleteResult(TaskId taskId, String resultId);
+  void deleteResult(TaskId taskId, String resultId);
 
-    TaskResultView renameResult(TaskId taskId, String resultId, String displayName);
+  TaskResultView renameResult(TaskId taskId, String resultId, String displayName);
 }

@@ -1,6 +1,7 @@
 package com.pixflow.module.imagegen.exec;
 
 import com.pixflow.infra.ai.model.TokenUsage;
+import com.pixflow.infra.ai.imagegen.ImageProducer;
 import com.pixflow.infra.storage.ObjectRef;
 import java.util.Objects;
 
@@ -13,11 +14,13 @@ import java.util.Objects;
 public record GeneratedArtifact(
         ObjectRef output,
         String contentType,
-        TokenUsage usage) {
+        TokenUsage usage,
+        ImageProducer producer) {
 
     public GeneratedArtifact {
         Objects.requireNonNull(output, "output");
         Objects.requireNonNull(contentType, "contentType");
         Objects.requireNonNull(usage, "usage");
+        Objects.requireNonNull(producer, "producer");
     }
 }

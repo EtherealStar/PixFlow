@@ -2,6 +2,8 @@ package com.pixflow.module.dag;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.pixflow.infra.storage.BucketType;
+import com.pixflow.infra.storage.ObjectLocation;
 import com.pixflow.module.dag.expand.ExecutableBranch;
 import com.pixflow.module.dag.expand.GroupPreflight.PreflightDifference;
 import com.pixflow.module.dag.expand.ImageDescriptor;
@@ -63,7 +65,8 @@ class DagFacadeTest {
             """);
         var dag = facade.compile(facade.validateToCanonical(doc, new DagSchemaVersion("1.0")));
         List<ExecutableBranch> branches = facade.expand(dag,
-            List.of(ImageDescriptor.single("img1", "sku1", "k1")));
+            List.of(ImageDescriptor.single("img1", "sku1",
+                    ObjectLocation.of(BucketType.PACKAGES, "k1"))));
         assertThat(branches).hasSize(1);
     }
 

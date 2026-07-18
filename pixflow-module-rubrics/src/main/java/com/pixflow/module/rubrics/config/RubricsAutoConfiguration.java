@@ -3,8 +3,6 @@ package com.pixflow.module.rubrics.config;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pixflow.infra.image.ImageCodec;
 import com.pixflow.infra.storage.ObjectStorage;
-import com.pixflow.infra.storage.BucketType;
-import com.pixflow.infra.storage.ObjectLocation;
 import com.pixflow.infra.ai.chat.ChatModelClient;
 import com.pixflow.infra.ai.chat.ChatMessage;
 import com.pixflow.infra.ai.vision.VisionModelClient;
@@ -15,7 +13,11 @@ import com.pixflow.module.rubrics.automation.TaskCompletedEvaluationListener;
 import com.pixflow.module.rubrics.evidence.ImageEvidencePackBuilder;
 import com.pixflow.module.rubrics.judge.MajorityVerdictReducer;
 import com.pixflow.module.rubrics.judge.RepeatedLlmCriterionVerifier;
-import com.pixflow.module.rubrics.persistence.*;
+import com.pixflow.module.rubrics.persistence.RubricsCriterionResultMapper;
+import com.pixflow.module.rubrics.persistence.RubricsEvaluationMapper;
+import com.pixflow.module.rubrics.persistence.RubricsJudgeRolloutMapper;
+import com.pixflow.module.rubrics.persistence.RubricsRunItemMapper;
+import com.pixflow.module.rubrics.persistence.RubricsRunMapper;
 import com.pixflow.module.rubrics.run.EvaluationPersistence;
 import com.pixflow.module.rubrics.run.EvaluationRunCoordinator;
 import com.pixflow.module.rubrics.subject.ImageSubjectSnapshotResolver;
@@ -27,6 +29,7 @@ import com.pixflow.infra.ai.model.ModelRole;
 import com.pixflow.infra.ai.model.ModelRouter;
 import com.pixflow.module.rubrics.verifier.RuleCriterionVerifier;
 import com.pixflow.module.task.api.TaskOutcomeQuery;
+import com.pixflow.module.task.api.publication.PublishedAssetReader;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -81,8 +84,9 @@ public class RubricsAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     public ImageEvidencePackBuilder imageEvidencePackBuilder(
-            ObjectStorage storage, ImageCodec codec, ObjectMapper objectMapper) {
-        return new ImageEvidencePackBuilder(storage, codec, objectMapper);
+            ObjectStorage storage, PublishedAssetReader publishedAssets, ImageCodec codec,
+            ObjectMapper objectMapper) {
+        return new ImageEvidencePackBuilder(storage, publishedAssets, codec, objectMapper);
     }
 
     @Bean
@@ -101,12 +105,10 @@ public class RubricsAutoConfiguration {
     @ConditionalOnMissingBean
     public RepeatedLlmCriterionVerifier repeatedLlmCriterionVerifier(
             ChatModelClient chat, VisionModelClient vision, ModelRouter router, ObjectMapper mapper,
-            ObjectStorage storage, MajorityVerdictReducer reducer) {
+            ObjectStorage storage, PublishedAssetReader publishedAssets,
+            MajorityVerdictReducer reducer) {
         return new RepeatedLlmCriterionVerifier(chat, vision, router, mapper, entry -> {
-            int separator = entry.sourceRef().indexOf('/');
-            if (separator <= 0) throw new IllegalArgumentException("invalid evidence source ref");
-            ObjectLocation location = new ObjectLocation(BucketType.valueOf(entry.sourceRef().substring(0, separator)),
-                    entry.sourceRef().substring(separator + 1));
+            var location = publishedAssets.require(entry.sourceRef()).location();
             return new ChatMessage.UrlImageContent(java.net.URI.create(
                     storage.presignGet(location, Duration.ofMinutes(10)).toString()));
         }, reducer);
@@ -147,7 +149,9 @@ public class RubricsAutoConfiguration {
     }
 
     @Bean @ConditionalOnMissingBean
-    public AutomationAdmissionPolicy automationAdmissionPolicy(){return new AutomationAdmissionPolicy();}
+    public AutomationAdmissionPolicy automationAdmissionPolicy() {
+        return new AutomationAdmissionPolicy();
+    }
 
     @Bean @ConditionalOnMissingBean
     public TaskCompletedEvaluationListener taskCompletedEvaluationListener(RubricsEvaluationService service,

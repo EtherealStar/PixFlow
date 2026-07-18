@@ -6,8 +6,6 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.pixflow.infra.storage.BucketType;
-import com.pixflow.infra.storage.ObjectLocation;
 import com.pixflow.module.rubrics.api.RubricsEvaluationService;
 import com.pixflow.module.rubrics.config.RubricsProperties;
 import com.pixflow.module.rubrics.model.SubjectType;
@@ -40,7 +38,7 @@ class TaskCompletedEvaluationListenerTest {
                 .thenReturn(new LoadedTemplate(template, "hash", "test"));
         when(outcomes.successfulResults(42)).thenReturn(List.of(new TaskOutcomeQuery.SuccessfulResultSnapshot(
                 7, 42, "STANDARD", "image", "sku", null, null, "branch",
-                new ObjectLocation(BucketType.RESULTS, "result.png"), 10, Instant.EPOCH)));
+                31, "package:5/image:31", 10, Instant.EPOCH)));
         var listener = new TaskCompletedEvaluationListener(service, templates, outcomes, properties,
                 new AutomationAdmissionPolicy(), Runnable::run);
 

@@ -30,33 +30,71 @@ public final class StepSpecCompiler {
             case REMOVE_BG -> new BackgroundRemovalBindingSpec(string(p.get("outputFormat"), "png"),
                     bool(p.get("crop"), false), integer(p.get("featherRadius")));
             case GENERATE_COPY -> new CopyBindingSpec(string(p.get("style"), "PROMOTIONAL"),
-                    number(p.get("maxLength"), 200), string(p.get("language"), "zh"), strings(p.get("includeKeywords")));
+                    number(p.get("maxLength"), 200), string(p.get("language"), "zh"),
+                    strings(p.get("includeKeywords")));
         };
     }
 
     private static WatermarkBindingSpec watermark(DagNode node) {
         Map<String, Object> p = node.params();
         String ref = string(p.get("watermarkImage"), null);
-        if (ref == null) throw new IllegalArgumentException(node.id() + " 缺 watermarkImage");
+        if (ref == null) {
+            throw new IllegalArgumentException(node.id() + " 缺 watermarkImage");
+        }
         return new WatermarkBindingSpec(ref, string(p.get("position"), "BOTTOM_RIGHT"),
                 decimal(p.get("opacity"), 1), decimal(p.get("scale"), .2), number(p.get("margin"), 0));
     }
 
     private static ImageFormat format(Object value) {
-        try { return ImageFormat.valueOf(string(value, "JPEG")); }
-        catch (IllegalArgumentException e) { throw new IllegalArgumentException("不支持的图片格式: " + value, e); }
+        try {
+            return ImageFormat.valueOf(string(value, "JPEG"));
+        } catch (IllegalArgumentException exception) {
+            throw new IllegalArgumentException("不支持的图片格式: " + value, exception);
+        }
     }
-    private static Integer integer(Object v) { return v == null ? null : number(v, 0); }
-    private static Long longValue(Object v) { return v == null ? null : v instanceof Number n ? n.longValue() : Long.valueOf(v.toString()); }
-    private static int number(Object v, int d) { return v == null ? d : v instanceof Number n ? n.intValue() : Integer.parseInt(v.toString()); }
-    private static double decimal(Object v, double d) { return v == null ? d : v instanceof Number n ? n.doubleValue() : Double.parseDouble(v.toString()); }
-    private static boolean bool(Object v, boolean d) { return v == null ? d : v instanceof Boolean b ? b : Boolean.parseBoolean(v.toString()); }
-    private static String string(Object v, String d) { return v == null || v.toString().isBlank() ? d : v.toString(); }
-    private static Color color(Object v) { return v == null ? null : Color.decode(v.toString()); }
-    private static List<Integer> intList(Object v) {
-        return v instanceof List<?> values ? values.stream().map(x -> number(x, 0)).toList() : List.of();
+
+    private static Integer integer(Object value) {
+        return value == null ? null : number(value, 0);
     }
-    private static List<String> strings(Object v) {
-        return v instanceof List<?> values ? values.stream().map(Object::toString).toList() : List.of();
+
+    private static Long longValue(Object value) {
+        return value == null ? null
+                : value instanceof Number number
+                        ? number.longValue() : Long.parseLong(value.toString());
+    }
+
+    private static int number(Object value, int defaultValue) {
+        return value == null ? defaultValue
+                : value instanceof Number number
+                        ? number.intValue() : Integer.parseInt(value.toString());
+    }
+
+    private static double decimal(Object value, double defaultValue) {
+        return value == null ? defaultValue
+                : value instanceof Number number
+                        ? number.doubleValue() : Double.parseDouble(value.toString());
+    }
+
+    private static boolean bool(Object value, boolean defaultValue) {
+        return value == null ? defaultValue
+                : value instanceof Boolean bool ? bool : Boolean.parseBoolean(value.toString());
+    }
+
+    private static String string(Object value, String defaultValue) {
+        return value == null || value.toString().isBlank() ? defaultValue : value.toString();
+    }
+
+    private static Color color(Object value) {
+        return value == null ? null : Color.decode(value.toString());
+    }
+
+    private static List<Integer> intList(Object value) {
+        return value instanceof List<?> values
+                ? values.stream().map(item -> number(item, 0)).toList() : List.of();
+    }
+
+    private static List<String> strings(Object value) {
+        return value instanceof List<?> values
+                ? values.stream().map(Object::toString).toList() : List.of();
     }
 }
