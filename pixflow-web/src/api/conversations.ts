@@ -6,7 +6,6 @@ export interface ConversationSummary {
   conversationId: string
   title?: string
   updatedAt: string
-  packageId?: string | null
   images?: PackageImageItem[]
 }
 
@@ -15,7 +14,6 @@ export interface ConversationDetail {
   title?: string
   createdAt: string
   updatedAt: string
-  packageId?: string | null
   images?: PackageImageItem[]
 }
 
@@ -25,7 +23,6 @@ interface BackendConversationView {
   title?: string
   createdAt?: string
   updatedAt?: string
-  packageId?: string | number | null
   images?: PackageImageItem[]
 }
 
@@ -37,7 +34,6 @@ function normalizeConversation(raw: BackendConversationView): ConversationDetail
     title: raw.title,
     createdAt: raw.createdAt ?? '',
     updatedAt: raw.updatedAt ?? '',
-    packageId: raw.packageId === null || raw.packageId === undefined ? null : String(raw.packageId),
     images: raw.images
   }
 }
@@ -47,7 +43,7 @@ function normalizeConversationPage(page: Page<BackendConversationView>): Page<Co
   return { ...page, items, records: items }
 }
 
-export async function createConversation(payload?: { title?: string; packageId?: string | number }): Promise<ConversationDetail> {
+export async function createConversation(payload?: { title?: string }): Promise<ConversationDetail> {
   const raw = await request<BackendConversationView>('/api/conversations', {
     method: 'POST',
     body: payload ?? {}

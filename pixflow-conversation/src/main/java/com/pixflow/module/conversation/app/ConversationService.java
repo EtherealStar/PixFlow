@@ -30,7 +30,6 @@ public class ConversationService {
         entity.setId(UUID.randomUUID().toString());
         entity.setOwnerUserId(requireOwner(ownerUserId));
         entity.setTitle(normalizeTitle(request == null ? null : request.title()));
-        entity.setPackageId(normalizeNullable(request == null ? null : request.packageId()));
         entity.setArchived(false);
         entity.setCreatedAt(now);
         entity.setUpdatedAt(now);

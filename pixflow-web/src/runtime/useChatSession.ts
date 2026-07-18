@@ -1,6 +1,5 @@
 import { computed, markRaw, ref, shallowRef, watch, type Ref } from 'vue'
 import type { RouteLocationNormalizedLoaded, Router } from 'vue-router'
-import { uploadAttachment, type UploadAttachmentResponse } from '@/api/attachments'
 import { createAgentTurn, isRejected, type AgentTurn } from '@/runtime/useAgentTurn'
 import { useAgentTurnsStore } from '@/stores/agentTurns'
 import { useConversationsStore } from '@/stores/conversations'
@@ -24,10 +23,8 @@ export function useChatSession(opts: ChatSessionOptions) {
   const toast = useToastStore()
 
   const sending = ref(false)
-  const uploadingAttachment = ref(false)
   const composerText = ref('')
   const userMessages = ref<Array<{ id: string; text: string }>>([])
-  const pendingAttachments = ref<UploadAttachmentResponse[]>([])
   const taskRefs = ref<Array<{ taskId: string; conversationId: string }>>([])
   const activeConversationId = ref<string | null>(null)
   const turnRef = shallowRef<AgentTurn | null>(null)
@@ -90,17 +87,13 @@ export function useChatSession(opts: ChatSessionOptions) {
   }
 
   async function sendText(text: string): Promise<void> {
-    if ((!text.trim() && pendingAttachments.value.length === 0) || !turnRef.value || !activeConversationId.value) return
+    if (!text.trim() || !turnRef.value || !activeConversationId.value) return
     const sentText = text.trim()
     sending.value = true
-    const packageId = pendingAttachments.value[0]?.packageId
-    const attachmentText = pendingAttachments.value.length > 0 ? `（已附加 ${pendingAttachments.value.length} 个素材包）` : ''
-    pendingAttachments.value = []
-    userMessages.value.push({ id: `u-${Date.now()}`, text: sentText || attachmentText })
+    userMessages.value.push({ id: `u-${Date.now()}`, text: sentText })
     try {
-      await turnRef.value.send(sentText, {
-        packageId
-      })
+      // 完整 structured mention picker 由后续 File/Web 里程碑提供；当前不伪造 referenceKey。
+      await turnRef.value.send(sentText, [])
       attachTaskIfPresent(turnRef, taskRefs, activeConversationId.value)
     } catch (e: unknown) {
       const err = ApiError.fromUnknown(e, { status: 0, errorCode: 'STREAM_ERROR', message: '发送失败', traceId: '' })
@@ -112,7 +105,7 @@ export function useChatSession(opts: ChatSessionOptions) {
 
   function sendComposer(): void {
     const text = composerText.value
-    if (!text.trim() && pendingAttachments.value.length === 0) return
+    if (!text.trim()) return
     composerText.value = ''
     void sendText(text)
   }
@@ -147,31 +140,10 @@ export function useChatSession(opts: ChatSessionOptions) {
     sending.value = false
   }
 
-  async function attachFiles(files: File[]): Promise<void> {
-    if (!activeConversationId.value || files.length === 0) return
-    uploadingAttachment.value = true
-    try {
-      for (const file of files) {
-        const result = await uploadAttachment(activeConversationId.value, file, {
-          filename: file.name,
-          contentType: file.type
-        })
-        pendingAttachments.value.push(result)
-      }
-      toast.push({ variant: 'success', message: `已上传 ${files.length} 个附件，将随下一条消息发送` })
-    } catch (e: unknown) {
-      const err = ApiError.fromUnknown(e, { status: 0, errorCode: 'NETWORK_ERROR', message: '附件上传失败', traceId: '' })
-      toast.push({ variant: 'danger', message: err.message ?? '附件上传失败' })
-    } finally {
-      uploadingAttachment.value = false
-    }
-  }
-
   return {
     activeConversationId,
     composerText,
     sending,
-    uploadingAttachment,
     streamTimeline,
     currentPhase,
     queuedCount,
@@ -179,15 +151,13 @@ export function useChatSession(opts: ChatSessionOptions) {
     visibleProposals,
     activeProposal,
     userMessages,
-    pendingAttachments,
     taskRefs,
     ensureConversationAndMaybeSend,
     sendText,
     sendComposer,
     confirmProposal,
     rejectProposal,
-    stop,
-    attachFiles
+    stop
   }
 }
 

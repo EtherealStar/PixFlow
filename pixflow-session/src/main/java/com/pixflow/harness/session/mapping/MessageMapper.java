@@ -19,8 +19,6 @@ public final class MessageMapper {
 
     public static final String SEQ = "seq";
 
-    public static final String ATTACHED_PACKAGE_ID = "attachedPackageId";
-
     public static final String TASK_ID = "taskId";
 
     private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() { };
@@ -41,7 +39,6 @@ public final class MessageMapper {
         entity.setToolCallId(message.toolCallId());
         entity.setCompactionMarker(marker(message.metadata()));
         entity.setMetadata(toJson(withSeq(message.metadata(), seq)));
-        entity.setAttachedPackageId(stringValue(message.metadata(), ATTACHED_PACKAGE_ID));
         entity.setTaskId(stringValue(message.metadata(), TASK_ID));
         entity.setCreatedAt(message.createdAt() == null ? Instant.now() : message.createdAt());
         return entity;

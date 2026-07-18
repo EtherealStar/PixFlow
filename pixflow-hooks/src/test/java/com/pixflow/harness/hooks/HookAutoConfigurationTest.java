@@ -33,7 +33,7 @@ class HookAutoConfigurationTest {
                     "trace-1",
                     RuntimeScope.main(),
                     "hello",
-                    Map.of(),
+                    List.of(),
                     Map.of()));
 
             assertThat(TestCallbacks.calls).containsExactly("early", "late");
@@ -52,7 +52,7 @@ class HookAutoConfigurationTest {
                     "trace-1",
                     RuntimeScope.main(),
                     "hello",
-                    Map.of(),
+                    List.of(),
                     Map.of()));
 
             assertThat(result.metadata()).containsEntry("custom", true);

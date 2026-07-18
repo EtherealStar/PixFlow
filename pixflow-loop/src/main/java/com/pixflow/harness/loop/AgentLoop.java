@@ -13,6 +13,7 @@ import com.pixflow.harness.context.engine.ContextEngine;
 import com.pixflow.harness.context.model.AssistantToolCall;
 import com.pixflow.harness.context.model.Message;
 import com.pixflow.harness.context.model.MessageMetadata;
+import com.pixflow.harness.context.model.MessageReference;
 import com.pixflow.harness.context.snapshot.ContextSnapshot;
 import com.pixflow.harness.context.snapshot.ToolSchemaView;
 import com.pixflow.harness.context.store.MessageStore;
@@ -22,7 +23,7 @@ import com.pixflow.harness.hooks.HookEvent;
 import com.pixflow.harness.hooks.HookRegistry;
 import com.pixflow.harness.hooks.HookResult;
 import com.pixflow.harness.hooks.payload.AssistantMessagePayload;
-import com.pixflow.harness.hooks.payload.RuntimeScope;
+import com.pixflow.harness.hooks.payload.MessageReferencePayload;
 import com.pixflow.harness.hooks.payload.TurnStoppedPayload;
 import com.pixflow.harness.hooks.payload.UserPromptSubmitPayload;
 import com.pixflow.harness.loop.config.LoopProperties;
@@ -49,7 +50,6 @@ import com.pixflow.harness.tools.result.ToolTraceSink;
 import com.pixflow.infra.ai.chat.ChatMessage;
 import com.pixflow.infra.ai.chat.ChatModelClient;
 import com.pixflow.infra.ai.chat.ChatRequest;
-import com.pixflow.infra.ai.chat.StopReason;
 import com.pixflow.infra.ai.chat.ToolSchema;
 import com.pixflow.infra.ai.model.ChatOptions;
 import com.pixflow.infra.ai.model.ModelRole;
@@ -67,8 +67,6 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.stream.Collectors;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import reactor.core.publisher.Flux;
 
 /**
@@ -87,27 +85,44 @@ import reactor.core.publisher.Flux;
  */
 public final class AgentLoop {
 
-    private static final Logger log = LoggerFactory.getLogger(AgentLoop.class);
-
     private final RuntimeState state;
+
     private final MessageStore messageStore;
+
     private final ContextEngine contextEngine;
+
     private final ContextCompactionService compactionService;
+
     private final ChatModelClient modelClient;
+
     private final ToolExecutor toolExecutor;
+
     private final PermissionPolicy permissionPolicy;
+
     private final ToolResultStorage resultStorage;
+
     private final PlanModeView planModeView;
+
     private final HookRegistry hookRegistry;
+
     private final TraceRecorder traceRecorder;
+
     private final PermissionContextFactory permissionContextFactory;
+
     private final ErrorRecorder errorRecorder;
+
     private final ModelStreamConsumer streamConsumer;
+
     private final ReactiveCompactionGate reactiveCompactionGate;
+
     private final OutputInterruptHandler outputInterruptHandler;
+
     private final LoopProperties properties;
+
     private final ObjectMapper jsonMapper;
+
     private final ExecutorService toolExecutorService;
+
     private final String defaultContinuationPrompt;
 
     public AgentLoop(RuntimeState state,
@@ -166,11 +181,12 @@ public final class AgentLoop {
         this.streamConsumer = new ModelStreamConsumer();
         this.reactiveCompactionGate = new ReactiveCompactionGate(compactionService, this.properties);
         this.outputInterruptHandler = new OutputInterruptHandler(this.properties);
-        this.defaultContinuationPrompt = "[continue where you left off; the previous response was truncated by output limit]";
+        this.defaultContinuationPrompt = "[continue where you left off; "
+                + "the previous response was truncated by output limit]";
     }
 
     public String stream(String prompt,
-                         List<Attachment> attachments,
+                         List<MessageReference> references,
                          AgentEventSink sink,
                          String systemPrompt,
                          List<ToolSchemaView> toolSchemas,
@@ -188,18 +204,13 @@ public final class AgentLoop {
                 state.traceId(),
                 state.runtimeScope(),
                 prompt,
-                attachmentsToMap(attachments),
+                toHookReferences(references),
                 state.metadata());
         hookRegistry.dispatch(HookEvent.USER_PROMPT_SUBMIT, upsPayload);
 
         cancellation.throwIfCancellationRequested();
-        messageStore.appendUser(prompt);
-        if (attachments != null && !attachments.isEmpty()) {
-            List<Message> attachmentMessages = attachments.stream()
-                    .map(att -> Message.attachment(att.reference()))
-                    .collect(Collectors.toList());
-            messageStore.appendAttachments(attachmentMessages);
-        }
+        // prompt 与 references 只追加一条 durable USER message，避免滑窗或失败恢复把二者拆开。
+        messageStore.appendUser(prompt, references);
         return runLoop(sink, systemPrompt, toolSchemas, cancellation);
     }
 
@@ -251,7 +262,8 @@ public final class AgentLoop {
                             snapshot.toolSchemas().stream().map(ToolSchemaView::name).toList(),
                             Map.of(
                                     "iteration", state.iterationCount(),
-                                    "lastTransition", state.lastTransition() == null ? "" : state.lastTransition().name())));
+                                    "lastTransition",
+                                    state.lastTransition() == null ? "" : state.lastTransition().name())));
 
                     ChatRequest request = toChatRequest(snapshot);
                     // 模型调用级 retry 只能由 infra/ai 的 ChatModelClient.stream 内部负责。
@@ -299,12 +311,17 @@ public final class AgentLoop {
                     HookResult ampResult = hookRegistry.dispatch(HookEvent.ASSISTANT_MESSAGE_COMPLETED, ampPayload);
                     traceFanout.fanoutHookSpan(HookEvent.ASSISTANT_MESSAGE_COMPLETED, ampResult, null, null, 0L);
 
-                    emit(sink, AgentEvent.assistantCompleted(finalText, assistantMsg.id(), eventMetadata), cancellation);
+                    emit(sink,
+                            AgentEvent.assistantCompleted(finalText, assistantMsg.id(), eventMetadata),
+                            cancellation);
 
                     if (!outcome.hasToolCalls()) {
                         state.setTransition(TransitionReason.COMPLETED);
-                        emit(sink, AgentEvent.transition(TransitionReason.COMPLETED,
-                                eventMetadata(eventMetadata, Map.of("iteration", state.iterationCount()))), cancellation);
+                        emit(sink,
+                                AgentEvent.transition(TransitionReason.COMPLETED,
+                                        eventMetadata(eventMetadata, Map.of(
+                                                "iteration", state.iterationCount()))),
+                                cancellation);
 
                         HookResult stopped = hookRegistry.dispatch(HookEvent.TURN_STOPPED,
                                 new TurnStoppedPayload(
@@ -379,13 +396,19 @@ public final class AgentLoop {
                                  CancellationToken cancellation) {
         if (gate instanceof GateDecision.Retry retry) {
             state.setTransition(retry.reason());
-            emit(sink, AgentEvent.transition(retry.reason(),
-                    eventMetadata(eventMetadata, Map.of("phase", "retry", "iteration", state.iterationCount()))), cancellation);
+            emit(sink,
+                    AgentEvent.transition(retry.reason(), eventMetadata(eventMetadata, Map.of(
+                            "phase", "retry",
+                            "iteration", state.iterationCount()))),
+                    cancellation);
             traceFanout.fanoutRetry(retry.reason(), 0L);
         } else if (gate instanceof GateDecision.ContinueAfterAppend cont) {
             state.setTransition(cont.reason());
-            emit(sink, AgentEvent.transition(cont.reason(),
-                    eventMetadata(eventMetadata, Map.of("phase", "continueAfterAppend", "iteration", state.iterationCount()))), cancellation);
+            emit(sink,
+                    AgentEvent.transition(cont.reason(), eventMetadata(eventMetadata, Map.of(
+                            "phase", "continueAfterAppend",
+                            "iteration", state.iterationCount()))),
+                    cancellation);
         } else if (gate instanceof GateDecision.Abort abort) {
             throw abort.error();
         }
@@ -558,7 +581,9 @@ public final class AgentLoop {
             return new ParsedArguments(Map.of(), null);
         }
         try {
-            Map<String, Object> arguments = jsonMapper.readValue(argumentsJson, new TypeReference<Map<String, Object>>() {});
+            Map<String, Object> arguments = jsonMapper.readValue(
+                    argumentsJson,
+                    new TypeReference<Map<String, Object>>() { });
             return new ParsedArguments(arguments, null);
         } catch (JsonProcessingException ex) {
             return new ParsedArguments(Map.of(), ex.getOriginalMessage());
@@ -591,14 +616,12 @@ public final class AgentLoop {
         String content = msg.content() == null ? "" : msg.content();
         return switch (msg.role()) {
             case USER -> new ChatMessage(ChatMessage.Role.USER,
-                    List.of(new ChatMessage.TextPart(content)));
+                    List.of(new ChatMessage.TextPart(renderUserContent(msg, content))));
             case ASSISTANT -> assistantChatMessage(msg, content);
             case TOOL_RESULT -> new ChatMessage(ChatMessage.Role.TOOL,
                     List.of(new ChatMessage.ToolResultPart(
                             msg.toolCallId(),
                             content.isBlank() ? "[empty tool result]" : content)));
-            case ATTACHMENT -> new ChatMessage(ChatMessage.Role.USER,
-                    List.of(new ChatMessage.TextPart("[attachment] " + content)));
         };
     }
 
@@ -670,18 +693,34 @@ public final class AgentLoop {
         return text.length() <= 200 ? text : text.substring(0, 200) + "...";
     }
 
-    private static Map<String, Object> attachmentsToMap(List<Attachment> attachments) {
-        if (attachments == null || attachments.isEmpty()) {
-            return Map.of();
+    private static List<MessageReferencePayload> toHookReferences(List<MessageReference> references) {
+        if (references == null || references.isEmpty()) {
+            return List.of();
         }
-        Map<String, Object> result = new LinkedHashMap<>();
-        for (Attachment att : attachments) {
-            result.put(att.id(), Map.of(
-                    "kind", att.kind() == null ? "" : att.kind(),
-                    "reference", att.reference() == null ? "" : att.reference(),
-                    "metadata", att.metadata()));
+        return references.stream()
+                .map(reference -> new MessageReferencePayload(
+                        reference.referenceKey(), reference.displayPathSnapshot()))
+                .toList();
+    }
+
+    private static String renderUserContent(Message message, String content) {
+        List<MessageReference> references = message.metadata().references();
+        if (references.isEmpty()) {
+            return content;
         }
-        return result;
+        StringBuilder rendered = new StringBuilder(content);
+        if (!content.isBlank()) {
+            rendered.append("\n\n");
+        }
+        rendered.append("Referenced materials:");
+        for (MessageReference reference : references) {
+            rendered.append("\n- ")
+                    .append(reference.displayPathSnapshot())
+                    .append(" [")
+                    .append(reference.referenceKey())
+                    .append(']');
+        }
+        return rendered.toString();
     }
 
     private static Set<String> toStringSet(Object value) {

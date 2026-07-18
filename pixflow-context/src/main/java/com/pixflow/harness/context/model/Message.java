@@ -1,6 +1,7 @@
 package com.pixflow.harness.context.model;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -27,6 +28,16 @@ public record Message(
         return new Message(null, MessageRole.USER, content, null, MessageMetadata.empty(), Instant.now());
     }
 
+    public static Message user(String content, List<MessageReference> references) {
+        return new Message(
+                null,
+                MessageRole.USER,
+                content,
+                null,
+                MessageMetadata.empty().withReferences(references),
+                Instant.now());
+    }
+
     public static Message userEvent(String content, MessageMetadata metadata) {
         return new Message(null, MessageRole.USER, content, null, metadata, Instant.now());
     }
@@ -46,10 +57,6 @@ public record Message(
 
     public static Message toolResult(String toolCallId, String content) {
         return new Message(null, MessageRole.TOOL_RESULT, content, toolCallId, MessageMetadata.empty(), Instant.now());
-    }
-
-    public static Message attachment(String content) {
-        return new Message(null, MessageRole.ATTACHMENT, content, null, MessageMetadata.empty(), Instant.now());
     }
 
     public Message withContent(String newContent) {

@@ -1,9 +1,9 @@
 package com.pixflow.module.conversation.app;
 
 import com.pixflow.common.concurrent.CancellationToken;
+import com.pixflow.harness.context.model.MessageReference;
 import com.pixflow.harness.loop.AgentTurnRequest;
 import com.pixflow.harness.loop.AgentTurnRunner;
-import com.pixflow.harness.loop.Attachment;
 import com.pixflow.harness.loop.event.AgentEventSink;
 import com.pixflow.harness.permission.PermissionPrincipal;
 import com.pixflow.module.conversation.lock.TurnLockHandle;
@@ -20,7 +20,7 @@ public final class PreparedTurn implements AutoCloseable {
 
     private final String prompt;
 
-    private final List<Attachment> attachments;
+    private final List<MessageReference> references;
 
     private final AgentTurnRunner runner;
 
@@ -33,14 +33,14 @@ public final class PreparedTurn implements AutoCloseable {
             String ownerUsername,
             String conversationId,
             String prompt,
-            List<Attachment> attachments,
+            List<MessageReference> references,
             AgentTurnRunner runner,
             TurnLockHandle lockHandle) {
         this.ownerUserId = ownerUserId;
         this.ownerUsername = Objects.requireNonNull(ownerUsername, "ownerUsername");
         this.conversationId = Objects.requireNonNull(conversationId, "conversationId");
         this.prompt = prompt == null ? "" : prompt;
-        this.attachments = attachments == null ? List.of() : List.copyOf(attachments);
+        this.references = references == null ? List.of() : List.copyOf(references);
         this.runner = Objects.requireNonNull(runner, "runner");
         this.lockHandle = Objects.requireNonNull(lockHandle, "lockHandle");
     }
@@ -52,7 +52,7 @@ public final class PreparedTurn implements AutoCloseable {
         PermissionPrincipal principal = new PermissionPrincipal(
                 Long.toString(ownerUserId), ownerUsername);
         return runner.stream(
-                new AgentTurnRequest(conversationId, principal, prompt, attachments, cancellation), sink);
+                new AgentTurnRequest(conversationId, principal, prompt, references, cancellation), sink);
     }
 
     public String conversationId() {

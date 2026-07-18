@@ -19,8 +19,6 @@ public class MessageEntity {
 
     private String metadata;
 
-    private String attachedPackageId;
-
     private String taskId;
 
     private Instant createdAt;
@@ -87,14 +85,6 @@ public class MessageEntity {
 
     public void setMetadata(String metadata) {
         this.metadata = metadata;
-    }
-
-    public String getAttachedPackageId() {
-        return attachedPackageId;
-    }
-
-    public void setAttachedPackageId(String attachedPackageId) {
-        this.attachedPackageId = attachedPackageId;
     }
 
     public String getTaskId() {

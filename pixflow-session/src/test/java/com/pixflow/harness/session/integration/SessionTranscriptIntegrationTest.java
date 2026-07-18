@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pixflow.harness.context.compaction.CompactionTrigger;
 import com.pixflow.harness.context.model.Message;
 import com.pixflow.harness.context.model.MessageMetadata;
+import com.pixflow.harness.context.model.MessageReference;
 import com.pixflow.harness.context.model.MessageRole;
 import com.pixflow.harness.context.model.ToolResultReference;
 import com.pixflow.harness.session.buffer.TranscriptBuffer;
@@ -149,12 +150,19 @@ class SessionTranscriptIntegrationTest {
     void appendLoadAndCompactionRoundTripAgainstRealMysqlAndMinio() throws Exception {
         List<Message> appended = service.append("conv-1", List.of(
                 new Message("m1", MessageRole.USER, "hello", null, MessageMetadata.empty(), Instant.now()),
-                new Message("m2", MessageRole.TOOL_RESULT, "123456789", "tool-1", MessageMetadata.empty(), Instant.now())));
+                new Message("m2", MessageRole.TOOL_RESULT, "123456789", "tool-1", MessageMetadata.empty(), Instant.now()),
+                Message.user("process", List.of(
+                        new MessageReference("package:1", "summer.zip"),
+                        new MessageReference("package:1/image:2", "summer.zip / front.png")))));
 
-        assertThat(appended).hasSize(2);
+        assertThat(appended).hasSize(3);
         assertThat(appended.get(1).metadata().flag(MessageMetadata.TOOL_RESULT_EXTERNALIZED)).isTrue();
-        assertThat(service.load("conv-1")).extracting(Message::id).containsExactly("m1", "m2");
+        assertThat(service.load("conv-1")).extracting(Message::id)
+                .containsExactly("m1", "m2", appended.get(2).id());
         assertThat(service.load("conv-1").get(1).content()).isEqualTo("123456789");
+        assertThat(service.load("conv-1").get(2).metadata().references()).containsExactly(
+                new MessageReference("package:1", "summer.zip"),
+                new MessageReference("package:1/image:2", "summer.zip / front.png"));
 
         Message boundary = new Message("b1", MessageRole.USER, "boundary", null,
                 MessageMetadata.empty().with(MessageMetadata.COMPACT_BOUNDARY, true), Instant.now());
@@ -162,12 +170,18 @@ class SessionTranscriptIntegrationTest {
                 MessageMetadata.empty().with(MessageMetadata.COMPACT_SUMMARY, true), Instant.now());
         List<Message> compacted = service.replaceForCompaction(
                 "conv-1",
-                List.of(boundary, summary, appended.get(1)),
+                List.of(boundary, summary, appended.get(2)),
                 CompactionTrigger.AUTO,
                 Map.of("reason", "it"));
 
-        assertThat(compacted).extracting(Message::id).containsExactly("b1", "s1", "m2");
-        assertThat(service.load("conv-1")).extracting(Message::id).containsExactly("b1", "s1", "m2");
+        assertThat(compacted).extracting(Message::id)
+                .containsExactly("b1", "s1", appended.get(2).id());
+        List<Message> reloaded = service.load("conv-1");
+        assertThat(reloaded).extracting(Message::id)
+                .containsExactly("b1", "s1", appended.get(2).id());
+        assertThat(reloaded.get(2).metadata().references()).containsExactly(
+                new MessageReference("package:1", "summer.zip"),
+                new MessageReference("package:1/image:2", "summer.zip / front.png"));
     }
 
     @Test
@@ -202,7 +216,6 @@ class SessionTranscriptIntegrationTest {
                   tool_call_id        VARCHAR(128) NULL,
                   compaction_marker   VARCHAR(32)  NULL,
                   metadata            JSON         NULL,
-                  attached_package_id VARCHAR(64)  NULL,
                   task_id             VARCHAR(64)  NULL,
                   created_at          TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
                   UNIQUE KEY uk_message_conversation_seq (conversation_id, seq),
@@ -253,10 +266,10 @@ class SessionTranscriptIntegrationTest {
             int inserted = 0;
             for (MessageEntity message : messages) {
                 String sql = """
-                        INSERT IGNORE INTO message
-                          (id, conversation_id, seq, role, content, tool_call_id, compaction_marker, metadata,
-                           attached_package_id, task_id, created_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, CAST(? AS JSON), ?, ?, ?)
+                   INSERT IGNORE INTO message
+                     (id, conversation_id, seq, role, content, tool_call_id, compaction_marker, metadata,
+                      task_id, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, CAST(? AS JSON), ?, ?)
                         """;
                 inserted += executeUpdate(sql,
                         message.getId(),
@@ -264,11 +277,10 @@ class SessionTranscriptIntegrationTest {
                         message.getSeq(),
                         message.getRole(),
                         message.getContent(),
-                        message.getToolCallId(),
-                        message.getCompactionMarker(),
-                        message.getMetadata(),
-                        message.getAttachedPackageId(),
-                        message.getTaskId(),
+                   message.getToolCallId(),
+                   message.getCompactionMarker(),
+                   message.getMetadata(),
+                   message.getTaskId(),
                         message.getCreatedAt());
             }
             return inserted;
@@ -355,14 +367,14 @@ class SessionTranscriptIntegrationTest {
         }
 
         @Override
-        public List<com.pixflow.harness.session.persistence.MessageReadView> findMessagesByConversation(
+    public List<MessageEntity> findMessagesByConversation(
                 String conversationId,
                 long offset,
                 long limit) {
-            return queryMessages("WHERE conversation_id = ? ORDER BY seq LIMIT ? OFFSET ?",
-                    conversationId,
-                    limit,
-                    offset).stream().map(SessionTranscriptIntegrationTest::toReadView).toList();
+        return queryMessages("WHERE conversation_id = ? ORDER BY seq LIMIT ? OFFSET ?",
+                conversationId,
+                limit,
+                offset);
         }
 
         @Override
@@ -380,19 +392,11 @@ class SessionTranscriptIntegrationTest {
             }
         }
 
-        @Override
-        public List<com.pixflow.harness.session.persistence.MessageReadView> findAttachments(String conversationId) {
-            return queryMessages("WHERE conversation_id = ? AND role = 'ATTACHMENT' ORDER BY seq", conversationId)
-                    .stream()
-                    .map(SessionTranscriptIntegrationTest::toReadView)
-                    .toList();
-        }
-
         private List<MessageEntity> queryMessages(String suffix, Object... args) {
             String sql = """
-                    SELECT id, conversation_id AS conversationId, seq, role, content,
-                           tool_call_id AS toolCallId, compaction_marker AS compactionMarker, metadata,
-                           attached_package_id AS attachedPackageId, task_id AS taskId, created_at AS createdAt
+               SELECT id, conversation_id AS conversationId, seq, role, content,
+                      tool_call_id AS toolCallId, compaction_marker AS compactionMarker, metadata,
+                      task_id AS taskId, created_at AS createdAt
                     FROM message
                     """ + suffix;
             try (Connection connection = DriverManager.getConnection(jdbcUrl, username, password);
@@ -410,10 +414,9 @@ class SessionTranscriptIntegrationTest {
                         entity.setRole(rs.getString("role"));
                         entity.setContent(rs.getString("content"));
                         entity.setToolCallId(rs.getString("toolCallId"));
-                        entity.setCompactionMarker(rs.getString("compactionMarker"));
-                        entity.setMetadata(rs.getString("metadata"));
-                        entity.setAttachedPackageId(rs.getString("attachedPackageId"));
-                        entity.setTaskId(rs.getString("taskId"));
+                   entity.setCompactionMarker(rs.getString("compactionMarker"));
+                   entity.setMetadata(rs.getString("metadata"));
+                   entity.setTaskId(rs.getString("taskId"));
                         entity.setCreatedAt(rs.getTimestamp("createdAt").toInstant());
                         result.add(entity);
                     }
@@ -423,21 +426,6 @@ class SessionTranscriptIntegrationTest {
                 throw new IllegalStateException(ex);
             }
         }
-    }
-
-    private static com.pixflow.harness.session.persistence.MessageReadView toReadView(MessageEntity entity) {
-        return new com.pixflow.harness.session.persistence.MessageReadView(
-                entity.getId(),
-                entity.getConversationId(),
-                entity.getSeq(),
-                entity.getRole(),
-                entity.getContent(),
-                entity.getToolCallId(),
-                entity.getCompactionMarker(),
-                entity.getMetadata(),
-                entity.getAttachedPackageId(),
-                entity.getTaskId(),
-                entity.getCreatedAt());
     }
 
     private static final class MysqlCompactionMapper implements CompactionMapper {

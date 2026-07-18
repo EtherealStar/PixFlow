@@ -11,10 +11,6 @@ vi.mock('@/api/conversations', () => ({
   archiveConversation: vi.fn()
 }))
 
-vi.mock('@/api/attachments', () => ({
-  uploadAttachment: vi.fn()
-}))
-
 describe('useChatSession', () => {
   beforeEach(() => {
     setActivePinia(createPinia())

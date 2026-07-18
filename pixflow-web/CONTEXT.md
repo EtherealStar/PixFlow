@@ -8,6 +8,10 @@ This context owns the current browser application's interaction state and projec
 The browse surface for Asset Packages, SKU scopes, and Original Images.
 _Avoid_: files, outputs
 
+**Product Visual Analysis**:
+The Materials detail surface for viewing and editing the one current Product Visual Facts document shared by all Original Images in the same SKU scope.
+_Avoid_: image analysis, visual summary, SKU Visual Snapshot
+
 **Outputs**:
 The browse surface for Generated Images grouped by their conversation and task lineage.
 _Avoid_: task history, materials
@@ -27,4 +31,3 @@ _Avoid_: Proposal, task domain entity
 **Activity Record**:
 One removable item in Activity; its lifetime is independent of any successfully published Generated Image.
 _Avoid_: output asset
-

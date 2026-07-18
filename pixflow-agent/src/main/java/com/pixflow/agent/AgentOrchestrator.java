@@ -22,6 +22,7 @@ import com.pixflow.harness.context.compaction.CompactionConfig;
 import com.pixflow.harness.context.compaction.ContextCompactionService;
 import com.pixflow.harness.context.compaction.SummarizationPort;
 import com.pixflow.harness.context.engine.ContextEngine;
+import com.pixflow.harness.context.model.MessageReference;
 import com.pixflow.harness.context.runtime.CurrentModelContext;
 import com.pixflow.harness.context.sessionmemory.SessionMemoryContent;
 import com.pixflow.harness.context.snapshot.ToolSchemaView;
@@ -32,7 +33,6 @@ import com.pixflow.harness.hooks.HookRegistry;
 import com.pixflow.harness.hooks.payload.RuntimeScope;
 import com.pixflow.harness.loop.AgentLoop;
 import com.pixflow.harness.loop.AgentTurnRequest;
-import com.pixflow.harness.loop.Attachment;
 import com.pixflow.harness.loop.RuntimeState;
 import com.pixflow.harness.loop.config.LoopProperties;
 import com.pixflow.harness.loop.config.LoopAutoConfiguration;
@@ -48,7 +48,6 @@ import com.pixflow.harness.tools.ToolRegistry;
 import com.pixflow.harness.tools.ToolVisibilityContext;
 import com.pixflow.harness.tools.plan.PlanModeView;
 import com.pixflow.infra.ai.chat.ChatModelClient;
-import com.pixflow.module.memory.context.MemoryAttachment;
 import com.pixflow.module.memory.context.MemoryContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -201,19 +200,20 @@ public class AgentOrchestrator {
                                 String userMessage,
                                 String packageId,
                                 List<String> currentPackageSkuIds,
-                                List<Attachment> attachments,
+                                List<MessageReference> references,
                                 List<String> recentAssistantMessages) {
         Objects.requireNonNull(state, "state");
         Map<String, Object> metadata = new HashMap<>();
         metadata.put("recent_assistant_messages",
                 recentAssistantMessages == null ? List.of() : List.copyOf(recentAssistantMessages));
         metadata.put("runtime_scope", state.runtimeScope() == null ? "" : state.runtimeScope().toString());
+        metadata.put("reference_keys", referenceKeys(references));
         MemoryRecallSignal signal = new MemoryRecallSignal(
                 state.conversationId(),
                 state.turnNo(),
                 state.traceId(),
                 userMessage,
-                toMemoryAttachments(attachments),
+                List.of(),
                 packageId,
                 null,
                 currentPackageSkuIds,
@@ -269,13 +269,13 @@ public class AgentOrchestrator {
             Integer turnNo,
             String packageId,
             List<String> currentPackageSkuIds,
-            List<Attachment> attachments,
+            List<MessageReference> references,
             List<String> recentAssistantMessages,
             String userMessage,
             List<ToolDescriptor> visibleTools) {
         // 1. 同步召回
         MemoryContext memoryContext = recall(state, userMessage, packageId,
-                currentPackageSkuIds, attachments, recentAssistantMessages);
+                currentPackageSkuIds, references, recentAssistantMessages);
         // 2. 加载 session memory
         SessionMemoryContent sessionMemory = sessionMemoryService
                 .load(conversationId).orElse(null);
@@ -320,7 +320,7 @@ public class AgentOrchestrator {
      *
      * @param conversationId 会话 id
      * @param prompt         用户消息文本（可空字符串表示续轮但不派发 USER_PROMPT_SUBMIT）
-     * @param attachments    附件列表（已由 conversation 解析为 loop.Attachment 形态）
+     * @param request        包含 Conversation 已校验的有序消息引用
      * @param sink           SSE 事件接出
      * @return AgentLoop 返回的最终 assistant 文本
      */
@@ -332,7 +332,7 @@ public class AgentOrchestrator {
         TurnRuntime runtime = createTurnRuntime(
                 request.conversationId(), request.principal(), TurnMode.NEW_TURN);
         return driveTurn(runtime.state(), runtime.messageStore(), request.conversationId(),
-                runtime.targetTurnNo(), request.prompt(), request.attachments(), sink,
+                runtime.targetTurnNo(), request.prompt(), request.references(), sink,
                 TurnMode.NEW_TURN, request.cancellation());
     }
 
@@ -371,7 +371,7 @@ public class AgentOrchestrator {
                              String conversationId,
                              int targetTurnNo,
                              String prompt,
-                             List<Attachment> attachments,
+                             List<MessageReference> references,
                              AgentEventSink sink,
                              TurnMode mode,
                              CancellationToken cancellation) {
@@ -382,7 +382,7 @@ public class AgentOrchestrator {
 
             // 1. 同步召回。USER_PROMPT_SUBMIT 与 user message append 由 AgentLoop.stream 统一负责。
             List<String> recentAssistant = recentAssistantTexts(messageStore);
-            MemoryContext memoryContext = recall(state, prompt, null, List.of(), attachments, recentAssistant);
+            MemoryContext memoryContext = recall(state, prompt, null, List.of(), references, recentAssistant);
             cancellation.throwIfCancellationRequested();
 
             // 2. 加载 session memory
@@ -411,7 +411,7 @@ public class AgentOrchestrator {
             String finalText = mode == TurnMode.CONTINUE
                     ? loop.continueStream(sink, systemPrompt, toolSchemas, cancellation)
                     : loop.stream(prompt == null ? "" : prompt,
-                            attachments == null ? List.of() : attachments,
+                            references == null ? List.of() : references,
                             sink, systemPrompt, toolSchemas, cancellation);
 
             // 8. 收尾：flush 由 AgentLoop 内部触发；返回 finalText 给调用方（作为 turn result）
@@ -607,62 +607,11 @@ public class AgentOrchestrator {
         return all.subList(all.size() - 3, all.size());
     }
 
-    private static Map<String, Object> attachmentsToMap(List<Attachment> attachments) {
-        if (attachments == null || attachments.isEmpty()) {
-            return Map.of();
-        }
-        Map<String, Object> result = new HashMap<>();
-        for (Attachment att : attachments) {
-            result.put(att.id(), Map.of(
-                    "kind", att.kind() == null ? "" : att.kind(),
-                    "reference", att.reference() == null ? "" : att.reference(),
-                    "metadata", att.metadata()));
-        }
-        return result;
-    }
-
-    private static List<MemoryAttachment> toMemoryAttachments(List<Attachment> attachments) {
-        if (attachments == null || attachments.isEmpty()) {
+    private static List<String> referenceKeys(List<MessageReference> references) {
+        if (references == null || references.isEmpty()) {
             return List.of();
         }
-        List<MemoryAttachment> result = new ArrayList<>(attachments.size());
-        for (Attachment att : attachments) {
-            Map<String, Object> metadata = att.metadata() == null ? Map.of() : att.metadata();
-            String fileName = firstNonBlank(
-                    stringValue(metadata.get("fileName")),
-                    stringValue(metadata.get("filename")),
-                    att.reference(),
-                    att.id());
-            String skuId = firstNonBlank(
-                    stringValue(metadata.get("skuId")),
-                    stringValue(metadata.get("sku_id")));
-            String category = firstNonBlank(
-                    stringValue(metadata.get("category")),
-                    stringValue(metadata.get("categoryHint")));
-            // 附件解析仍归上游模块，这里只把 durable 引用与已知元数据交给 module-memory 做召回信号提取。
-            Map<String, Object> memoryMetadata = new HashMap<>(metadata);
-            memoryMetadata.put("attachment_id", att.id());
-            memoryMetadata.put("kind", att.kind() == null ? "" : att.kind());
-            memoryMetadata.put("reference", att.reference() == null ? "" : att.reference());
-            result.add(new MemoryAttachment(fileName, skuId, category, memoryMetadata));
-        }
-        return result;
-    }
-
-    private static String stringValue(Object value) {
-        return value == null ? "" : String.valueOf(value);
-    }
-
-    private static String firstNonBlank(String... values) {
-        if (values == null) {
-            return "";
-        }
-        for (String value : values) {
-            if (value != null && !value.isBlank()) {
-                return value;
-            }
-        }
-        return "";
+        return references.stream().map(MessageReference::referenceKey).toList();
     }
 
     private static PixFlowException toPixFlow(Throwable error) {

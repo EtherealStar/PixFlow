@@ -5,6 +5,8 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.pixflow.harness.session.buffer.TranscriptBuffer;
 import com.pixflow.harness.session.chain.ActiveChainResolver;
 import com.pixflow.harness.session.externalize.SessionToolResultExternalizer;
+import com.pixflow.harness.session.history.DefaultTranscriptHistoryReader;
+import com.pixflow.harness.session.history.TranscriptHistoryReader;
 import com.pixflow.harness.session.mapping.MessageMapper;
 import com.pixflow.harness.session.persistence.CompactionMapper;
 import com.pixflow.harness.session.persistence.MessageReadMapper;
@@ -53,6 +55,13 @@ public class SessionAutoConfiguration {
     @ConditionalOnMissingBean
     public ActiveChainResolver activeChainResolver(MessageReadMapper readMapper, CompactionMapper compactionMapper) {
         return new ActiveChainResolver(readMapper, compactionMapper);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public TranscriptHistoryReader transcriptHistoryReader(
+            MessageReadMapper readMapper, MessageMapper messageMapper) {
+        return new DefaultTranscriptHistoryReader(readMapper, messageMapper);
     }
 
     @Bean

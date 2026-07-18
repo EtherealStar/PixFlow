@@ -16,7 +16,7 @@ describe('conversation contract adapter', () => {
   it('uses includeArchived/page=1 and maps backend id to conversationId', async () => {
     const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit) =>
       jsonResponse({
-        records: [{ id: 'c1', title: '会话', packageId: 2, updatedAt: '2026-07-06T10:00:00Z' }],
+        records: [{ id: 'c1', title: '会话', updatedAt: '2026-07-06T10:00:00Z' }],
         total: 1,
         page: 1,
         size: 50
@@ -27,6 +27,6 @@ describe('conversation contract adapter', () => {
     const page = await listConversations({ includeArchived: false, page: 1, size: 50 })
 
     expect(fetchMock.mock.calls[0]?.[0]).toBe('/api/conversations?includeArchived=false&page=1&size=50')
-    expect(page.items[0]).toMatchObject({ conversationId: 'c1', packageId: '2' })
+    expect(page.items[0]).toMatchObject({ conversationId: 'c1', title: '会话' })
   })
 })

@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import IconSend from '@/components/icons/IconSend.vue'
-import IconPaperclip from '@/components/icons/IconPaperclip.vue'
 import MentionPopover from './MentionPopover.vue'
 import type { FileIndexNode } from '@/stores/fileIndex'
 
@@ -10,7 +9,7 @@ defineOptions({ name: 'ChatComposer' })
 /**
  * Composer — 输入框（web.md §7.3 / §十二）
  *
- * - textarea + @ 提及 + 上传按钮 + 发送按钮
+ * - textarea + @ 提及 + 发送按钮
  * - 圆角 2xl；bg-bg-panel；shadow-sm
  * - Ctrl+Enter 发送
  */
@@ -18,47 +17,17 @@ const props = defineProps<{
   modelValue?: string
   sending?: boolean
   streaming?: boolean
-  hasAttachments?: boolean
 }>()
 
 const emit = defineEmits<{
   'update:modelValue': [v: string]
   send: []
   stop: []
-  attach: []
-  attachFiles: [files: File[]]
 }>()
 
 const mentionOpen = ref(false)
 const mentionQuery = ref('')
 const textareaRef = ref<HTMLTextAreaElement | null>(null)
-const fileInput = ref<HTMLInputElement | null>(null)
-const isDragging = ref(false)
-
-function onDragOver(_e: DragEvent) {
-  isDragging.value = true
-}
-function onDragLeave(_e: DragEvent) {
-  isDragging.value = false
-}
-function onDrop(e: DragEvent) {
-  isDragging.value = false
-  if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
-    emit('attachFiles', Array.from(e.dataTransfer.files))
-  }
-}
-
-function triggerFileSelect() {
-  fileInput.value?.click()
-}
-
-function onFileChange(e: Event) {
-  const target = e.target as HTMLInputElement
-  if (target.files && target.files.length > 0) {
-    emit('attachFiles', Array.from(target.files))
-    target.value = ''
-  }
-}
 
 function onInput(v: string): void {
   emit('update:modelValue', v)
@@ -97,32 +66,13 @@ function onKeydown(ev: KeyboardEvent): void {
   }
 }
 
-const canSend = computed(() => ((props.modelValue ?? '').trim().length > 0 || props.hasAttachments) && !props.sending)
+const canSend = computed(() => (props.modelValue ?? '').trim().length > 0 && !props.sending)
 </script>
 
 <template>
-  <div 
+  <div
     class="composer relative flex flex-col bg-bg-panel rounded-2xl shadow-sm border border-border px-3 pt-3 pb-2 transition-colors"
-    @dragover.prevent="onDragOver"
-    @dragleave.prevent="onDragLeave"
-    @drop.prevent="onDrop"
   >
-    <!-- Drag overlay -->
-    <div
-      v-if="isDragging"
-      class="absolute inset-0 z-10 flex items-center justify-center bg-bg-panel/90 rounded-2xl border-2 border-dashed border-accent pointer-events-none"
-    >
-      <span class="text-accent font-medium">松开鼠标以上传文件</span>
-    </div>
-
-    <!-- Hidden file input -->
-    <input
-      ref="fileInput"
-      type="file"
-      class="hidden"
-      multiple
-      @change="onFileChange"
-    >
     <MentionPopover
       :open="mentionOpen"
       :query="mentionQuery"
@@ -144,15 +94,7 @@ const canSend = computed(() => ((props.modelValue ?? '').trim().length > 0 || pr
 
     <!-- Bottom Actions -->
     <div class="flex items-center justify-between mt-1">
-      <!-- Left: Attach -->
-      <button 
-        type="button" 
-        class="flex items-center justify-center text-fg-muted hover:text-fg-primary hover:bg-bg-sunken w-8 h-8 rounded-lg transition-colors"
-        aria-label="上传附件"
-        @click="triggerFileSelect"
-      >
-        <IconPaperclip :size="20" />
-      </button>
+      <span />
 
       <!-- Right: Stop + Send -->
       <div class="flex items-center gap-2">

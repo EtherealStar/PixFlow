@@ -31,13 +31,7 @@ public record MessageMetadata(Map<String, Object> values) {
 
     public static final String COMPACT_TRIGGER = "compactTrigger";
 
-    public static final String ATTACHMENT_TYPE = "attachmentType";
-
-    public static final String ATTACHMENT_REF = "attachmentRef";
-
-    public static final String ATTACHED_PACKAGE_ID = "attachedPackageId";
-
-    public static final String ATTACHMENT_ID = "attachmentId";
+    public static final String REFERENCES = "references";
 
     public MessageMetadata {
         values = immutableCopy(values);
@@ -55,6 +49,35 @@ public record MessageMetadata(Map<String, Object> values) {
         Map<String, Object> next = new LinkedHashMap<>(values);
         next.put(key, value);
         return new MessageMetadata(next);
+    }
+
+    public MessageMetadata withReferences(List<MessageReference> references) {
+        List<MessageReference> safeReferences = references == null ? List.of() : List.copyOf(references);
+        return with(REFERENCES, safeReferences);
+    }
+
+    /**
+     * 严格恢复有序引用。损坏的 metadata 必须显式失败，不能静默丢失用户素材身份。
+     */
+    public List<MessageReference> references() {
+        Object value = values.get(REFERENCES);
+        if (value == null) {
+            return List.of();
+        }
+        if (!(value instanceof List<?> list)) {
+            throw new IllegalArgumentException("message references metadata must be a list");
+        }
+        List<MessageReference> result = new ArrayList<>(list.size());
+        for (Object item : list) {
+            if (item instanceof MessageReference reference) {
+                result.add(reference);
+            } else if (item instanceof Map<?, ?> map) {
+                result.add(referenceFromMap(map));
+            } else {
+                throw new IllegalArgumentException("message reference metadata item is invalid");
+            }
+        }
+        return List.copyOf(result);
     }
 
     public boolean flag(String key) {
@@ -122,6 +145,18 @@ public record MessageMetadata(Map<String, Object> values) {
         if (value instanceof AssistantToolCall toolCall) {
             return toolCall;
         }
+        if (value instanceof MessageReference reference) {
+            return reference;
+        }
         return value;
+    }
+
+    private static MessageReference referenceFromMap(Map<?, ?> map) {
+        Object referenceKey = map.get("referenceKey");
+        Object displayPathSnapshot = map.get("displayPathSnapshot");
+        if (!(referenceKey instanceof String key) || !(displayPathSnapshot instanceof String path)) {
+            throw new IllegalArgumentException("message reference metadata fields are invalid");
+        }
+        return new MessageReference(key, path);
     }
 }

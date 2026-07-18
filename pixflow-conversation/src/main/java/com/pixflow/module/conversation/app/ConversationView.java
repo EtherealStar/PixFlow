@@ -6,7 +6,6 @@ import java.time.Instant;
 public record ConversationView(
         String id,
         String title,
-        String packageId,
         boolean archived,
         Instant createdAt,
         Instant updatedAt) {
@@ -15,7 +14,6 @@ public record ConversationView(
         return new ConversationView(
                 entity.getId(),
                 entity.getTitle(),
-                entity.getPackageId(),
                 Boolean.TRUE.equals(entity.getArchived()),
                 entity.getCreatedAt(),
                 entity.getUpdatedAt());

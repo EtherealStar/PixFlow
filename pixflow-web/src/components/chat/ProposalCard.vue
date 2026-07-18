@@ -10,7 +10,7 @@ import type { Proposal } from '@/types/agent'
  * - AppCard + 摘要 + 数据支撑 + 双按钮（确认执行 primary / 拒绝 ghost）
  * - 选中边框 border-accent
  */
-const props = defineProps<{
+defineProps<{
   proposal: Proposal
   /** 防止双击 */
   busy?: boolean

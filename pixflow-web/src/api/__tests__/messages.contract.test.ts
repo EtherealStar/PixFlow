@@ -13,7 +13,7 @@ describe('message history contract adapter', () => {
     vi.unstubAllGlobals()
   })
 
-  it('requests page response without sinceSeq and parses metadata JSON strings', async () => {
+  it('requests page response without sinceSeq and preserves typed references', async () => {
     const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit) =>
       jsonResponse({
         records: [{
@@ -21,11 +21,13 @@ describe('message history contract adapter', () => {
           seq: 1,
           role: 'USER',
           content: 'hello',
-          metadata: '{"source":"test"}',
+          references: [{
+            referenceKey: 'package:123',
+            displayPathSnapshot: 'summer.zip'
+          }],
           createdAt: '2026-07-06T10:00:00Z',
           compactionBoundary: true,
-          compactionMarker: 'SUMMARY',
-          attachedPackageId: 123
+          compactionMarker: 'SUMMARY'
         }],
         total: 1,
         page: 1,
@@ -38,10 +40,12 @@ describe('message history contract adapter', () => {
 
     expect(fetchMock.mock.calls[0]?.[0]).toBe('/api/conversations/c1/messages?page=1&size=50')
     expect(page.items[0]).toMatchObject({
-      metadata: { source: 'test' },
+      references: [{
+        referenceKey: 'package:123',
+        displayPathSnapshot: 'summer.zip'
+      }],
       isCompactionBoundary: true,
-      isCompactionSummary: true,
-      attachedPackageId: '123'
+      isCompactionSummary: true
     })
   })
 })

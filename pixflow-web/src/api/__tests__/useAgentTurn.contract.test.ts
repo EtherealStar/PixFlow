@@ -71,12 +71,14 @@ describe('agent turn HITL contract', () => {
 
     const turn = createAgentTurn({ conversationId: 'c1' })
 
-    const first = turn.send('first')
-    const second = turn.send('second')
+    const firstReferences = [{ referenceKey: 'package:1', displayPathSnapshot: 'first.zip' }]
+    const secondReferences = [{ referenceKey: 'package:2', displayPathSnapshot: 'second.zip' }]
+    const first = turn.send('first', firstReferences)
+    const second = turn.send('second', secondReferences)
 
     expect(createSseClient).toHaveBeenCalledTimes(1)
     expect(turn.queuedCount.value).toBe(1)
-    expect(clients[0]?.body).toMatchObject({ prompt: 'first' })
+    expect(clients[0]?.body).toEqual({ prompt: 'first', references: firstReferences })
 
     clients[0]?.onEvent({
       name: 'completed',
@@ -86,7 +88,7 @@ describe('agent turn HITL contract', () => {
 
     expect(createSseClient).toHaveBeenCalledTimes(2)
     expect(turn.queuedCount.value).toBe(0)
-    expect(clients[1]?.body).toMatchObject({ prompt: 'second' })
+    expect(clients[1]?.body).toEqual({ prompt: 'second', references: secondReferences })
 
     clients[1]?.onEvent({
       name: 'completed',

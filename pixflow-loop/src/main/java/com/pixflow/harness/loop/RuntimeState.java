@@ -36,7 +36,7 @@ import java.util.Map;
  * loop 内部不维护 conversationId → RuntimeState 的映射。
  */
 public final class RuntimeState {
-    private TokenUsage usage = TokenUsage(0, 0, 0);
+    private TokenUsage usage = tokenUsage(0, 0, 0);
     private int iterationCount;
     private boolean hasAttemptedReactiveCompact;
     private int maxOutputRecoveryCount;
@@ -45,9 +45,13 @@ public final class RuntimeState {
     private String conversationId;
     private RuntimeScope runtimeScope;
     private PermissionPrincipal permissionPrincipal;
+
     private PermissionPlanMode permissionPlanMode = PermissionPlanMode.OFF;
+
     private int turnNo;
+
     private String traceId;
+
     private final Map<String, Object> metadata = new HashMap<>();
 
     /**
@@ -60,7 +64,7 @@ public final class RuntimeState {
         long prompt = this.usage.promptTokens() + delta.promptTokens();
         long completion = this.usage.completionTokens() + delta.completionTokens();
         long total = this.usage.totalTokens() + delta.totalTokens();
-        this.usage = TokenUsage(prompt, completion, total);
+        this.usage = tokenUsage(prompt, completion, total);
     }
 
     /**
@@ -201,7 +205,7 @@ public final class RuntimeState {
     }
 
     /** 工厂：构造一个带默认 metadata 值的快照；metadata 字段单独初始化以避免 record 默认值陷阱。 */
-    private static TokenUsage TokenUsage(long p, long c, long t) {
+    private static TokenUsage tokenUsage(long p, long c, long t) {
         return new TokenUsage(p, c, t);
     }
 

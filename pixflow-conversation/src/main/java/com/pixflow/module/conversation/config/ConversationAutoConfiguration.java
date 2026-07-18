@@ -2,7 +2,7 @@ package com.pixflow.module.conversation.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pixflow.common.progress.ProgressNotifier;
-import com.pixflow.harness.session.persistence.MessageReadMapper;
+import com.pixflow.harness.session.history.TranscriptHistoryReader;
 import com.pixflow.harness.permission.PermissionPolicy;
 import com.pixflow.harness.loop.AgentTurnRunner;
 import com.pixflow.module.conversation.app.AgentTurnRunnerRegistry;
@@ -10,6 +10,8 @@ import com.pixflow.module.conversation.app.CancellationService;
 import com.pixflow.module.conversation.app.ConfirmationService;
 import com.pixflow.module.conversation.app.ConversationService;
 import com.pixflow.module.conversation.app.HistoryQueryService;
+import com.pixflow.module.conversation.app.DefaultMessageReferenceValidator;
+import com.pixflow.module.conversation.app.MessageReferenceValidator;
 import com.pixflow.module.conversation.app.TurnPreparationService;
 import com.pixflow.module.conversation.api.CancellationController;
 import com.pixflow.module.conversation.api.ConfirmationController;
@@ -18,8 +20,6 @@ import com.pixflow.module.conversation.api.HistoryController;
 import com.pixflow.module.conversation.api.MessageController;
 import com.pixflow.module.conversation.api.SseTurnMetrics;
 import com.pixflow.module.conversation.api.SseTurnSessionFactory;
-import com.pixflow.module.conversation.attachment.AttachmentCollector;
-import com.pixflow.module.conversation.attachment.AttachmentMapper;
 import com.pixflow.module.conversation.lock.ConversationLock;
 import com.pixflow.module.conversation.persistence.ConversationMapper;
 import com.pixflow.module.conversation.progress.ConversationProgressBridge;
@@ -28,7 +28,7 @@ import com.pixflow.module.conversation.proposal.ProposalService;
 import com.pixflow.module.conversation.proposal.ProposalPayloadVerifier;
 import com.pixflow.module.imagegen.confirm.ImagegenPayloadHasher;
 import com.pixflow.module.dag.config.DagAutoConfiguration;
-import com.pixflow.module.file.pkg.PackageReferenceResolver;
+import com.pixflow.module.file.api.AssetReferenceResolver;
 import com.pixflow.module.imagegen.config.ImagegenAutoConfiguration;
 import com.pixflow.module.task.api.TaskCommandService;
 import java.time.Clock;
@@ -100,9 +100,9 @@ public class ConversationAutoConfiguration {
     @ConditionalOnMissingBean
     public HistoryQueryService historyQueryService(
             ConversationService conversationService,
-            MessageReadMapper messageReadMapper,
+            TranscriptHistoryReader historyReader,
             ConversationProperties properties) {
-        return new HistoryQueryService(conversationService, messageReadMapper, properties);
+        return new HistoryQueryService(conversationService, historyReader, properties);
     }
 
     @Bean
@@ -113,15 +113,11 @@ public class ConversationAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public AttachmentMapper conversationAttachmentMapper() {
-        return new AttachmentMapper();
-    }
-
-    @Bean
-    @ConditionalOnMissingBean
-    @ConditionalOnBean(PackageReferenceResolver.class)
-    public AttachmentCollector attachmentCollector(PackageReferenceResolver packageReferenceResolver) {
-        return new AttachmentCollector(packageReferenceResolver);
+    @ConditionalOnBean({PermissionPolicy.class, AssetReferenceResolver.class})
+    public MessageReferenceValidator messageReferenceValidator(
+            PermissionPolicy permissionPolicy,
+            AssetReferenceResolver assetReferenceResolver) {
+        return new DefaultMessageReferenceValidator(permissionPolicy, assetReferenceResolver);
     }
 
     @Bean
@@ -145,18 +141,20 @@ public class ConversationAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    @ConditionalOnBean({ConversationLock.class, AgentTurnRunnerRegistry.class})
+    @ConditionalOnBean({
+            ConversationLock.class,
+            AgentTurnRunnerRegistry.class,
+            MessageReferenceValidator.class
+    })
     public TurnPreparationService turnPreparationService(
             ConversationService conversationService,
             ConversationLock conversationLock,
-            ObjectProvider<AttachmentCollector> attachmentCollectorProvider,
-            AttachmentMapper attachmentMapper,
+            MessageReferenceValidator messageReferenceValidator,
             AgentTurnRunnerRegistry agentTurnRunnerRegistry) {
         return new TurnPreparationService(
                 conversationService,
                 conversationLock,
-                attachmentCollectorProvider.getIfAvailable(),
-                attachmentMapper,
+                messageReferenceValidator,
                 agentTurnRunnerRegistry);
     }
 

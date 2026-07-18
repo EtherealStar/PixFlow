@@ -4,6 +4,7 @@ import { createSseClient } from '@/transport/sse'
 import { confirm as confirmProposal, reject as rejectProposal } from '@/api/confirm'
 import { newId } from '@/utils/id'
 import { ApiError } from '@/types/api'
+import type { MessageReference } from '@/api/messages'
 import type {
   AgentEvent,
   AgentEventAttribution,
@@ -36,14 +37,9 @@ interface PendingProposal {
 
 interface QueuedTurn {
   prompt: string
-  attachments: SendAttachments
+  references: MessageReference[]
   resolve: () => void
   reject: (error: ApiError) => void
-}
-
-export interface SendAttachments {
-  attachments?: Array<{ type: 'UPLOAD_IMAGE'; attachmentId?: string; sourceRef: string; metadata?: Record<string, unknown> | null }>
-  packageId?: string
 }
 
 export interface ConfirmResult {
@@ -96,9 +92,9 @@ export function createAgentTurn(opts: { conversationId: string }) {
     }
   }
 
-  async function send(prompt: string, attachments: SendAttachments = {}): Promise<void> {
+  async function send(prompt: string, references: MessageReference[] = []): Promise<void> {
     return new Promise<void>((resolve, reject) => {
-      const item: QueuedTurn = { prompt, attachments, resolve, reject }
+      const item: QueuedTurn = { prompt, references: [...references], resolve, reject }
       if (activeTurn || isActivePhase(phase.value)) {
         queuedTurns.value = [...queuedTurns.value, item]
         updateQueuedCount()
@@ -109,7 +105,7 @@ export function createAgentTurn(opts: { conversationId: string }) {
   }
 
   function startQueuedTurn(item: QueuedTurn): void {
-    const turn = runSingleTurn(item.prompt, item.attachments)
+    const turn = runSingleTurn(item.prompt, item.references)
     activeTurn = turn
     turn
       .then(() => {
@@ -144,7 +140,7 @@ export function createAgentTurn(opts: { conversationId: string }) {
     summary.value = { ...summary.value, queuedCount: queuedTurns.value.length }
   }
 
-  async function runSingleTurn(prompt: string, attachments: SendAttachments = {}): Promise<void> {
+  async function runSingleTurn(prompt: string, references: MessageReference[] = []): Promise<void> {
     resetTimeline()
     proposals.value = []
     summary.value = {
@@ -156,7 +152,7 @@ export function createAgentTurn(opts: { conversationId: string }) {
 
     const controller = new AbortController()
     abortController = controller
-    const body = { prompt, ...attachments }
+    const body = { prompt, references }
     let sse: { close: () => void } | null = null
     let receivedCompletion = false
 

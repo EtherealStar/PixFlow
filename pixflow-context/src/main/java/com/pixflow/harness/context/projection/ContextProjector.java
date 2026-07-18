@@ -1,5 +1,6 @@
 package com.pixflow.harness.context.projection;
 
+import com.pixflow.harness.context.model.AssistantToolCall;
 import com.pixflow.harness.context.model.Message;
 import com.pixflow.harness.context.model.MessageRole;
 import java.util.HashSet;
@@ -43,7 +44,7 @@ public final class ContextProjector {
         for (int i = start - 1; i >= 0; i--) {
             Message message = messages.get(i);
             if (message.role() == MessageRole.ASSISTANT) {
-                for (String toolCallId : message.metadata().toolCallIds()) {
+                for (String toolCallId : assistantToolCallIds(message)) {
                     if (requiredToolCalls.contains(toolCallId)) {
                         start = i;
                         requiredToolCalls.remove(toolCallId);
@@ -62,7 +63,7 @@ public final class ContextProjector {
         java.util.ArrayList<Message> result = new java.util.ArrayList<>(messages.size());
         for (Message message : messages) {
             if (message.role() == MessageRole.ASSISTANT) {
-                visibleToolCalls.addAll(message.metadata().toolCallIds());
+                visibleToolCalls.addAll(assistantToolCallIds(message));
                 result.add(message);
             } else if (message.role() == MessageRole.TOOL_RESULT) {
                 if (visibleToolCalls.contains(message.toolCallId())) {
@@ -73,5 +74,12 @@ public final class ContextProjector {
             }
         }
         return List.copyOf(result);
+    }
+
+    private static List<String> assistantToolCallIds(Message message) {
+        // AssistantToolCall 是当前唯一写入形态；投影不再读取无人生产的旧 toolCallIds metadata。
+        return message.metadata().assistantToolCalls().stream()
+                .map(AssistantToolCall::id)
+                .toList();
     }
 }

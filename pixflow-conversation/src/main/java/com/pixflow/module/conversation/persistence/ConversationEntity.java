@@ -11,7 +11,6 @@ public class ConversationEntity {
     private String id;
     private Long ownerUserId;
     private String title;
-    private String packageId;
     private Boolean archived;
     private Instant createdAt;
     private Instant updatedAt;
@@ -38,14 +37,6 @@ public class ConversationEntity {
 
     public void setTitle(String title) {
         this.title = title;
-    }
-
-    public String getPackageId() {
-        return packageId;
-    }
-
-    public void setPackageId(String packageId) {
-        this.packageId = packageId;
     }
 
     public Boolean getArchived() {

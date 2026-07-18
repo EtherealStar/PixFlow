@@ -11,7 +11,7 @@ public interface MessageReadMapper {
     @Select("""
             SELECT id, conversation_id AS conversationId, seq, role, content,
                    tool_call_id AS toolCallId, compaction_marker AS compactionMarker, metadata,
-                   attached_package_id AS attachedPackageId, task_id AS taskId, created_at AS createdAt
+                   task_id AS taskId, created_at AS createdAt
             FROM message
             WHERE id = #{id}
             """)
@@ -20,7 +20,7 @@ public interface MessageReadMapper {
     @Select("""
             SELECT id, conversation_id AS conversationId, seq, role, content,
                    tool_call_id AS toolCallId, compaction_marker AS compactionMarker, metadata,
-                   attached_package_id AS attachedPackageId, task_id AS taskId, created_at AS createdAt
+                   task_id AS taskId, created_at AS createdAt
             FROM message
             WHERE conversation_id = #{conversationId} AND compaction_marker IS NULL
             ORDER BY seq
@@ -30,7 +30,7 @@ public interface MessageReadMapper {
     @Select("""
             SELECT id, conversation_id AS conversationId, seq, role, content,
                    tool_call_id AS toolCallId, compaction_marker AS compactionMarker, metadata,
-                   attached_package_id AS attachedPackageId, task_id AS taskId, created_at AS createdAt
+                   task_id AS taskId, created_at AS createdAt
             FROM message
             WHERE conversation_id = #{conversationId}
               AND compaction_marker IS NULL
@@ -45,7 +45,7 @@ public interface MessageReadMapper {
             <script>
             SELECT id, conversation_id AS conversationId, seq, role, content,
                    tool_call_id AS toolCallId, compaction_marker AS compactionMarker, metadata,
-                   attached_package_id AS attachedPackageId, task_id AS taskId, created_at AS createdAt
+                   task_id AS taskId, created_at AS createdAt
             FROM message
             WHERE id IN
             <foreach collection="ids" item="id" open="(" separator="," close=")">
@@ -65,13 +65,13 @@ public interface MessageReadMapper {
     @Select("""
             SELECT id, conversation_id AS conversationId, seq, role, content,
                    tool_call_id AS toolCallId, compaction_marker AS compactionMarker, metadata,
-                   attached_package_id AS attachedPackageId, task_id AS taskId, created_at AS createdAt
+                   task_id AS taskId, created_at AS createdAt
             FROM message
             WHERE conversation_id = #{conversationId}
             ORDER BY seq
             LIMIT #{limit} OFFSET #{offset}
             """)
-    List<MessageReadView> findMessagesByConversation(
+    List<MessageEntity> findMessagesByConversation(
             @Param("conversationId") String conversationId,
             @Param("offset") long offset,
             @Param("limit") long limit);
@@ -79,13 +79,4 @@ public interface MessageReadMapper {
     @Select("SELECT COUNT(*) FROM message WHERE conversation_id = #{conversationId}")
     long countMessagesByConversation(@Param("conversationId") String conversationId);
 
-    @Select("""
-            SELECT id, conversation_id AS conversationId, seq, role, content,
-                   tool_call_id AS toolCallId, compaction_marker AS compactionMarker, metadata,
-                   attached_package_id AS attachedPackageId, task_id AS taskId, created_at AS createdAt
-            FROM message
-            WHERE conversation_id = #{conversationId} AND role = 'ATTACHMENT'
-            ORDER BY seq
-            """)
-    List<MessageReadView> findAttachments(@Param("conversationId") String conversationId);
 }

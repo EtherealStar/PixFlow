@@ -9,7 +9,7 @@ import { useChatSession } from '@/runtime/useChatSession'
 /**
  * 会话页（/chat/:cid），web.md §十一 / §二十一
  *
- * - Composer 接管输入（@ 提及 / Ctrl+Enter / 附件）
+ * - Composer 接管输入（@ 提及 / Ctrl+Enter）
  * - MessageStream 渲染 agent timeline + 用户消息
  * - ProposalCard 列表：Proposal 直接确认入口
  * - TaskProgressCard：当消息流中带 taskId 时挂载
@@ -49,16 +49,13 @@ const chat = useChatSession({ route, router })
         :conversation-id="t.conversationId"
         class="mx-6 my-2"
       />
-
     </div>
 
     <footer class="chat-foot border-t border-border bg-bg-panel px-4 py-3">
       <Composer
         v-model="chat.composerText.value"
-        :sending="chat.uploadingAttachment.value"
+        :sending="chat.sending.value"
         :streaming="chat.currentPhase.value === 'streaming' || chat.currentPhase.value === 'sending'"
-        :has-attachments="chat.pendingAttachments.value.length > 0"
-        @attach-files="chat.attachFiles"
         @send="chat.sendComposer"
         @stop="chat.stop"
       />

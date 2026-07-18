@@ -118,7 +118,7 @@ class ActiveChainResolverTest {
         }
 
         @Override
-        public List<com.pixflow.harness.session.persistence.MessageReadView> findMessagesByConversation(
+        public List<MessageEntity> findMessagesByConversation(
                 String conversationId,
                 long offset,
                 long limit) {
@@ -130,10 +130,6 @@ class ActiveChainResolverTest {
             return 0;
         }
 
-        @Override
-        public List<com.pixflow.harness.session.persistence.MessageReadView> findAttachments(String conversationId) {
-            return List.of();
-        }
     }
 
     private static final class StubCompactionMapper implements CompactionMapper {

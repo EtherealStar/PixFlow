@@ -1,5 +1,6 @@
 package com.pixflow.harness.hooks.payload;
 
+import java.util.List;
 import java.util.Map;
 
 public record UserPromptSubmitPayload(
@@ -8,12 +9,12 @@ public record UserPromptSubmitPayload(
         String traceId,
         RuntimeScope runtime,
         String prompt,
-        Map<String, Object> attachments,
+        List<MessageReferencePayload> references,
         Map<String, Object> metadata) implements HookPayload {
 
     public UserPromptSubmitPayload {
         runtime = runtime == null ? RuntimeScope.main() : runtime;
-        attachments = MapCopies.immutableMap(attachments);
+        references = references == null ? List.of() : List.copyOf(references);
         metadata = MapCopies.immutableMap(metadata);
     }
 }

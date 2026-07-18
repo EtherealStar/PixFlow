@@ -13,7 +13,6 @@ import com.pixflow.module.conversation.app.PreparedTurn;
 import com.pixflow.module.conversation.app.TurnPreparationService;
 import com.pixflow.module.conversation.error.ConversationErrorCode;
 import java.util.List;
-import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -22,7 +21,7 @@ class MessageControllerLifecycleTest {
     void preparationFailureEscapesBeforeAnEmitterIsReturned() {
         TurnPreparationService preparation = mock(TurnPreparationService.class);
         SseTurnSessionFactory factory = mock(SseTurnSessionFactory.class);
-        MessageSubmitRequest request = new MessageSubmitRequest("q", List.of(), null, Map.of());
+        MessageSubmitRequest request = new MessageSubmitRequest("q", List.of());
         when(preparation.prepare(principal(), "missing", request)).thenThrow(
                 new PixFlowException(ConversationErrorCode.CONVERSATION_NOT_FOUND, "missing"));
         MessageController controller = new MessageController(preparation, factory);
@@ -40,7 +39,7 @@ class MessageControllerLifecycleTest {
         PreparedTurn prepared = mock(PreparedTurn.class);
         SseTurnSession session = mock(SseTurnSession.class);
         SseEmitter emitter = new SseEmitter();
-        MessageSubmitRequest request = new MessageSubmitRequest("q", List.of(), null, Map.of());
+        MessageSubmitRequest request = new MessageSubmitRequest("q", List.of());
         when(preparation.prepare(principal(), "conv-1", request)).thenReturn(prepared);
         when(factory.create(prepared)).thenReturn(session);
         when(session.emitter()).thenReturn(emitter);

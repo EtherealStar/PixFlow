@@ -3,6 +3,7 @@ package com.pixflow.harness.context.store;
 import com.pixflow.harness.context.compaction.CompactionTrigger;
 import com.pixflow.harness.context.model.Message;
 import com.pixflow.harness.context.model.MessageMetadata;
+import com.pixflow.harness.context.model.MessageReference;
 import com.pixflow.harness.context.model.MessageRole;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -37,6 +38,10 @@ public final class MessageStore {
         return appendOne(Message.user(content));
     }
 
+    public Message appendUser(String content, List<MessageReference> references) {
+        return appendOne(Message.user(content, references));
+    }
+
     public Message appendAssistant(Message assistant) {
         if (assistant.role() != MessageRole.ASSISTANT) {
             throw new IllegalArgumentException("assistant message expected");
@@ -51,15 +56,6 @@ public final class MessageStore {
             }
         }
         return appendMany(results);
-    }
-
-    public List<Message> appendAttachments(List<Message> attachments) {
-        for (Message attachment : attachments) {
-            if (attachment.role() != MessageRole.ATTACHMENT) {
-                throw new IllegalArgumentException("attachment message expected");
-            }
-        }
-        return appendMany(attachments);
     }
 
     /**

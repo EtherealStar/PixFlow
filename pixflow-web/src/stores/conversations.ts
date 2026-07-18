@@ -24,7 +24,7 @@ export const useConversationsStore = defineStore('conversations', () => {
     current.value = await api.getConversation(id)
   }
 
-  async function create(payload?: { title?: string; packageId?: string | number }): Promise<ConversationDetail> {
+  async function create(payload?: { title?: string }): Promise<ConversationDetail> {
     const c = await api.createConversation(payload)
     currentId.value = c.conversationId
     current.value = c

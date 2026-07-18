@@ -49,10 +49,9 @@ export const useFileIndexStore = defineStore('fileIndex', () => {
     return nodes
   })
 
-  // "结果"段：已归档的会话（关联了 packageId 的对话）
+  // "结果"段：会话节点；产物查询不再依赖 Conversation 单包绑定。
   const resultNodes = computed<FileIndexNode[]>(() => {
     return conversations.items
-      .filter((c) => c.packageId !== null && c.packageId !== undefined)
       .map((c) => ({
         id: `conversation-${c.conversationId}`,
         type: 'conversation' as const,
@@ -62,7 +61,7 @@ export const useFileIndexStore = defineStore('fileIndex', () => {
       }))
   })
 
-  // "历史会话"段：全部会话（不含 packageId 过滤）
+  // "历史会话"段：全部会话。
   const historyNodes = computed<FileIndexNode[]>(() => {
     return conversations.items.map((c) => ({
       id: `history-${c.conversationId}`,

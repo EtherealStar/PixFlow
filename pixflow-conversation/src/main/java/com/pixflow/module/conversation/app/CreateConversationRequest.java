@@ -1,4 +1,4 @@
 package com.pixflow.module.conversation.app;
 
-public record CreateConversationRequest(String title, String packageId) {
+public record CreateConversationRequest(String title) {
 }

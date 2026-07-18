@@ -9,23 +9,24 @@ import type { Page } from '@/types/api'
  */
 export interface SendMessageRequest {
   prompt?: string
-  attachments?: Array<{ type: 'UPLOAD_IMAGE'; attachmentId?: string; sourceRef: string; metadata?: Record<string, unknown> | null }>
-  packageId?: string
-  metadata?: Record<string, unknown>
+  references: MessageReference[]
+}
+
+export interface MessageReference {
+  referenceKey: string
+  displayPathSnapshot: string
 }
 
 export interface HistoryMessage {
   id: string
   seq: number
-  role: 'USER' | 'ASSISTANT' | 'TOOL' | 'ATTACHMENT' | 'SYSTEM'
+  role: 'USER' | 'ASSISTANT' | 'TOOL_RESULT'
   content: string
   toolCallId?: string
-  metadata?: Record<string, unknown>
-  metadataRaw?: string
+  references: MessageReference[]
   createdAt: string
   isCompactionBoundary?: boolean
   isCompactionSummary?: boolean
-  attachedPackageId?: string
 }
 
 interface BackendMessageView {
@@ -34,44 +35,26 @@ interface BackendMessageView {
   role: HistoryMessage['role']
   content: string
   toolCallId?: string | null
-  metadata?: string | Record<string, unknown> | null
+  references?: MessageReference[] | null
   createdAt: string
   compactionMarker?: string | null
   compactionBoundary?: boolean | null
-  attachedPackageId?: string | number | null
   taskId?: string | null
 }
 
 export type HistoryResponse = Page<HistoryMessage>
 
-function parseMetadata(raw: BackendMessageView['metadata']): Pick<HistoryMessage, 'metadata' | 'metadataRaw'> {
-  if (raw === null || raw === undefined) return {}
-  if (typeof raw === 'object') return { metadata: raw }
-  try {
-    const parsed: unknown = JSON.parse(raw)
-    return parsed && typeof parsed === 'object'
-      ? { metadata: parsed as Record<string, unknown> }
-      : { metadataRaw: raw }
-  } catch {
-    return { metadataRaw: raw }
-  }
-}
-
 function normalizeMessage(raw: BackendMessageView): HistoryMessage {
-  const metadata = parseMetadata(raw.metadata)
   return {
     id: String(raw.id),
     seq: raw.seq,
     role: raw.role,
     content: raw.content,
     toolCallId: raw.toolCallId ?? undefined,
-    ...metadata,
+    references: raw.references ?? [],
     createdAt: raw.createdAt,
     isCompactionBoundary: Boolean(raw.compactionBoundary),
-    isCompactionSummary: raw.compactionMarker === 'SUMMARY',
-    attachedPackageId: raw.attachedPackageId === null || raw.attachedPackageId === undefined
-      ? undefined
-      : String(raw.attachedPackageId)
+    isCompactionSummary: raw.compactionMarker === 'SUMMARY'
   }
 }
 

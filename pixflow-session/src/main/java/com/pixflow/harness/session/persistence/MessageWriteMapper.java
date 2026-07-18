@@ -16,12 +16,12 @@ public interface MessageWriteMapper {
             <script>
             INSERT IGNORE INTO message
               (id, conversation_id, seq, role, content, tool_call_id, compaction_marker, metadata,
-               attached_package_id, task_id, created_at)
+               task_id, created_at)
             VALUES
             <foreach collection="messages" item="message" separator=",">
               (#{message.id}, #{message.conversationId}, #{message.seq}, #{message.role}, #{message.content},
                #{message.toolCallId}, #{message.compactionMarker}, CAST(#{message.metadata} AS JSON),
-               #{message.attachedPackageId}, #{message.taskId}, #{message.createdAt})
+               #{message.taskId}, #{message.createdAt})
             </foreach>
             </script>
             """)

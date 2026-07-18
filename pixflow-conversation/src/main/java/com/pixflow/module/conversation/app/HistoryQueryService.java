@@ -2,7 +2,7 @@ package com.pixflow.module.conversation.app;
 
 import com.pixflow.common.error.BusinessException;
 import com.pixflow.common.web.PageResponse;
-import com.pixflow.harness.session.persistence.MessageReadMapper;
+import com.pixflow.harness.session.history.TranscriptHistoryReader;
 import com.pixflow.module.conversation.config.ConversationProperties;
 import com.pixflow.module.conversation.error.ConversationErrorCode;
 import com.pixflow.module.conversation.history.MessageView;
@@ -10,15 +10,15 @@ import java.util.Map;
 
 public class HistoryQueryService {
     private final ConversationService conversationService;
-    private final MessageReadMapper messageReadMapper;
+    private final TranscriptHistoryReader historyReader;
     private final ConversationProperties properties;
 
     public HistoryQueryService(
             ConversationService conversationService,
-            MessageReadMapper messageReadMapper,
+            TranscriptHistoryReader historyReader,
             ConversationProperties properties) {
         this.conversationService = conversationService;
-        this.messageReadMapper = messageReadMapper;
+        this.historyReader = historyReader;
         this.properties = properties;
     }
 
@@ -34,9 +34,9 @@ public class HistoryQueryService {
                     Map.of("page", resolvedPage, "size", resolvedSize));
         }
         long offset = (resolvedPage - 1L) * resolvedSize;
-        long total = messageReadMapper.countMessagesByConversation(conversationId);
+        long total = historyReader.count(conversationId);
         return PageResponse.of(
-                messageReadMapper.findMessagesByConversation(conversationId, offset, resolvedSize)
+                historyReader.page(conversationId, offset, resolvedSize)
                         .stream()
                         .map(MessageView::from)
                         .toList(),

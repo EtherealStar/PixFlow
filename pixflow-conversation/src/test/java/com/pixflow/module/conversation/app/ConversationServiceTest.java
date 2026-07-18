@@ -23,18 +23,17 @@ class ConversationServiceTest {
 
     @Test
     void createsConversationWithNormalizedFields() {
-        ConversationView view = service.create(7L, new CreateConversationRequest("  新会话  ", " 42 "));
+        ConversationView view = service.create(7L, new CreateConversationRequest("  新会话  "));
 
         assertThat(view.id()).isNotBlank();
         assertThat(view.title()).isEqualTo("新会话");
-        assertThat(view.packageId()).isEqualTo("42");
         assertThat(view.archived()).isFalse();
         verify(mapper).insert(any(ConversationEntity.class));
     }
 
     @Test
     void rejectsTooLongTitle() {
-        assertThatThrownBy(() -> service.create(7L, new CreateConversationRequest("x".repeat(121), null)))
+        assertThatThrownBy(() -> service.create(7L, new CreateConversationRequest("x".repeat(121))))
                 .isInstanceOf(BusinessException.class);
     }
 

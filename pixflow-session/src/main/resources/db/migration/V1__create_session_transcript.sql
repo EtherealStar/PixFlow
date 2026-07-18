@@ -7,7 +7,6 @@ CREATE TABLE IF NOT EXISTS message (
   tool_call_id        VARCHAR(128) NULL,
   compaction_marker   VARCHAR(32)  NULL,
   metadata            JSON         NULL,
-  attached_package_id VARCHAR(64)  NULL,
   task_id             VARCHAR(64)  NULL,
   created_at          TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   UNIQUE KEY uk_message_conversation_seq (conversation_id, seq),
