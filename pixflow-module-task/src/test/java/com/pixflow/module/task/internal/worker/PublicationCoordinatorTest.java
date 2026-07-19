@@ -1,4 +1,4 @@
-package com.pixflow.module.task.internal.publication;
+package com.pixflow.module.task.internal.worker;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -17,7 +17,6 @@ import com.pixflow.module.task.domain.model.PublicationStatus;
 import com.pixflow.module.task.domain.model.ResultStatus;
 import com.pixflow.module.task.infra.persistence.ProcessResultMapper;
 import com.pixflow.module.task.infra.persistence.ProcessResultMemberMapper;
-import com.pixflow.module.task.internal.worker.ExecutionRun;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;

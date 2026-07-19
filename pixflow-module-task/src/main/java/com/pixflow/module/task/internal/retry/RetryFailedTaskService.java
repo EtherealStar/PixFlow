@@ -19,13 +19,9 @@ import com.pixflow.module.task.infra.persistence.ProcessTaskMapper;
 import com.pixflow.module.task.internal.create.PendingTaskEnqueuer;
 import com.pixflow.module.task.internal.planning.WorkUnitSelection;
 import com.pixflow.module.task.internal.publish.TaskEventPublisher;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.HashSet;
-import java.util.HexFormat;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -66,7 +62,7 @@ public class RetryFailedTaskService {
   @Transactional
   public RetryTaskResponse retry(RetryFailedTaskCommand command) {
     long sourceId = parseSourceId(command);
-    String idempotencyKey = idempotencyKey(sourceId, command.idempotencyKey());
+    String idempotencyKey = idempotencyKey(sourceId);
     return idempotencyGuard
         .findExistingTaskId(idempotencyKey)
         .map(this::loadResponse)
@@ -230,13 +226,8 @@ public class RetryFailedTaskService {
     }
   }
 
-  private static String idempotencyKey(long sourceId, String requestKey) {
-    try {
-      byte[] digest =
-          MessageDigest.getInstance("SHA-256").digest(requestKey.getBytes(StandardCharsets.UTF_8));
-      return "retry:" + sourceId + ":" + HexFormat.of().formatHex(digest);
-    } catch (NoSuchAlgorithmException e) {
-      throw new IllegalStateException("SHA-256 is unavailable", e);
-    }
+  private static String idempotencyKey(long sourceId) {
+    // 业务幂等身份只由不可变的来源任务决定，客户端重试不能创建第二个直接派生任务。
+    return "retry-failed:" + sourceId;
   }
 }

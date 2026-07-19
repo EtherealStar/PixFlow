@@ -163,7 +163,7 @@ public class TaskQueryServiceImpl implements TaskQueryService {
       throw new PixFlowException(
           TaskErrorCode.TASK_RESULT_NOT_FOUND, "task result not found: " + resultId);
     }
-    // 删除只隐藏 process_result，不删除对象存储字节，保证历史任务和评分证据仍可追溯。
+    // 这里只清除执行结果投影；已发布图片由 File 独立管理，不能随 Task/Activity 一起删除。
     resultMapper.softDelete(task.getId(), parsedResultId, clock.instant());
   }
 
@@ -198,7 +198,7 @@ public class TaskQueryServiceImpl implements TaskQueryService {
     DownloadHandle handle = null;
     if (result.getStatus() == ResultStatus.SUCCESS
         && result.getPublishedReferenceKey() != null) {
-      handle = downloadService.downloadResult(result);
+      handle = downloadService.previewResult(result);
     }
     Long size = result.getBytesOut();
     return new TaskResultView(

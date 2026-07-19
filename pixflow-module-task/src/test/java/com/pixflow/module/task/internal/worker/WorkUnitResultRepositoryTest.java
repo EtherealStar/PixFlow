@@ -15,6 +15,8 @@ import com.pixflow.harness.state.model.UnitKeyCodec;
 import com.pixflow.infra.storage.BucketType;
 import com.pixflow.infra.storage.ObjectLocation;
 import com.pixflow.infra.storage.ObjectStorage;
+import com.pixflow.infra.storage.StorageException;
+import com.pixflow.infra.storage.StoredObjectMetadata;
 import com.pixflow.module.task.api.publication.CandidateKind;
 import com.pixflow.module.task.api.publication.ProducerIdentity;
 import com.pixflow.module.task.api.publication.SourceImageIdentity;
@@ -81,7 +83,7 @@ class WorkUnitResultRepositoryTest {
   }
 
   @Test
-  void successIsRejectedWhenEpochObjectDoesNotExist() {
+  void successIsRejectedWhenCandidateStatFails() {
     ProcessResultMapper mapper = mock(ProcessResultMapper.class);
     WorkUnit unit = unit();
     ProcessResult pending = new ProcessResult();
@@ -89,14 +91,18 @@ class WorkUnitResultRepositoryTest {
     when(mapper.selectByUnit(1L, UnitKeyCodec.encode(unit.unitKey()))).thenReturn(pending);
     ProcessTaskMapper tasks = mock(ProcessTaskMapper.class);
     ObjectStorage storage = mock(ObjectStorage.class);
+    when(storage.stat(any()))
+        .thenThrow(
+            new StorageException(
+                "stat", BucketType.TMP, "missing", true, "candidate missing", null));
     WorkUnitResultRepository repository =
         new WorkUnitResultRepository(
             mapper, mock(ProcessResultMemberMapper.class), tasks, storage, new ObjectMapper());
 
     assertThatThrownBy(
             () -> repository.commit(new ExecutionRun("1", 2, () -> true), success(unit, 2)))
-        .isInstanceOf(IllegalStateException.class)
-        .hasMessageContaining("尚不存在");
+        .isInstanceOf(StorageException.class)
+        .hasMessageContaining("candidate missing");
     verify(tasks, never()).lockRunningEpoch(anyLong(), anyLong());
   }
 
@@ -134,7 +140,8 @@ class WorkUnitResultRepositoryTest {
     ProcessTaskMapper tasks = mock(ProcessTaskMapper.class);
     when(tasks.lockRunningEpoch(anyLong(), anyLong())).thenReturn(new ProcessTask());
     ObjectStorage storage = mock(ObjectStorage.class);
-    when(storage.exists(any())).thenReturn(true);
+    when(storage.stat(any()))
+        .thenReturn(new StoredObjectMetadata(12L, "image/png", "etag", Instant.EPOCH));
     return new WorkUnitResultRepository(results, members, tasks, storage, new ObjectMapper());
   }
 }

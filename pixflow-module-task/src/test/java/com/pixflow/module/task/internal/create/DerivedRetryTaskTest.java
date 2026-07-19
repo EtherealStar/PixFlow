@@ -71,7 +71,7 @@ class DerivedRetryTaskTest {
             Clock.fixed(Instant.parse("2026-07-13T03:00:00Z"), ZoneOffset.UTC),
             mock(TaskEventPublisher.class));
 
-    var response = service.retry(new RetryFailedTaskCommand(new TaskId("10"), "request-1"));
+    var response = service.retry(new RetryFailedTaskCommand(new TaskId("10")));
 
     assertThat(response.taskId()).isEqualTo("101");
     assertThat(response.retryOfTaskId()).isEqualTo("10");
@@ -88,6 +88,7 @@ class DerivedRetryTaskTest {
         .extracting(WorkUnitSelection.Item::memberId)
         .containsExactly("image-1");
     assertThat(task.getValue().getRetryOfTaskId()).isEqualTo(10L);
+    assertThat(task.getValue().getIdempotencyKey()).isEqualTo("retry-failed:10");
 
     ArgumentCaptor<ProcessResult> pending = ArgumentCaptor.forClass(ProcessResult.class);
     verify(results).insert(pending.capture());

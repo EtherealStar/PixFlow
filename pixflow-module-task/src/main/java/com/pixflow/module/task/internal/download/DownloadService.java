@@ -92,6 +92,19 @@ public class DownloadService {
     return downloadResult(result, "single");
   }
 
+  public DownloadHandle previewResult(ProcessResult result) {
+    if (result == null
+        || result.getStatus() != ResultStatus.SUCCESS
+        || result.getPublishedReferenceKey() == null) {
+      return null;
+    }
+    // File 删除 Generated Image 后保留执行诊断，但 Task 列表不再提供失效的预览链接。
+    return publishedAssets
+        .find(result.getPublishedReferenceKey())
+        .map(this::downloadHandle)
+        .orElse(null);
+  }
+
   private DownloadHandle downloadResult(ProcessResult result, String metricType) {
     if (result == null
         || result.getStatus() != ResultStatus.SUCCESS
@@ -101,9 +114,13 @@ public class DownloadService {
           TaskErrorCode.TASK_DOWNLOAD_NOT_READY, "result is not ready for download");
     }
     var content = publishedAssets.require(result.getPublishedReferenceKey());
+    metrics.recordDownload(metricType, "ok");
+    return downloadHandle(content);
+  }
+
+  private DownloadHandle downloadHandle(PublishedAssetReader.PublishedAssetContent content) {
     URL url =
         objectStorage.presignGet(content.location(), properties.getDownload().getSingleUrlExpiry());
-    metrics.recordDownload(metricType, "ok");
     return new DownloadHandle(
         url,
         clock.instant().plus(properties.getDownload().getSingleUrlExpiry()),

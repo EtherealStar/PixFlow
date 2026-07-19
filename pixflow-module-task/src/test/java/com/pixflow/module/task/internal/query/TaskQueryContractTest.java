@@ -2,6 +2,7 @@ package com.pixflow.module.task.internal.query;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -17,10 +18,14 @@ import com.pixflow.module.task.infra.persistence.ProcessResultMapper;
 import com.pixflow.module.task.infra.persistence.ProcessTaskMapper;
 import com.pixflow.module.task.internal.download.DownloadService;
 import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
 class TaskQueryContractTest {
+  private static final Instant NOW = Instant.parse("2026-07-18T16:00:00Z");
+
   @Test
   void exposesDerivedSourceAndStructuredFinalFailure() {
     ProcessTaskMapper tasks = mock(ProcessTaskMapper.class);
@@ -63,5 +68,66 @@ class TaskQueryContractTest {
     assertThat(view.failure().safeMessage()).isEqualTo("服务暂时繁忙");
     assertThat(view.failure().details()).containsEntry("provider", "aliyun");
     assertThat(view.failure().details()).containsEntry("apiKey", "***");
+  }
+
+  @Test
+  void deletingPublishedResultOnlyHidesExecutionProjection() {
+    ProcessTaskMapper tasks = mock(ProcessTaskMapper.class);
+    ProcessResultMapper results = mock(ProcessResultMapper.class);
+    ProcessTask task = new ProcessTask();
+    task.setId(101L);
+    when(tasks.selectById(101L)).thenReturn(task);
+
+    ProcessResult published = new ProcessResult();
+    published.setId(201L);
+    published.setTaskId(101L);
+    published.setGeneratedImageId(301L);
+    published.setPublishedReferenceKey("package:7/image:301");
+    when(results.selectById(201L)).thenReturn(published);
+
+    var service =
+        new TaskQueryServiceImpl(
+            tasks,
+            results,
+            mock(DownloadService.class),
+            Clock.fixed(NOW, ZoneOffset.UTC),
+            new ObjectMapper());
+
+    service.deleteResult(new TaskId("101"), "201");
+
+    verify(results).softDelete(101L, 201L, NOW);
+    assertThat(published.getGeneratedImageId()).isEqualTo(301L);
+    assertThat(published.getPublishedReferenceKey()).isEqualTo("package:7/image:301");
+  }
+
+  @Test
+  void keepsDeletedPublishedAssetAsHistoricalResultWithoutPreview() {
+    ProcessTaskMapper tasks = mock(ProcessTaskMapper.class);
+    ProcessResultMapper results = mock(ProcessResultMapper.class);
+    DownloadService downloads = mock(DownloadService.class);
+    ProcessTask task = new ProcessTask();
+    task.setId(101L);
+    task.setConversationId("conversation-1");
+    when(tasks.selectById(101L)).thenReturn(task);
+
+    ProcessResult published = new ProcessResult();
+    published.setId(201L);
+    published.setTaskId(101L);
+    published.setStatus(ResultStatus.SUCCESS);
+    published.setGeneratedImageId(301L);
+    published.setPublishedReferenceKey("package:7/image:301");
+    when(results.pageVisibleByTaskId(101L, 0, 20)).thenReturn(List.of(published));
+    when(results.countVisibleByTaskId(101L)).thenReturn(1L);
+    when(downloads.previewResult(published)).thenReturn(null);
+
+    var service =
+        new TaskQueryServiceImpl(
+            tasks, results, downloads, Clock.systemUTC(), new ObjectMapper());
+
+    var view = service.listResults(new TaskId("101"), new PageQuery(0, 20)).records().getFirst();
+
+    assertThat(view.generatedImageId()).isEqualTo(301L);
+    assertThat(view.referenceKey()).isEqualTo("package:7/image:301");
+    assertThat(view.url()).isNull();
   }
 }

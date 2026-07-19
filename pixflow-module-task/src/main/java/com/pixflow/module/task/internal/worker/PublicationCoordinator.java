@@ -1,4 +1,4 @@
-package com.pixflow.module.task.internal.publication;
+package com.pixflow.module.task.internal.worker;
 
 import com.pixflow.infra.storage.BucketType;
 import com.pixflow.infra.storage.ObjectLocation;
@@ -11,7 +11,6 @@ import com.pixflow.module.task.domain.model.ProcessResult;
 import com.pixflow.module.task.domain.model.ProcessTask;
 import com.pixflow.module.task.infra.persistence.ProcessResultMapper;
 import com.pixflow.module.task.infra.persistence.ProcessResultMemberMapper;
-import com.pixflow.module.task.internal.worker.ExecutionRun;
 import java.time.Clock;
 import java.util.List;
 
@@ -20,7 +19,7 @@ import java.util.List;
  *
  * <p>执行 checkpoint 与 File 发布分属两个事务，本类只依靠 resultId 幂等重放， 不把对象 copy 伪装成数据库事务的一部分。
  */
-public final class PublicationCoordinator {
+final class PublicationCoordinator {
   private final ProcessResultMapper resultMapper;
 
   private final ProcessResultMemberMapper memberMapper;
@@ -29,7 +28,7 @@ public final class PublicationCoordinator {
 
   private final Clock clock;
 
-  public PublicationCoordinator(
+  PublicationCoordinator(
       ProcessResultMapper resultMapper,
       ProcessResultMemberMapper memberMapper,
       GeneratedAssetPublicationPort publicationPort,
@@ -40,7 +39,7 @@ public final class PublicationCoordinator {
     this.clock = clock;
   }
 
-  public boolean publishBacklog(ProcessTask task, ExecutionRun run) {
+  boolean publishBacklog(ProcessTask task, ExecutionRun run) {
     run.assertCommitAllowed();
     List<ProcessResult> backlog = resultMapper.findPublicationBacklog(task.getId());
     for (ProcessResult result : backlog) {

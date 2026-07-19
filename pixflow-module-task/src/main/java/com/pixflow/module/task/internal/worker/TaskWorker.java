@@ -3,6 +3,7 @@ package com.pixflow.module.task.internal.worker;
 import com.pixflow.common.error.PixFlowException;
 import com.pixflow.harness.state.recovery.RecoveryCoordinator;
 import com.pixflow.module.task.config.TaskProperties;
+import com.pixflow.module.task.api.publication.GeneratedAssetPublicationPort;
 import com.pixflow.module.task.domain.error.TaskErrorCode;
 import com.pixflow.module.task.domain.model.ProcessTask;
 import com.pixflow.module.task.domain.model.WorkUnit;
@@ -10,8 +11,9 @@ import com.pixflow.module.task.infra.lock.TaskLockManager;
 import com.pixflow.module.task.infra.metrics.TaskMetrics;
 import com.pixflow.module.task.infra.mq.TaskMessage;
 import com.pixflow.module.task.infra.persistence.ProcessTaskMapper;
+import com.pixflow.module.task.infra.persistence.ProcessResultMapper;
+import com.pixflow.module.task.infra.persistence.ProcessResultMemberMapper;
 import com.pixflow.module.task.internal.progress.ProgressAggregator;
-import com.pixflow.module.task.internal.publication.PublicationCoordinator;
 import com.pixflow.module.task.internal.recovery.HeartbeatWriter;
 import com.pixflow.module.task.internal.scheduler.WorkUnitScheduler;
 import com.pixflow.module.task.internal.terminal.TerminalStateJudge;
@@ -62,7 +64,9 @@ public class TaskWorker {
       WorkUnitResultRepository resultRepository,
       ProgressAggregator progressAggregator,
       HeartbeatWriter heartbeatWriter,
-      PublicationCoordinator publicationCoordinator) {
+      ProcessResultMapper resultMapper,
+      ProcessResultMemberMapper memberMapper,
+      GeneratedAssetPublicationPort publicationPort) {
     this.taskMapper = taskMapper;
     this.router = router;
     this.scheduler = scheduler;
@@ -75,7 +79,8 @@ public class TaskWorker {
     this.resultRepository = resultRepository;
     this.progressAggregator = progressAggregator;
     this.heartbeatWriter = heartbeatWriter;
-    this.publicationCoordinator = publicationCoordinator;
+    this.publicationCoordinator =
+        new PublicationCoordinator(resultMapper, memberMapper, publicationPort, clock);
   }
 
   public void handle(TaskMessage message) {

@@ -6,6 +6,7 @@ import com.baomidou.mybatisplus.autoconfigure.MybatisPlusAutoConfiguration;
 import com.pixflow.harness.state.model.UnitKind;
 import com.pixflow.module.task.domain.model.ProcessResult;
 import com.pixflow.module.task.domain.model.ProcessTask;
+import com.pixflow.module.task.domain.model.PublicationStatus;
 import com.pixflow.module.task.domain.model.ResultStatus;
 import com.pixflow.module.task.domain.model.TaskStatus;
 import com.pixflow.module.task.domain.model.TaskType;
@@ -30,7 +31,8 @@ import org.testcontainers.junit.jupiter.Testcontainers;
     classes = ExecutionFencingIntegrationTest.TestApp.class,
     properties = {
       "spring.sql.init.mode=always",
-      "spring.sql.init.schema-locations=classpath:db/migration/V1__create_process_task_tables.sql"
+      "spring.sql.init.schema-locations=classpath:db/migration/V1__create_process_task_tables.sql,"
+          + "classpath:db/migration/V2__add_result_publication_state.sql"
     })
 class ExecutionFencingIntegrationTest {
   @Container
@@ -83,6 +85,52 @@ class ExecutionFencingIntegrationTest {
     assertThat(taskMapper.selectById(task.getId()).getStatus()).isEqualTo(TaskStatus.COMPLETED);
   }
 
+  @Test
+  void higherEpochOwnerReplaysPublicationButCannotChangeResultEpoch() {
+    Instant now = Instant.parse("2026-07-13T01:00:00Z");
+    ProcessTask task = task(now);
+    task.setIdempotencyKey("publication-fence-1");
+    taskMapper.insert(task);
+    ProcessResult result = pending(task.getId(), now);
+    result.setUnitKey("BRANCH|image-2|branch-1");
+    resultMapper.insert(result);
+
+    assertThat(taskMapper.claimExecution(task.getId(), "owner-a", now, now.minusSeconds(60)))
+        .isEqualTo(1);
+    assertThat(resultMapper.commitForEpoch(task.getId(), result.getUnitKey(), 1, publishable(now)))
+        .isEqualTo(1);
+    ProcessResult checkpoint = resultMapper.selectByUnit(task.getId(), result.getUnitKey());
+    assertThat(checkpoint.getRunEpoch()).isEqualTo(1L);
+    assertThat(checkpoint.getPublicationStatus()).isEqualTo(PublicationStatus.PENDING);
+
+    taskMapper.heartbeatEpoch(task.getId(), 1, now.minusSeconds(120));
+    assertThat(taskMapper.claimExecution(task.getId(), "owner-b", now, now.minusSeconds(60)))
+        .isEqualTo(1);
+    assertThat(
+            resultMapper.bindPublished(
+                task.getId(), checkpoint.getId(), 1, 1, 91, "package:1/image:91", now))
+        .isZero();
+    assertThat(resultMapper.recordPublicationFailure(task.getId(), checkpoint.getId(), 1, "old"))
+        .isZero();
+    assertThat(
+            resultMapper.bindPublished(
+                task.getId(), checkpoint.getId(), 2, 2, 91, "package:1/image:91", now))
+        .isZero();
+    assertThat(
+            resultMapper.bindPublished(
+                task.getId(), checkpoint.getId(), 1, 2, 91, "package:1/image:91", now))
+        .isEqualTo(1);
+    assertThat(
+            resultMapper.bindPublished(
+                task.getId(), checkpoint.getId(), 1, 2, 91, "package:1/image:91", now))
+        .isZero();
+
+    ProcessResult published = resultMapper.selectById(checkpoint.getId());
+    assertThat(published.getRunEpoch()).isEqualTo(1L);
+    assertThat(published.getPublicationStatus()).isEqualTo(PublicationStatus.PUBLISHED);
+    assertThat(published.getGeneratedImageId()).isEqualTo(91L);
+  }
+
   private static ProcessTask task(Instant now) {
     ProcessTask task = new ProcessTask();
     task.setTaskType(TaskType.IMAGE_PROCESS);
@@ -120,8 +168,23 @@ class ExecutionFencingIntegrationTest {
     row.setStatus(ResultStatus.SUCCESS);
     row.setOutputMinioKey("results/1/output.png");
     row.setAttemptCount(1);
+    row.setPublicationStatus(PublicationStatus.NOT_APPLICABLE);
     row.setStartedAt(now);
     row.setFinishedAt(now);
+    return row;
+  }
+
+  private static ProcessResult publishable(Instant now) {
+    ProcessResult row = success(now);
+    row.setOutputMinioKey("results/1/units/u/epochs/1/output.png");
+    row.setCandidateBucket("TMP");
+    row.setCandidateContentType("image/png");
+    row.setCandidateExtension("png");
+    row.setProducerKind("DETERMINISTIC");
+    row.setProducerTool("dag-pipeline");
+    row.setProducerNodeId("branch-1");
+    row.setPublicationStatus(PublicationStatus.PENDING);
+    row.setBytesOut(8L);
     return row;
   }
 

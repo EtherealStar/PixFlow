@@ -54,7 +54,8 @@ import org.testcontainers.utility.DockerImageName;
     classes = OrphanedResultObjectIntegrationTest.TestApp.class,
     properties = {
       "spring.sql.init.mode=always",
-      "spring.sql.init.schema-locations=classpath:db/migration/V1__create_process_task_tables.sql"
+      "spring.sql.init.schema-locations=classpath:db/migration/V1__create_process_task_tables.sql,"
+          + "classpath:db/migration/V2__add_result_publication_state.sql"
     })
 class OrphanedResultObjectIntegrationTest {
   private static final String ACCESS_KEY = "minioadmin";

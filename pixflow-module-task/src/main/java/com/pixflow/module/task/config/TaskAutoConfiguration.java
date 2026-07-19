@@ -20,6 +20,8 @@ import com.pixflow.module.imagegen.exec.ImageGenExecutor;
 import com.pixflow.module.task.api.TaskCommandService;
 import com.pixflow.module.task.api.TaskOutcomeQuery;
 import com.pixflow.module.task.api.TaskQueryService;
+import com.pixflow.module.task.api.download.CustomDownloadBundleService;
+import com.pixflow.module.task.api.download.PublishedTaskResultQuery;
 import com.pixflow.module.task.api.port.TaskAssetReader;
 import com.pixflow.module.task.api.publication.GeneratedAssetPublicationPort;
 import com.pixflow.module.task.api.publication.PublishedAssetReader;
@@ -41,13 +43,14 @@ import com.pixflow.module.task.internal.cancel.CancellationService;
 import com.pixflow.module.task.internal.create.CreateTaskServiceImpl;
 import com.pixflow.module.task.internal.create.PendingTaskEnqueuer;
 import com.pixflow.module.task.internal.download.DownloadBundleBuilder;
+import com.pixflow.module.task.internal.download.CustomDownloadBundleServiceImpl;
 import com.pixflow.module.task.internal.download.DownloadService;
 import com.pixflow.module.task.internal.failure.FailureIsolator;
 import com.pixflow.module.task.internal.planning.WorkUnitPlanner;
 import com.pixflow.module.task.internal.progress.ProgressAggregator;
-import com.pixflow.module.task.internal.publication.PublicationCoordinator;
 import com.pixflow.module.task.internal.publish.TaskEventPublisher;
 import com.pixflow.module.task.internal.query.TaskOutcomeQueryImpl;
+import com.pixflow.module.task.internal.query.PublishedTaskResultQueryImpl;
 import com.pixflow.module.task.internal.query.TaskQueryServiceImpl;
 import com.pixflow.module.task.internal.recovery.HeartbeatWriter;
 import com.pixflow.module.task.internal.recovery.RecoveryService;
@@ -272,16 +275,6 @@ public class TaskAutoConfiguration {
 
   @Bean
   @ConditionalOnMissingBean
-  public PublicationCoordinator publicationCoordinator(
-      ProcessResultMapper resultMapper,
-      ProcessResultMemberMapper memberMapper,
-      GeneratedAssetPublicationPort publicationPort,
-      Clock clock) {
-    return new PublicationCoordinator(resultMapper, memberMapper, publicationPort, clock);
-  }
-
-  @Bean
-  @ConditionalOnMissingBean
   public WorkerRouter workerRouter(ProcessWorker processWorker, ImageGenWorker imageGenWorker) {
     return new WorkerRouter(processWorker, imageGenWorker);
   }
@@ -301,7 +294,9 @@ public class TaskAutoConfiguration {
       WorkUnitResultRepository resultRepository,
       ProgressAggregator progressAggregator,
       HeartbeatWriter heartbeatWriter,
-      PublicationCoordinator publicationCoordinator) {
+      ProcessResultMapper resultMapper,
+      ProcessResultMemberMapper memberMapper,
+      GeneratedAssetPublicationPort publicationPort) {
     return new TaskWorker(
         taskMapper,
         router,
@@ -315,7 +310,9 @@ public class TaskAutoConfiguration {
         resultRepository,
         progressAggregator,
         heartbeatWriter,
-        publicationCoordinator);
+        resultMapper,
+        memberMapper,
+        publicationPort);
   }
 
   @Bean
@@ -384,6 +381,22 @@ public class TaskAutoConfiguration {
   public DownloadBundleBuilder downloadBundleBuilder(
       ObjectStorage storage, TaskProperties properties) {
     return new DownloadBundleBuilder(storage, properties);
+  }
+
+  @Bean
+  @ConditionalOnMissingBean(CustomDownloadBundleService.class)
+  public CustomDownloadBundleService customDownloadBundleService(
+      DownloadBundleBuilder bundleBuilder,
+      ObjectStorage storage,
+      TaskProperties properties,
+      Clock clock) {
+    return new CustomDownloadBundleServiceImpl(bundleBuilder, storage, properties, clock);
+  }
+
+  @Bean
+  @ConditionalOnMissingBean(PublishedTaskResultQuery.class)
+  public PublishedTaskResultQuery publishedTaskResultQuery(ProcessResultMapper resultMapper) {
+    return new PublishedTaskResultQueryImpl(resultMapper);
   }
 
   @Bean
