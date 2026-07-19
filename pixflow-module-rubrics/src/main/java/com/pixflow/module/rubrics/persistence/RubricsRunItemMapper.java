@@ -20,7 +20,9 @@ public interface RubricsRunItemMapper extends BaseMapper<RubricsRunItemEntity> {
 
     @Select("""
             select * from rubrics_run_item
-            where run_id = #{runId} and status in ('PENDING', 'RUNNING', 'ISOLATED', 'FAILED')
+            where run_id = #{runId}
+              and (status in ('PENDING', 'FAILED_RETRYABLE')
+                   or (status = 'RUNNING' and lease_expires_at < current_timestamp(3)))
             order by id asc
             """)
     List<RubricsRunItemEntity> findIncompleteByRunId(@Param("runId") long runId);

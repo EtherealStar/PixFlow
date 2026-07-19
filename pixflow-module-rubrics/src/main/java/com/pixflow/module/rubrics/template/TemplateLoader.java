@@ -1,6 +1,8 @@
 package com.pixflow.module.rubrics.template;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.core.StreamReadFeature;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 import java.io.IOException;
 import java.io.InputStream;
@@ -13,8 +15,14 @@ import org.springframework.core.io.Resource;
 import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 
 public final class TemplateLoader {
-    private final ObjectMapper yamlMapper = new ObjectMapper(new YAMLFactory()).findAndRegisterModules();
+    private final ObjectMapper yamlMapper = new ObjectMapper(YAMLFactory.builder()
+            .enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
+            .build())
+            .enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
+            .findAndRegisterModules();
+
     private final PathMatchingResourcePatternResolver resolver = new PathMatchingResourcePatternResolver();
+
     private final TemplateValidator validator;
 
     public TemplateLoader(TemplateValidator validator) {

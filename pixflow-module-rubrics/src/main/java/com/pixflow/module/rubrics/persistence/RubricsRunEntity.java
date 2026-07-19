@@ -3,6 +3,7 @@ package com.pixflow.module.rubrics.persistence;
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.pixflow.module.rubrics.api.RunPurpose;
 import com.pixflow.module.rubrics.run.RunStatus;
 import com.pixflow.module.rubrics.run.RunTriggerType;
 import java.time.Instant;
@@ -25,6 +26,10 @@ public class RubricsRunEntity {
     private String datasetId;
 
     private String datasetVersion;
+
+    private Long baselineRunId;
+
+    private RunPurpose purpose;
 
     private String statsJson;
 
@@ -112,6 +117,22 @@ public class RubricsRunEntity {
 
     public void setDatasetVersion(String value) {
         datasetVersion = value;
+    }
+
+    public Long getBaselineRunId() {
+        return baselineRunId;
+    }
+
+    public void setBaselineRunId(Long value) {
+        baselineRunId = value;
+    }
+
+    public RunPurpose getPurpose() {
+        return purpose;
+    }
+
+    public void setPurpose(RunPurpose value) {
+        purpose = value;
     }
 
     public String getStatsJson() {

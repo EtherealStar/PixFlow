@@ -309,7 +309,7 @@ rubrics_gold_label(...)
 rubrics_alert(...)
 ```
 
-`pass_rate` is nullable and never substitutes for the criterion result rows. Historical v1 `rubrics_score` rows remain legacy facts during migration; new v2 evaluations do not populate `overall_score`, `image_score`, `copy_score`, or `decision_score`.
+`pass_rate` is nullable and never substitutes for the criterion result rows. PixFlow is still in development, so the Rubrics schema is replaced as a fresh baseline: the target schema does not retain `rubrics_score`, Promotion, `overall_score`, `image_score`, `copy_score`, or `decision_score` compatibility facts.
 
 ## 10. Triggers and automation gates
 
@@ -413,6 +413,8 @@ The completed `rubrics-module-implementation-plan.md` remains a historical recor
 - Auto-Rubric (`arXiv:2510.17314`) motivates verification-driven refinement and compact atomic criteria; generated candidates remain non-authoritative in PixFlow.
 
 ## Revision Notes
+
+2026-07-19 / Codex: 冻结 `RubricsEvaluationService.start/resume/get` 深模块接口与类型化 `RunSelection`，删除后端 end-user Controller，并把开发期数据库策略收敛为无 scalar score/Promotion 兼容的 fresh schema；同时修正 ADR 中残留的 Memory Promotion 表述。
 
 2026-07-12 / Codex: Replaced the v1 confidence-weighted 0-100 scoring design with typed Evaluation Subjects, atomic Hard Rules and Principles, four-state Criterion Verdicts, system-owned Evidence Packs, repeated judge agreement, mandatory gold-set validation, versioned replayable datasets, and automation lifecycle gates. Post-training remains explicitly out of scope.
 

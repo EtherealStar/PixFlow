@@ -14,4 +14,4 @@ PixFlow evaluates an Image Result, Copy Result, or Task Decision against atomic 
 
 ## Consequences
 
-Formal regression compares criterion verdicts on the same versioned Evaluation Dataset. LLM criteria use repeated judgments to expose agreement, and unavailable evidence produces `INCONCLUSIVE` rather than a failing score. Evaluation findings remain inside Rubrics until a human explicitly promotes one into Agent memory.
+Formal regression compares criterion verdicts on the same versioned Evaluation Dataset. LLM criteria use repeated judgments to expose agreement, and unavailable evidence produces `INCONCLUSIVE` rather than a failing score. Evaluation findings and alerts remain inside Rubrics; the current product has no automatic or human-reviewed path that writes them into Agent memory.

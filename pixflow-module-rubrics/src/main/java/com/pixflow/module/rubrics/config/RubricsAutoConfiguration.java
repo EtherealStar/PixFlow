@@ -6,7 +6,6 @@ import com.pixflow.infra.storage.ObjectStorage;
 import com.pixflow.infra.ai.chat.ChatModelClient;
 import com.pixflow.infra.ai.chat.ChatMessage;
 import com.pixflow.infra.ai.vision.VisionModelClient;
-import com.pixflow.module.rubrics.api.RubricsController;
 import com.pixflow.module.rubrics.api.RubricsEvaluationService;
 import com.pixflow.module.rubrics.automation.AutomationAdmissionPolicy;
 import com.pixflow.module.rubrics.automation.TaskCompletedEvaluationListener;
@@ -19,7 +18,9 @@ import com.pixflow.module.rubrics.persistence.RubricsJudgeRolloutMapper;
 import com.pixflow.module.rubrics.persistence.RubricsRunItemMapper;
 import com.pixflow.module.rubrics.persistence.RubricsRunMapper;
 import com.pixflow.module.rubrics.run.EvaluationPersistence;
-import com.pixflow.module.rubrics.run.EvaluationRunCoordinator;
+import com.pixflow.module.rubrics.run.DefaultRubricsEvaluationService;
+import com.pixflow.module.rubrics.run.EvaluationDatasetRepository;
+import com.pixflow.module.rubrics.run.RunItemClaimRepository;
 import com.pixflow.module.rubrics.subject.ImageSubjectSnapshotResolver;
 import com.pixflow.module.rubrics.summary.EvaluationSummaryCalculator;
 import com.pixflow.module.rubrics.template.TemplateLoader;
@@ -37,9 +38,11 @@ import org.springframework.context.annotation.Bean;
 import org.apache.ibatis.annotations.Mapper;
 import org.mybatis.spring.annotation.MapperScan;
 import java.time.Duration;
+import java.time.Clock;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 @AutoConfiguration
 @EnableConfigurationProperties(RubricsProperties.class)
@@ -116,10 +119,22 @@ public class RubricsAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
+    public RunItemClaimRepository runItemClaimRepository(JdbcTemplate jdbcTemplate) {
+        return new RunItemClaimRepository(jdbcTemplate);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public EvaluationDatasetRepository evaluationDatasetRepository(JdbcTemplate jdbcTemplate) {
+        return new EvaluationDatasetRepository(jdbcTemplate);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
     public EvaluationPersistence evaluationPersistence(RubricsEvaluationMapper evaluations,
             RubricsCriterionResultMapper criteria, RubricsJudgeRolloutMapper rollouts,
-            RubricsRunItemMapper items, ObjectMapper mapper) {
-        return new EvaluationPersistence(evaluations, criteria, rollouts, items, mapper);
+            RunItemClaimRepository claims, ObjectMapper mapper) {
+        return new EvaluationPersistence(evaluations, criteria, rollouts, claims, mapper);
     }
 
     @Bean
@@ -128,16 +143,11 @@ public class RubricsAutoConfiguration {
             ImageSubjectSnapshotResolver subjects, ImageEvidencePackBuilder evidence,
             RuleCriterionVerifier rules, RepeatedLlmCriterionVerifier llm,
             EvaluationSummaryCalculator summaries, EvaluationPersistence persistence,
-            RubricsRunMapper runs, RubricsRunItemMapper items, RubricsEvaluationMapper evaluations,
-            RubricsCriterionResultMapper criteria, RubricsJudgeRolloutMapper rollouts, ObjectMapper mapper) {
-        return new EvaluationRunCoordinator(templates, subjects, evidence, rules, llm, summaries,
-                persistence, runs, items, evaluations, criteria, rollouts, mapper);
-    }
-
-    @Bean
-    @ConditionalOnMissingBean
-    public RubricsController rubricsController(RubricsEvaluationService service, TemplateRegistry templates) {
-        return new RubricsController(service, templates);
+            RubricsRunMapper runs, RubricsRunItemMapper items, RunItemClaimRepository claims,
+            EvaluationDatasetRepository datasets) {
+        return new DefaultRubricsEvaluationService(
+                templates, subjects, evidence, rules, llm, summaries, persistence,
+                runs, items, claims, datasets, Clock.systemUTC(), Duration.ofMinutes(5));
     }
 
     @Bean(destroyMethod = "shutdown")

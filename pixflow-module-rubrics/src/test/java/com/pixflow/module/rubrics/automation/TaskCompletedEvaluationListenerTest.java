@@ -1,7 +1,6 @@
 package com.pixflow.module.rubrics.automation;
 
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -9,7 +8,6 @@ import static org.mockito.Mockito.when;
 import com.pixflow.module.rubrics.api.RubricsEvaluationService;
 import com.pixflow.module.rubrics.config.RubricsProperties;
 import com.pixflow.module.rubrics.model.SubjectType;
-import com.pixflow.module.rubrics.run.RunTriggerType;
 import com.pixflow.module.rubrics.template.LoadedTemplate;
 import com.pixflow.module.rubrics.template.RubricTemplate;
 import com.pixflow.module.rubrics.template.TemplateLifecycle;
@@ -45,6 +43,6 @@ class TaskCompletedEvaluationListenerTest {
         listener.onCompleted(new TaskCompletedEvent("42", TaskType.IMAGE_PROCESS, TaskStatus.COMPLETED,
                 1, 1, 0, Instant.EPOCH));
 
-        verify(service).start(any(), eq(RunTriggerType.TASK_COMPLETED));
+        verify(service).start(any());
     }
 }

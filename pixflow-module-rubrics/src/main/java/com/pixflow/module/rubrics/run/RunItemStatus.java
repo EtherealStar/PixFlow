@@ -6,5 +6,6 @@ public enum RunItemStatus {
     SUCCEEDED,
     PARTIAL,
     ISOLATED,
+    FAILED_RETRYABLE,
     FAILED
 }
