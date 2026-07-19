@@ -22,7 +22,7 @@ import java.util.TreeMap;
  *   <li>referenceKey 是 canonical concrete IMAGE key</li>
  *   <li>prompt 长度在 [min, max] 区间内</li>
  *   <li>params 仅含白名单键(白名单外的键直接拒绝)</li>
- *   <li>经 {@link SourceImageReader} 校验源图存在 + 归属 packageId + contentType 在白名单</li>
+ *   <li>经 {@link SourceImageReader} 校验 canonical 源图存在且 contentType 在白名单</li>
  * </ol>
  *
  * <p>校验失败 → {@link PixFlowException}({@link ImagegenErrorCode}, VALIDATION/SKIP 或 BUSINESS_RULE/SKIP)。
@@ -87,33 +87,25 @@ public class ImagegenPlanValidator {
                 "params 含白名单外键: " + droppedKeys.keySet() + " (allowed=" + allowedKeys + ")");
         }
 
-        // 4. 源图存在 / 归属 / 类型白名单(经 SPI)
-        String imageId = Long.toString(source.imageId());
-        String packageId = Long.toString(source.packageId());
-        java.util.List<SourceImageInfo> infos = sourceImageReader.findAll(
-                java.util.List.of(imageId), packageId);
-        if (infos == null || infos.size() != 1 || !imageId.equals(infos.getFirst().imageId())) {
+        // 4. canonical key 是唯一身份，File 负责同时校验归属和可处理性。
+        String referenceKey = referenceCodec.serialize(source);
+        SourceImageInfo info = sourceImageReader.find(referenceKey).orElseThrow(() ->
+                new PixFlowException(ImagegenErrorCode.IMAGEGEN_SOURCE_IMAGE_NOT_FOUND,
+                        "源图不存在"));
+        if (!referenceKey.equals(info.referenceKey())) {
             throw new PixFlowException(ImagegenErrorCode.IMAGEGEN_SOURCE_IMAGE_NOT_FOUND,
-                "源图不存在");
+                    "源图身份不匹配");
         }
 
-        // 校验归属 + contentType
         Set<String> supportedTypes = new LinkedHashSet<>(properties.getSource().getSupportedTypes());
-        for (SourceImageInfo info : infos) {
-            if (!packageId.equals(info.packageId())) {
-                throw new PixFlowException(ImagegenErrorCode.IMAGEGEN_SOURCE_NOT_IN_PACKAGE,
-                    "源图不归属当前 packageId: imageId=" + info.imageId() + ", expected=" + packageId
-                        + ", actual=" + info.packageId());
-            }
-            if (info.contentType() == null || !supportedTypes.contains(info.contentType())) {
-                throw new PixFlowException(ImagegenErrorCode.IMAGEGEN_UNSUPPORTED_SOURCE_TYPE,
-                    "源图类型不在白名单: imageId=" + info.imageId() + ", contentType=" + info.contentType()
-                        + " (supported=" + supportedTypes + ")");
-            }
+        if (info.contentType() == null || !supportedTypes.contains(info.contentType())) {
+            throw new PixFlowException(ImagegenErrorCode.IMAGEGEN_UNSUPPORTED_SOURCE_TYPE,
+                "源图类型不在白名单: referenceKey=" + referenceKey
+                        + ", contentType=" + info.contentType() + " (supported=" + supportedTypes + ")");
         }
 
         return new ImagegenPlan(
-            referenceCodec.serialize(source),
+            referenceKey,
             prompt,
             normalizedParams,
             inputs.note(), // note 原样保留,不参与 hash

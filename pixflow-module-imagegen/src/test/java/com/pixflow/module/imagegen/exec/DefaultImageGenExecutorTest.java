@@ -39,7 +39,7 @@ import org.mockito.ArgumentCaptor;
  *
  * <p>覆盖:
  * <ul>
- *   <li>正常路径:源图字节 → ai → 落 GENERATED 桶 → 返回 GeneratedArtifact</li>
+ *   <li>正常路径:源图字节 → ai → 落 TMP candidate → 返回 GeneratedArtifact</li>
  *   <li>源图字节超过 max-read-bytes → IMAGEGEN_OUTPUT_BYTES_TOO_LARGE,不调 getStream</li>
  *   <li>生成图字节超过 max-output-bytes → IMAGEGEN_OUTPUT_BYTES_TOO_LARGE,不调 put</li>
  *   <li>ai 抛 PixFlowException(MODEL_RATE_LIMITED) 原样上抛</li>
@@ -83,7 +83,7 @@ class DefaultImageGenExecutorTest {
     }
 
     @Test
-    @DisplayName("正常路径:源图字节 → ai → 落 GENERATED 桶 → 返回 GeneratedArtifact")
+    @DisplayName("正常路径:源图字节 → ai → 落 TMP candidate → 返回 GeneratedArtifact")
     void redraw_happyPath() {
         byte[] generated = new byte[1024];
         when(imageGenClient.generate(any(ImageGenRequest.class))).thenReturn(
@@ -97,10 +97,10 @@ class DefaultImageGenExecutorTest {
 
         GeneratedArtifact artifact = executor.redraw(spec());
 
-        // 桶: GENERATED
-        assertThat(artifact.output().bucket()).isEqualTo(BucketType.GENERATED);
+        // 生成式执行器只写 epoch-scoped candidate，File publication 才写稳定桶。
+        assertThat(artifact.output().bucket()).isEqualTo(BucketType.TMP);
         assertThat(artifact.output().key())
-            .isEqualTo("results/1/units/unit-hash-1/epochs/3/output.png");
+            .isEqualTo("generated/1/units/unit-hash-1/epochs/3/output.png");
         // size 与 generated.length 一致
         assertThat(artifact.output().size()).isEqualTo(generated.length);
         // contentType 透传
@@ -178,7 +178,7 @@ class DefaultImageGenExecutorTest {
         when(imageGenClient.generate(any(ImageGenRequest.class))).thenReturn(
             new ImageGenResult(generated, "image/png", new TokenUsage(0L, 0L, 0L), producer()));
         when(objectStorage.put(any(), any(InputStream.class), anyLong(), anyString()))
-            .thenThrow(new StorageException("put", BucketType.GENERATED, "key", false, "io error", null));
+            .thenThrow(new StorageException("put", BucketType.TMP, "key", false, "io error", null));
 
         assertThatThrownBy(() -> executor.redraw(spec()))
             .isInstanceOf(PixFlowException.class)
@@ -229,9 +229,9 @@ class DefaultImageGenExecutorTest {
         GeneratedArtifact a2 = executor.redraw(nonNumericSpec);
         // 同样 imageId 两次跑,落桶 key 一致(幂等)
         assertThat(a1.output().key()).isEqualTo(a2.output().key());
-        // key 仍以 task/sku 开头
+        // key 由生成式前缀、task、work-unit hash 和 epoch 构成。
         assertThat(a1.output().key())
-            .isEqualTo("results/" + TASK_ID + "/units/unit-hash-2/epochs/4/output.png");
+            .isEqualTo("generated/" + TASK_ID + "/units/unit-hash-2/epochs/4/output.png");
         assertThat(a1.output().key()).endsWith(".png");
     }
 

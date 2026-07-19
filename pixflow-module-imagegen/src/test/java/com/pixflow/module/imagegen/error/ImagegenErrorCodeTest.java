@@ -10,17 +10,17 @@ import org.junit.jupiter.api.Test;
 /**
  * ImagegenErrorCode 单测(对齐 imagegen.md §十二 / §十六.8)。
  *
- * <p>校验 9 条错误码唯一、category 非空、按 category 推断的 recovery 方向与设计预期一致。
+ * <p>校验 8 条错误码唯一、category 非空、按 category 推断的 recovery 方向与设计预期一致。
  */
 class ImagegenErrorCodeTest {
 
     @Test
-    @DisplayName("9 条错误码全部枚举且唯一")
-    void enumHas9UniqueCodes() {
+    @DisplayName("8 条错误码全部枚举且唯一")
+    void enumHas8UniqueCodes() {
         ImagegenErrorCode[] values = ImagegenErrorCode.values();
-        assertThat(values).hasSize(9);
+        assertThat(values).hasSize(8);
         long distinct = java.util.Arrays.stream(values).map(Enum::name).distinct().count();
-        assertThat(distinct).isEqualTo(9);
+        assertThat(distinct).isEqualTo(8);
     }
 
     @Test

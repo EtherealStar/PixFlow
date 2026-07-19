@@ -8,8 +8,8 @@ import com.pixflow.module.imagegen.config.ImagegenProperties;
 import com.pixflow.module.imagegen.error.ImagegenErrorCode;
 import com.pixflow.module.imagegen.port.SourceImageInfo;
 import com.pixflow.module.imagegen.port.SourceImageReader;
-import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -21,8 +21,7 @@ class ImagegenPlanValidatorTest {
 
     @BeforeEach
     void setUp() {
-        reader = (imageIds, packageId) -> List.of(new SourceImageInfo(
-                imageIds.getFirst(), packageId, "image/png"));
+        reader = referenceKey -> Optional.of(new SourceImageInfo(referenceKey, "image/png"));
         validator = new ImagegenPlanValidator(new ImagegenProperties(), reader);
     }
 
@@ -52,7 +51,7 @@ class ImagegenPlanValidatorTest {
     @Test
     void rejectsNonCanonicalReferenceBeforeReadingSourceFacts() {
         ImagegenPlanValidator isolated = new ImagegenPlanValidator(
-                new ImagegenProperties(), (ids, packageId) -> {
+                new ImagegenProperties(), referenceKey -> {
                     throw new AssertionError("source facts must not be read");
                 });
 
@@ -64,7 +63,7 @@ class ImagegenPlanValidatorTest {
     @Test
     void rejectsMissingSourceAndUnsupportedType() {
         ImagegenPlanValidator missing = new ImagegenPlanValidator(
-                new ImagegenProperties(), (ids, packageId) -> List.of());
+                new ImagegenProperties(), referenceKey -> Optional.empty());
         assertThatThrownBy(() -> missing.validate(new ImagegenPlanInputs(
                 "package:7/image:11", "重绘", null, Map.of()), "conv-1"))
                 .isInstanceOf(PixFlowException.class)
@@ -72,8 +71,8 @@ class ImagegenPlanValidatorTest {
                 .isEqualTo(ImagegenErrorCode.IMAGEGEN_SOURCE_IMAGE_NOT_FOUND);
 
         ImagegenPlanValidator unsupported = new ImagegenPlanValidator(
-                new ImagegenProperties(), (ids, packageId) -> List.of(new SourceImageInfo(
-                        "11", "7", "image/gif")));
+                new ImagegenProperties(), referenceKey -> Optional.of(new SourceImageInfo(
+                        referenceKey, "image/gif")));
         assertThatThrownBy(() -> unsupported.validate(new ImagegenPlanInputs(
                 "package:7/image:11", "重绘", null, Map.of()), "conv-1"))
                 .isInstanceOf(PixFlowException.class)

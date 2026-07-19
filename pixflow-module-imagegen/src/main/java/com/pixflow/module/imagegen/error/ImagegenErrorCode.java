@@ -16,7 +16,6 @@ public enum ImagegenErrorCode implements ErrorCode {
     /** referenceKey 指向的 source image 不存在。 */
     IMAGEGEN_SOURCE_IMAGE_NOT_FOUND(ErrorCategory.NOT_FOUND),
     /** 源图不归属当前会话绑定素材包 */
-    IMAGEGEN_SOURCE_NOT_IN_PACKAGE(ErrorCategory.BUSINESS_RULE),
     /** prompt 为空 / 长度越界 / params 白名单外键 */
     IMAGEGEN_PROMPT_INVALID(ErrorCategory.VALIDATION),
     /** 源图内容类型不在 supported-types 白名单 */

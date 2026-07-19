@@ -4,13 +4,11 @@ import java.util.Objects;
 
 /** Imagegen 校验源图时所需的最小事实，不携带对象存储位置。 */
 public record SourceImageInfo(
-        String imageId,
-        String packageId,
+        String referenceKey,
         String contentType) {
 
     public SourceImageInfo {
-        Objects.requireNonNull(imageId, "imageId");
-        Objects.requireNonNull(packageId, "packageId");
+        Objects.requireNonNull(referenceKey, "referenceKey");
         Objects.requireNonNull(contentType, "contentType");
     }
 }

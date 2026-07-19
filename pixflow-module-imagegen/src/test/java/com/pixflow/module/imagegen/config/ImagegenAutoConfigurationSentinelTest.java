@@ -131,7 +131,7 @@ class ImagegenAutoConfigurationSentinelTest {
 
         @Bean
         com.pixflow.module.imagegen.port.SourceImageReader sourceImageReader() {
-            return (imageIds, packageId) -> java.util.List.of();
+            return referenceKey -> java.util.Optional.empty();
         }
     }
 }
