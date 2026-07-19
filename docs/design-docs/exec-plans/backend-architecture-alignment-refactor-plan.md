@@ -23,13 +23,16 @@ This ExecPlan is a living document. The sections `Progress`, `Surprises & Discov
 - [x] (2026-07-17 19:06+08:00) 基础设施子范围：Auth 已切换为 Configured Administrator；Cache 已删除 confirmation-token 集成；Image 已具备 decode 前像素足迹准入；MQ、Storage、Thirdparty、AI 已对齐当前配置、准入和失败边界；Vector/Memory 已切换为只读召回；Permission 已切换为 deny-first direct-confirm，并补齐属主 proof fault-isolation 矩阵。统一 infra reactor 覆盖 Common、Permission 和八个 `pixflow-infra-*` 模块，真实 Redis、MinIO、Qdrant 测试零跳过；File 33、Conversation 40 项回归通过。canonical Asset Reference owner namespace、Task/File publication 和 tool capability catalog 仍按 Milestone 1/3/7 实施，不属于本基础设施子范围。
 - [x] Milestone 1：落地 canonical Asset Reference、File 解析边界和 USER message references，删除 ATTACHMENT 身份模型。（2026-07-18：纯 JDK canonical codec、typed keys、File resolver/inspect/expand 首个切片与直接 DAG/Imagegen/Task/App 消费方已落地；Context/Session/Conversation/Loop/Hooks/Agent/Web 消息链已按子计划切换为单条 USER message 的 ordered references，旧 ATTACHMENT、单包绑定和 V1 schema 列已删除。File source type、tombstone 等仍以活动 File 计划为准；Docker 不可用使 Session fresh-schema 2 项容器测试 skipped，全部验收前本里程碑保持未完成。）
 - [x] (2026-07-17) Milestone 2：落地单一管理员、deny-first Permission 和 Conversation 所属的临时 Proposal，删除确认令牌与 durable pending plan。Auth/Permission 已接五类 current-facts proof、可信 runtime context、发布二次授权和空 body confirm/reject；本轮把 Proposal store/CAS/幂等归属 Conversation，DAG/Imagegen 只返回 validated payload，App 负责可信发布，并删除 contracts Proposal、producer publisher 与多源 Imagegen 工具合同。
-- [ ] Milestone 3：对齐 DAG、Imagegen、Task、State、Storage、Cache 与 Image 执行链，并把成功结果发布为独立 Generated Image。（2026-07-18：TMP candidate、Task publication backlog/fencing、File PUBLISHING/READY 幂等发布、App adapters、published identity 查询/下载和 Task lint 清零的生产实现及定向测试已完成；Docker 缺失使真实 crash-window、并发与删除独立性验收尚未完成，故里程碑保持未完成。）
+- [x] (2026-07-19) Milestone 3：对齐 DAG、Imagegen、Task、State、Storage、Cache 与 Image 执行链，并把成功结果发布为独立 Generated Image。TMP candidate、fenced SUCCESS/publication backlog、File PUBLISHING/READY 幂等发布、App adapters、published identity 查询/下载和 Task lint 已完成；30 模块严格静态 reactor BUILD SUCCESS，真实 MySQL 8.4、MinIO、Redis 故障矩阵零跳过，删除独立性、File 删除后诊断、Generated Image source reuse 与固定业务身份 Derived Retry 均已验收。
 - [ ] Milestone 4：把 Vision 替换为可恢复 Product Visual Facts 作业和唯一 Agent lookup tool。
 - [ ] Milestone 5：把 Memory、Vector、Hooks 与 Agent 收窄为只读召回和视觉事实消费，删除全部在线写回路径。（2026-07-17：Vector/Memory 子范围已完成，唯一运行时能力为三方法 `VectorSearch`，在线 ingest/reinforcement/lifecycle/rebuild 与旧 hook 已删除；canonical Asset Reference 和视觉事实消费仍待本总计划后续切片。）
 - [ ] Milestone 6：完成 Rubrics 四态 Criterion、Evidence Pack、dataset/regression 和离线自动化边界，不实现 Promotion。
 - [ ] Milestone 7：完成 App 组合根、前端合同、旧路径清理、故障注入和全仓验收。
 
 ## Surprises & Discoveries
+
+- Observation: Milestone 3 最终验收暴露两个跨生命周期缺口：Task orphan 集成测试 fresh schema 漏载 V2；Task 列表在 File 已删除 Generated Image 时强制读取 preview 并整页失败。
+  Evidence: 对齐 V1+V2 后真实 MySQL/MinIO orphan 测试通过；Published Asset 增加可选读取后，历史 Task 保留 `generatedImageId/referenceKey` 且 preview 为空，显式下载仍 fail closed。
 
 - Observation: 最新 Rubrics 目标设计与已移动到 completed 的旧 Rubrics ExecPlan 存在实质冲突。最新设计明确没有自动或人工审核后的 Memory 写入，而旧计划仍包含 Promotion、`ReviewedInsightService` 和 `Rubrics -> Memory` 依赖。
   Evidence: `docs/design-docs/module/rubrics.md` 的 “Evaluation does not become memory” 与 Memory boundary；`docs/design-docs/module/memory.md` 的公共 API 只有 `prepareContext`；`docs/design-docs/exec-plans/completed/rubrics-criterion-verdict-refactor-plan.md` 的旧 Milestone 7 仍描述 Promotion。
@@ -65,6 +68,10 @@ This ExecPlan is a living document. The sections `Progress`, `Surprises & Discov
   Evidence: 2026-07-18 商品视觉分析讨论确认直接覆盖、无历史版本、只有 SKU 图片内容集合变化才自动重新分析，并保留显式“重新分析”按钮；ADR 0008 已取代 ADR 0004。
 
 ## Decision Log
+
+- Decision: Derived Retry 使用后端固定的 `retry-failed:{sourceTaskId}` 业务幂等身份；Published Asset 历史投影使用可选读取，显式下载和证据消费使用强制读取。
+  Rationale: 客户端随机键不能改变 terminal source 的直接派生身份；File 删除资产后执行事实仍须可诊断，但缺失字节不能继续表现为可下载。
+  Date/Author: 2026-07-19 / Codex
 
 - Decision: 目标规范优先级固定为已接受 ADR 与 2026-07-17 当前 `design.md`、`base/`、`infra/`、`harness/`、`module/`、`agent/` 设计，其次是 Context Map 与模块 `CONTEXT.md`，completed ExecPlan 仅作为历史实现证据。
   Rationale: completed 计划记录当时实施事实，不能覆盖之后明确接受的新架构决策；这也解决 Rubrics Promotion 冲突。
@@ -111,6 +118,8 @@ This ExecPlan is a living document. The sections `Progress`, `Surprises & Discov
 Milestone 0 与基础设施子范围已完成，生产重构不再处于纯调研阶段。Auth、Cache、Image、MQ、Storage、Thirdparty、AI、Vector 和 Permission 已提供后续业务链所需的最小能力；其中 Vector/Memory 的真实 Qdrant 只读合同和无副作用召回、Storage 的真实 MinIO copy、Cache 的真实 Redis 故障注入均在专项计划中记录为已执行验证。本轮又以真实 Docker 环境统一复验全部八个 infra 模块与 Permission，并补齐 Permission proof dependency 到 Task 创建边界的 fault-isolation 证据。
 
 消息 reference 子链已经可编译并完成静态/定向验收，但尚未达成总计划的用户可观察完整结果：File source type/tombstone、Generated Asset publication、可恢复 Product Visual Facts、Task 到 File 的结果发布、Rubrics、canonical Web picker 和 App/前端组合仍待后续里程碑完成。30 模块静态 reactor 已通过；完整 tests 不能因定向验证成功而视为通过，仍需在 Docker daemon 可用时复跑容器场景，并另行处理范围外 Loop runtime-scope 基线失败。
+
+Milestone 3 已于 2026-07-19 完成。成功 Work Unit 只先提交 TMP candidate 和 MySQL checkpoint，再由 File 幂等发布为拥有新 `imageId/referenceKey` 的 Generated Image；旧 epoch、Redis 失联、copy/READY crash window 和 orphan candidate 均有真实容器证据。Task/Activity 执行投影与 Generated Image 生命周期已经分离，File 删除图片后历史 Task 仍可诊断但不提供失效 preview，Derived Retry 使用固定后端业务身份且不改写来源终态。
 
 ## Context and Orientation
 
@@ -164,7 +173,7 @@ Conversation 新增本地、短生命周期、线程安全的 ephemeral Proposal
 
 ### Milestone 3：完成执行链和 Generated Image 发布闭环
 
-本里程碑的剩余实施、恢复机制、Task/File 接口、数据库迁移、Task lint 清零和验收故障矩阵由 `docs/design-docs/exec-plans/backend-execution-generated-image-publication-plan.md` 具体执行。该子计划同时接管 Storage candidate 原子切换和 File publication seam；在子计划全部静态、测试、容器及用户行为门禁完成前，本里程碑保持未完成。
+本里程碑的实施、恢复机制、Task/File 接口、数据库迁移、Task lint 清零和验收故障矩阵记录在 `docs/design-docs/exec-plans/completed/backend-execution-generated-image-publication-plan.md`。该子计划已完成 Storage candidate 原子切换、File publication seam、真实容器故障矩阵和用户行为门禁。
 
 本里程碑在已完成 Execution Domain 重构基础上做差距审计和最终对齐，而不是重写已经验证的 Canonical DAG、Work Unit、Execution Epoch、Derived Retry 与 Pixel Budget。先确认 `infra/image` 仍保持 probe-before-decode、JVM 全局加权预算、可重开来源和 raster ownership；State 只从 Task 提供的 MySQL SUCCESS read port 认 checkpoint；Redis Runtime Reference 只携带同 epoch 临时对象引用；DAG 不拥有线程池、MQ 或 process_result；Task 是 process_task/process_result 唯一写侧。
 
@@ -177,6 +186,8 @@ Conversation 新增本地、短生命周期、线程安全的 ephemeral Proposal
 完成标准是旧 epoch 对象存在但 DB commit 被拒绝时不出现在查询或 Outputs；相同 result 重放只产生一个 Generated Image；源 imageId 永不复用；成功任务清除后 Generated Image 仍可查询和 mention；Derived Retry 只复制失败 Work Unit，来源终态不可变。
 
 ### Milestone 4：用 Product Visual Facts 替换通用 Vision 与上传期文案富化
+
+本里程碑的完整实施顺序、持久 attempt budget、File 可靠事件桥、Vision current-row 状态机、管理员 API、Materials 图片详情、故障矩阵和 lint-before-test 门禁由 `docs/design-docs/exec-plans/product-visual-facts-milestone-4-implementation-plan.md` 具体执行。在该专项计划的生产切换、真实依赖测试、前端交互和旧路径清零全部完成前，本里程碑保持未完成。
 
 本里程碑把视觉理解变为 Vision 自有的持久、可恢复当前事实源。File 在包解压终态后发布 package-ready domain event，并仅在 Original Image 新增、删除、替换或内容哈希变化时发布 SKU visual-input-changed event；app bridge 触发 Vision，避免 File 编译依赖 Vision。Vision 按 `(packageId, skuId)` 维护一条 SKU work item 和一条当前事实，确定性选择至多两张图；具体 IMAGE lookup 可维护一条 image-scoped current work/fact。MySQL work item 持有 status、analysis_generation、run_epoch、heartbeat、provider_attempt_count、structure_round_count 与 last_request_id，fact row 持有 nullable facts_json、optimistic version、last_writer 和当前 bounded operational metadata。
 
@@ -473,9 +484,15 @@ Rubrics 只依赖 Task public outcome/event、Eval read contract、infra/ai、in
 
 ## Revision Notes
 
+2026-07-19 / Codex: 为 Milestone 4 新增 `product-visual-facts-milestone-4-implementation-plan.md`。专项计划把高层目标拆成 infra/ai 持久 attempt seam、current facts/current work、File outbox + App bridge、Vision fencing/recovery、唯一 lookup tool、管理员 API 和 Materials detail，并要求所有测试前先通过对应后端静态门禁或前端 lint/typecheck；本次只创建计划，不把 Milestone 4 标记为已实施。
+
+2026-07-19 / Codex: 完成并勾选 Milestone 3。补齐 Derived Retry 固定业务幂等、orphan test V2 fresh schema、Task 结果删除独立性和 File 删除后的历史诊断行为；真实 MySQL 8.4/MinIO/Redis 故障测试零跳过，Task/File/Imagegen/App/Cache 完整模块测试及前端 lint/typecheck/115 tests/build 全绿。专项计划移入 `exec-plans/completed/`，父计划继续推进 Milestone 4。
+
 2026-07-18 / Codex: 为 Milestone 3 新增 `backend-execution-generated-image-publication-plan.md`。子计划在不重写既有执行域的前提下，固定 TMP candidate、Task SUCCESS/publication backlog、File PUBLISHING/READY 幂等发布、GROUP 多源 lineage、App adapter、公开查询/下载/清理和 Task 全模块 lint 清零，并要求所有测试前先通过 Checkstyle/SpotBugs 静态门禁。仅建立执行计划和父计划交叉引用，Milestone 3 尚未实施完成。
 
 2026-07-18 / Codex: 更新 Milestone 3 实施事实。专项计划的生产闭环、Task lint 清零和 public identity 切换已落地；本轮又删除 Imagegen 裸 object-key source 合同、补齐 App publication/source adapter 测试并迁移 Rubrics published identity fixture。17 模块 strict verify 与相关定向测试通过，但 Docker engine 不可用，真实 MySQL/Redis/MinIO 故障矩阵和端到端生命周期仍未验收，因此不勾选 Milestone 3。
+
+2026-07-19 / Codex: Docker 恢复后补齐 Milestone 3 的 publication/ownership 定向故障矩阵，并消除 Task coordinator 跨包 public type 与 App custom download 越过 Task API 两项架构债务。File publication、Task MySQL fencing/orphan object、Redis ownership、candidate key、Pixel Budget 和 App boundary 均零失败/零跳过；仍保留 Milestone 3 未勾选，因为删除独立性、File tombstone 后诊断和 Generated Image 端到端复用尚未验收，且用户明确停止全仓测试。
 
 2026-07-18 / Codex: 完成 Milestone 1 的 Conversation message-reference 子计划生产切换：Context/Session/Conversation/Loop/Hooks/Agent/Web 改为 ordered typed references，删除 ATTACHMENT、单包绑定和旧 V1 schema 列，不保留兼容层。记录 30 模块静态门禁通过、82 项定向 Java tests（2 container skipped）、115 项 Web tests/build 通过；因 File source type/tombstone 与 Docker fresh-schema 证据仍缺，Milestone 1 保持未完成。
 

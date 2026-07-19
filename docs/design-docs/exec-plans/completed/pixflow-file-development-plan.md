@@ -17,12 +17,12 @@ This ExecPlan is a living document. The sections `Progress`, `Surprises & Discov
 - [x] (2026-07-17) 审计 `pixflow-module-file` 的 POM、schema、迁移、自动配置、上传/解压、查询、删除、Permission proof、Imagegen adapter 与测试，记录目标差距和现有工作树边界。
 - [x] (2026-07-17) 创建本中文 ExecPlan，固定机制、实施顺序、必读参考文档和“每轮测试前先 linting”的门禁。
 - [x] (2026-07-17 23:55+08:00) Milestone 0：冻结工作树、数据库迁移策略、现有 API/测试基线和跨计划文件所有权。工作树中的 DAG/Imagegen/Task Proposal 改动已确认属于现有工作；File strict verify 在当前环境两次超过 124 秒无输出，改以成功的 compile、定向 Checkstyle 和测试记录该门禁阻断。
-- [ ] Milestone 1（已完成 File 内首个切片）：新增 File `AssetReferenceResolver`、`AssetReferenceInspector`、`AssetReferenceExpander` 与不含存储位置的安全视图，默认实现位于 internal 包；Permission proof 改为先复用共享 codec 再调用 resolver。codec、resolver expansion 和 Permission proof 定向测试通过。按用户 2026-07-18 明确的 File-only 范围，Conversation 消费者迁移和旧 `PackageReference` 系列删除未执行；Generated Image source type、tombstone、`AssetContentReader` 和完整 owner fact 验证仍待完成，因此本里程碑保持未勾选。
-- [ ] Milestone 2：把归档上传和提取对齐为 ZIP/RAR/7z 分片协议、格式分派、安全限制与可恢复取消。
-- [ ] Milestone 3：完成 Materials/Outputs 的后端分页、搜索、层级浏览、预签名访问和 exact-key exclusion。
-- [ ] Milestone 4（主体实现与定向测试已完成）：Generated Image reservation、幂等 publication、完整 lineage、bounded candidate 恢复和 Task/App 端口已落地；File publisher/recovery 3 项与 App adapters 4 项通过。真实 MySQL/MinIO 并发和四个 crash point 因 Docker engine 不可用尚未验收，故里程碑保持未勾选。
-- [ ] Milestone 5：用 Reference Tombstone 替换软删除，完成 Package、Original Image、Generated Image 的真实字节清理语义。
-- [ ] Milestone 6：删除旧 multipart、object-key 泄漏、旧 package/image 身份和 File -> Imagegen 反向适配，完成组合与端到端验收。
+- [x] (2026-07-19) Milestone 1：canonical codec、File resolver/inspector/expander、`AssetContentReader`、reference catalog/history/deletion 边界与 owner facts 已完成；旧 package/image reference SPI 和 storage-bearing API 已删除。
+- [x] (2026-07-19) Milestone 2：唯一分片上传协议、ZIP/RAR/7z 真实格式分派、共享安全限制、12 小时 TTL、完整 SHA-256 复验、orphan cleanup 与 durable extraction cancel 已完成。
+- [x] (2026-07-19) Milestone 3：Materials/Outputs 后端分页、搜索、层级查询、rename、1-based page 与数据库分页前 exact-key exclusion 已完成；Task Outputs 直接按 File lineage 查询。
+- [x] (2026-07-19) Milestone 4：Generated Image reservation、幂等 publication、完整 lineage、bounded candidate 恢复和 Task/App 端口已落地；真实 MySQL 8.4 + MinIO 的 5 项测试覆盖并发唯一性、有序 lineage、reservation/copy/READY/cleanup crash windows 与双对象缺失诊断，零跳过。Task bind fencing/orphan object 与 App adapters 也已定向通过。
+- [x] (2026-07-19) Milestone 5：Reference Tombstone 与 cleanup intent 分表，Package、Original Image、Generated Image 的真实字节清理和恢复扫描已完成；生产 schema/model/query 不再包含软删除字段。
+- [x] (2026-07-19) Milestone 6（非前端部分）：旧 multipart、object-key 泄漏、旧 package/image 身份和 File -> Imagegen 反向适配均已删除；后端组合验证完成。前端按用户要求不在本次执行范围内。
 
 ## Surprises & Discoveries
 
@@ -62,6 +62,18 @@ This ExecPlan is a living document. The sections `Progress`, `Surprises & Discov
 - Observation: Standards 审查发现 `DefaultAssetReferenceService` 加三个接口转发 Bean 会产生相同接口的重复候选。
   Evidence: 删除三个转发 Bean，只保留实现三个接口的单一 service Bean；`FileAutoConfigurationTest` 断言三个接口各只有一个 Bean并通过。
 
+- Observation: Docker 恢复后，File publication 的数据库唯一约束和对象恢复顺序可以用真实依赖验证，不再需要以 mock 推断并发行为。
+  Evidence: `GeneratedImagePublicationIntegrationTest` 在 MySQL 8.4 + MinIO 上 5 项零失败/零跳过；同一 source result 的并发请求只得到一个 READY imageId，四个 publication/cleanup crash window 均恢复到相同 identity。
+
+- Observation: 删除旧 multipart `POST /api/files/packages` 后，同一路径仍存在 GET 映射，因此 Spring 对旧 POST 返回 405，而不是 404。
+  Evidence: controller route 测试按 Spring MVC 的 method-not-allowed 语义通过；没有恢复旧上传处理器。
+
+- Observation: commons-compress 的 7z 支持需要显式引入 XZ 实现，只有 commons-compress 依赖不足以读取真实 7z fixture。
+  Evidence: `commons-compress:1.27.1` 配合 `xz:1.10` 后真实 7z 测试通过；RAR 使用 `junrar:7.5.5` 的真实 RAR4 fixture。
+
+- Observation: 仅选择 App 测试而不把已修改的 Imagegen 放进同一 reactor，会从本地仓库加载旧 SNAPSHOT，并以 `NoSuchMethodError` 失败。
+  Evidence: `SourceImageInfo(String,String)` 源码正确；将 File、Imagegen、Task、App 放入同一串行 reactor 后使用一致字节码。该问题不通过兼容构造器掩盖。
+
 ## Decision Log
 
 - Decision: canonical Asset Reference 的纯值对象与 codec 放在 `pixflow-contracts` 的 `com.pixflow.contracts.asset`；资源存在性、readiness、ownership、展示路径、展开和 storage lookup 留在 File。
@@ -76,6 +88,10 @@ This ExecPlan is a living document. The sections `Progress`, `Surprises & Discov
   Rationale: 先按 `(sourceTaskId, sourceResultId)` 唯一键保留同一个 `imageId` 和 stable target，重试才不会产生第二张 Generated Image。只有 READY 行可见；PUBLISHING 行由相同请求或恢复扫描继续。candidate 删除发生在 READY 事务提交后，避免数据库回滚时丢失唯一源字节。
   Date/Author: 2026-07-17 / Codex
 
+- Decision: File Milestone 4 可在 Reference Tombstone 仍属于 Milestone 5 的情况下独立完成。
+  Rationale: publication 的完成标准是 Generated Image 身份、稳定字节、lineage、幂等与恢复闭环；用户删除语义仍由后续 Tombstone 里程碑负责，不能把两者混成一个不可验收批次。
+  Date/Author: 2026-07-19 / Codex
+
 - Decision: Task 拥有 `GeneratedAssetPublicationPort`，File 公开与 Task 无关的 `GeneratedImagePublisher`；`pixflow-app` adapter 在两者之间转换。
   Rationale: Task 决定 fenced SUCCESS 和调用时机，File 决定 image identity、stable key、lineage 和 tombstone。这样不增加 `pixflow-module-file -> pixflow-module-task` 或 `pixflow-module-task -> pixflow-module-file` 的内部实现依赖。
   Date/Author: 2026-07-17 / Codex
@@ -84,31 +100,41 @@ This ExecPlan is a living document. The sections `Progress`, `Surprises & Discov
   Rationale: “仍在表中但标记删除”会把 Reference Tombstone 与可处理资产混为一谈，也容易误保留字节。独立 tombstone 只服务历史引用渲染，符合最新设计。
   Date/Author: 2026-07-17 / Codex
 
-- Decision: 新数据库结构使用新增 Flyway migration，不修改已存在的 V2/V3；只有在 Milestone 0 证明所有目标数据库均可重建时，才可在 Decision Log 改为重建 baseline。
-  Rationale: 当前无法证明 V2/V3 未在共享环境执行。默认保留 checksum 是安全、可恢复的选择。
-  Date/Author: 2026-07-17 / Codex
+- Decision: 当前处于开发期且数据库允许重建，直接修订 V2/V5 baseline，不保留 V6 或 `deleted_at` 兼容迁移。
+  Rationale: 用户明确要求不考虑兼容性、不保留旧代码；继续保留软删除列和过渡 reader 会形成第二套生产语义。
+  Date/Author: 2026-07-19 / Codex
 
 - Decision: 每个里程碑先运行严格 lint/static analysis，再运行任何测试；Maven 命令串行执行。
   Rationale: 用户明确要求测试前先 linting，仓库 lint 规则也把 `-DskipTests verify` 作为后端严格门禁。编译、Checkstyle 或 SpotBugs 未通过时不得用测试结果掩盖。
   Date/Author: 2026-07-17 / Codex
 
-- Decision: 本轮实施范围收窄为 `pixflow-module-file`；不修改 Conversation 或 loop，也不在 File-only 改动中删除仍被外部模块编译依赖的旧 reference 类型。
-  Rationale: 用户在实施过程中明确只需要 File 模块。跨模块消费者迁移必须在另一次获得授权的原子切片中完成，不能把当前工作树留在无法编译的半迁移状态。
-  Date/Author: 2026-07-18 / Codex
+- Decision: 非前端消费者与组合层同步迁移到 canonical reference；删除旧 SPI 与实现，不提供兼容构造器或转发类型。
+  Rationale: 用户把范围确定为“计划中的非前端部分”，并明确不保留旧代码。Imagegen 只接受 canonical `referenceKey`，App 通过 File 的安全 reader 和 lineage catalog 接线。
+  Date/Author: 2026-07-19 / Codex
 
 - Decision: Permission proof 在 resolver 前显式执行共享 `CanonicalAssetReferenceCodec` 的 parse/serialize round-trip，并拒绝 null resolved view。
   Rationale: codec 是唯一 grammar owner，Permission 仍需在访问任何 owner fact 前 fail closed；resolver 负责数据库事实，不承担调用方可替换实现的语法安全假设。
   Date/Author: 2026-07-18 / Codex
 
+- Decision: RAR 使用 `junrar:7.5.5`，7z 使用 `commons-compress:1.27.1` 与 `xz:1.10`，三种格式共享同一 admission/limit policy。
+  Rationale: 格式专属库只负责读取 entry，共享策略统一 traversal、大小、压缩比、加密与图片 magic-byte 约束，避免各 extractor 漂移。
+  Date/Author: 2026-07-19 / Codex
+
+- Decision: Reference Tombstone 与对象删除 cleanup intent 分表；带 `ObjectLocation` 的查询类型隔离在 File runtime 包，公开 API 只返回 canonical identity 和安全 metadata。
+  Rationale: tombstone 是长期历史渲染事实，cleanup intent 是短期可恢复工作；存储定位不应穿过 File 的业务边界。
+  Date/Author: 2026-07-19 / Codex
+
 ## Outcomes & Retrospective
 
-已完成 File canonical 解析的首个可运行切片。`pixflow-module-file` 新增三个 public 能力边界和安全 reference view，默认实现隐藏在 internal 包；Permission 通过共享 codec + resolver 复核权限，READ/INSPECT/PROCESS/GENERATE 映射已穷尽。resolver/permission 6 项与自动配置 1 项定向测试通过，File Checkstyle 为 0 violation，File `-am compile` 通过。按 File-only 范围，Conversation 迁移和旧跨模块类型删除未实施；完整上传格式分派、Materials/Outputs 查询、Generated Image publication、真实删除和全 reactor 验收仍未完成；strict `verify` 与 File 全测试因 124 秒超时不能记为通过。
+计划中的非前端部分已完成。File 现在是 canonical Asset Library：唯一分片入口支持 ZIP/RAR/7z 安全提取，reference/read/catalog/history/deletion API 不泄漏稳定存储位置，Materials/Outputs 与 Task lineage 查询均在数据库分页前应用过滤，Generated Image publication 和真实删除都由可恢复状态机闭环。旧 multipart、旧 package/image identity、Imagegen 裸 ID SPI 与 `deleted_at` 生产语义已删除，不保留兼容代码。
+
+验证限定在实际改动的 File、Imagegen、Task、App 模块，并保持 Maven 串行、每轮测试前先 `-DskipTests verify`。File 真实 MySQL 8.4 + MinIO 集成测试覆盖 publication crash windows，真实 RAR4/7z fixture 覆盖格式分派；前端按用户要求未执行。全仓曾暴露的 Loop 与 Conversation 基线失败不属于本计划，也未被本次修改或修复。
 
 ## Context and Orientation
 
 仓库根目录是 `D:\study\PixFlow`。`pixflow-module-file` 的领域名称是 Asset Library。Asset Package 是一个上传归档形成的命名空间；Original Image 是从这个归档中通过准入的可处理图片；Generated Image 是由成功任务结果发布、拥有新 `imageId` 和来源 lineage 的可处理图片。Asset Reference 是后端生成的 canonical key，只能是 `package:{packageId}`、`package:{packageId}/sku:{urlEncodedSkuId}` 或 `package:{packageId}/image:{imageId}`。Reference Expansion 是把 PACKAGE 或 SKU 在后端解析成 Original Image；Generated Image 不进入 PACKAGE/SKU expansion。Reference Tombstone 是删除字节和可处理行后仅为历史消息保留的最小身份与原展示名，不是软删除资产。
 
-当前 `pixflow-module-file/src/main/java/com/pixflow/module/file/FileService.java` 同时承担上传、查询、图片操作和文案导入。`upload/` 已有 Redis session、分块写入、complete 和 cancel；`ingest/ZipExtractor.java` 只处理 ZIP；`pkg/` 与 `image/` 是 MyBatis 实体和 mapper；`permission/AssetPermissionProof.java` 用 File 当前事实实现 Permission-owned proof port；`config/FileAutoConfiguration.java` 装配所有 bean。`schema.sql` 和 V2/V3 migration 只有 Original Image 模型。`pixflow-infra-storage` 已提供 `packageSource(packageId, archiveExt)`、stable `resultAsset/generatedAsset`、epoch-scoped unit key 和跨桶 `ObjectStorage.copy`，但 publication 业务尚未实现。
+当前 `pixflow-module-file/src/main/java/com/pixflow/module/file/FileService.java` 同时承担上传、查询、图片操作和文案导入。`upload/` 已有 Redis session、分块写入、complete 和 cancel；`ingest/ZipExtractor.java` 只处理 ZIP；`pkg/` 与 `image/` 是 MyBatis 实体和 mapper；`internal/publication/` 实现 reservation/copy/READY/cleanup；`permission/AssetPermissionProof.java` 用 File 当前事实实现 Permission-owned proof port；`config/FileAutoConfiguration.java` 装配所有 bean。`schema.sql` 与 V4 migration 已表达 Original/Generated Image 和 lineage。`pixflow-infra-storage` 提供 TMP candidate、stable `resultAsset/generatedAsset` 和跨桶 `ObjectStorage.copy`。
 
 目标依赖关系是：Contracts 提供纯 Asset Reference 类型；File 依赖 Common、Storage、Cache、MQ 和 Permission 的窄 proof SPI；File 不依赖 Imagegen、Task 或 Conversation 内部实现。Imagegen、Task、Permission、Conversation 等消费者通过 File public API 或 App adapter 使用资产事实。File 可保留对 Permission SPI 的依赖来提供 concrete proof adapter，但 parser 必须复用共享 codec，不能再维护私有语法。当前 `pixflow-module-file -> pixflow-module-imagegen` 的 `SourceImageReader` 实现必须迁到 `pixflow-app` adapter 或由 Imagegen 改为消费中立 File read API。
 
@@ -146,7 +172,7 @@ This ExecPlan is a living document. The sections `Progress`, `Surprises & Discov
 
 把 `ZipExtractor` 上提为 `ArchiveExtractor` 策略边界，按 `archiveFormat` 分派 ZIP、RAR、7z 实现。优先使用维护中的纯 Java 库；选定依赖、版本、许可证、encrypted-entry 检测和资源关闭行为后，在 Decision Log 写明依据，不能只依据扩展名调用同一个 ZIP parser。三种实现共享一套 `ArchiveSafetyPolicy` 和 admission pipeline，统一限制 path traversal、绝对路径/盘符、entry 数、声明与实际总解压大小、单 entry 大小、compression ratio、扩展名、magic bytes 和 encrypted/password-protected entries。metadata 文档在归档内部按 File 规则解析，不再接受独立 multipart `doc`。
 
-为 extraction 增加 durable cancellation marker 和终态 CAS。worker 在每次 entry 读取、上传和数据库写入之间检查 marker；取消获胜时停止新增 image，删除 archive、已提取图片、临时对象、browse rows、errors/copy data 与 activity bridge，并删除 package；READY/PARTIAL/FAILED 已先获胜则 cancel 返回 conflict。移除 `FileService.upload(MultipartFile, MultipartFile)`、`UploadPackageResponse` 和 `POST /api/files/packages`，负向 MockMvc 测试证明旧 route 返回 404。
+为 extraction 增加 durable cancellation marker 和终态 CAS。worker 在每次 entry 读取、上传和数据库写入之间检查 marker；取消获胜时停止新增 image，删除 archive、已提取图片、临时对象、browse rows、errors/copy data 与 activity bridge，并删除 package；READY/PARTIAL/FAILED 已先获胜则 cancel 返回 conflict。移除 `FileService.upload(MultipartFile, MultipartFile)`、`UploadPackageResponse` 和 `POST /api/files/packages`，负向 MockMvc 测试证明旧 POST 因同路径 GET 仍存在而返回 405。
 
 ### Milestone 3：完成 Materials、Outputs 和 mention candidate 查询
 
@@ -168,11 +194,11 @@ File public API 定义 `GeneratedImagePublisher.publish(GeneratedImageCandidate)
 
 ### Milestone 5：真实删除、Reference Tombstone 与幂等恢复
 
-新增 `asset_reference_tombstone`，只保存 kind、packageId、可选 skuId/imageId、原展示名和渲染历史引用所需的最小 namespace facts；不保存 referenceKey 字符串、storage location、bytes、deletedAt、task 状态或业务 payload。key 仍由 typed identity 动态序列化。为现有 `deleted_at` 行编写一次性数据迁移：先生成 tombstone，再确认对象清理策略，最后删除或净化 processable row；若共享环境含有价值数据，先做 dry-run count 与备份，不在 migration 中静默丢字节。
+新增 `asset_reference_tombstone`，只保存 kind、packageId、可选 skuId/imageId、原展示名和渲染历史引用所需的最小 namespace facts；不保存 referenceKey 字符串、storage location、bytes、deletedAt、task 状态或业务 payload。key 仍由 typed identity 动态序列化。当前为可重建的开发期数据库，直接更新 baseline schema，不迁移旧 `deleted_at` 数据，也不保留兼容 reader。
 
 删除 Original Image 时，先创建/确认 image tombstone，再删除 PACKAGES 对象，最后删除 `asset_image` processable row。删除 Generated Image 时同样先保留 tombstone，再删除 RESULTS/GENERATED stable object和 processable row；不删除 source package、source image、siblings 或 task facts。删除 Package 时，从 Materials 立即消失，删除 archive、全部 Original Image bytes/rows、copy/errors/browse data；Generated Image 继续存在。如果 generated lineage 或历史引用需要 namespace，则保留 package/original-image tombstone。删除操作以 typed reference 和当前事实执行，重复删除返回同一 no-op 结果或 tombstone view，不返回 500。
 
-由于 MySQL 与对象存储没有跨资源事务，删除状态机必须可恢复。先落 tombstone/cleanup intent，再删对象，再删 processable row；列表和 resolver 在 cleanup intent 后立即拒绝 PROCESS，避免“用户已删除但仍能执行”。对象删除失败保留 intent 并由 cleanup scanner 重试；不能先删唯一数据库定位事实再失去对象 key。完成后移除 `asset_package.deleted_at`、`asset_image.deleted_at` 的生产语义；若物理列因迁移兼容暂留，也不得再由生产查询或写路径使用，并在后续 schema cleanup migration 删除。
+由于 MySQL 与对象存储没有跨资源事务，删除状态机必须可恢复。先落 tombstone/cleanup intent，再用 marker 隐藏资源，再删对象，最后删除 processable row 和 intent；列表和 resolver 在 cleanup intent 后立即拒绝 PROCESS，避免“用户已删除但仍能执行”。对象删除失败保留 intent 并由 cleanup scanner 重试；不能先删唯一数据库定位事实再失去对象 key。开发期 baseline 中直接移除 `asset_package.deleted_at`、`asset_image.deleted_at`，不保留物理列或兼容查询。
 
 ### Milestone 6：删除旧边界并完成组合验收
 
@@ -240,26 +266,20 @@ Milestone 5 使用：
 
 若迁移阶段暂留物理列，搜索命中只能在 migration/schema 注释或明确的迁移 reader 中；最终生产 Java 预期无输出。删除集成测试使用真实 MinIO 证明字节不存在，并证明 sibling、source 和 Generated Image 保留规则。
 
-Milestone 6 先 lint 后 test，最后才做前端与全仓验证：
+Milestone 6 非前端验收只验证实际改动模块，并坚持先 lint/static analysis 后 test：
 
-    mvn -pl pixflow-contracts,pixflow-module-file,pixflow-permission,pixflow-conversation,pixflow-module-dag,pixflow-module-imagegen,pixflow-module-task,pixflow-module-vision,pixflow-module-memory,pixflow-app -am -DskipTests verify
-    mvn -pl pixflow-contracts,pixflow-module-file,pixflow-permission,pixflow-conversation,pixflow-module-dag,pixflow-module-imagegen,pixflow-module-task,pixflow-module-vision,pixflow-module-memory,pixflow-app -am test
-    pnpm --dir pixflow-web lint
-    pnpm --dir pixflow-web typecheck
-    pnpm --dir pixflow-web test
-    pnpm --dir pixflow-web build
-    mvn -DskipTests verify
-    mvn verify
+    mvn -pl pixflow-module-file,pixflow-module-imagegen,pixflow-module-task,pixflow-app -DskipTests verify
+    mvn -pl pixflow-module-file,pixflow-module-imagegen,pixflow-module-task,pixflow-app test
     git diff --check
     git status --short
 
-这里前端也严格遵守 lint 在 test 前：`lint` 和 `typecheck` 都成功后才运行 `pnpm test`。完整 `mvn verify` 若被 Docker 环境阻断，记录 `docker info`、首个失败测试和栈帧；同时记录 strict verify 和非 Docker 测试的真实结果。环境阻断不能写成通过，也不能通过删除、禁用或 skip 测试解决。
+Maven reactor 必须串行，且测试 reactor 包含所有已修改依赖，避免加载本地仓库旧 SNAPSHOT。前端和全仓验证不在本次范围；环境阻断不能写成通过，也不能通过删除、禁用或 skip 测试解决。
 
 ## Validation and Acceptance
 
 Asset Reference 验收要求 codec 对三个 kind round-trip 稳定，并拒绝非 canonical SKU 编码、wrong-kind、额外 segment、零/负 ID、object key 和 URL。后端是唯一 serializer；Web 只原样保存和回传。File resolver 对 deleted、PUBLISHING、cross-package image 和不存在资源拒绝；Permission proof 在业务拒绝时 DENIED、依赖异常时 UNAVAILABLE。PACKAGE/SKU expansion 只含 Original Image，IMAGE 可指向 Original 或 Generated，多引用按 `(packageId,imageId)` 稳定去重。
 
-上传验收要求 ZIP、RAR、7z 使用相应真实 extractor；扩展名、magic bytes 与选择器不一致时失败。2 GiB/5 MiB/SHA-256、UPLOAD/RESUME/DEDUP、12 小时 sliding TTL 和 temp cleanup 可测试。密码归档、zip slip、绝对路径、超限 entry、bomb ratio 和伪图片均不能写入 processable row。旧 multipart route 返回 404，独立 doc 不再存在。取消获胜后没有 package browse row和对象残留；终态先获胜时 cancel 明确冲突。
+上传验收要求 ZIP、RAR、7z 使用相应真实 extractor；扩展名、magic bytes 与选择器不一致时失败。2 GiB/5 MiB/SHA-256、UPLOAD/RESUME/DEDUP、12 小时 sliding TTL 和 temp cleanup 可测试。密码归档、zip slip、绝对路径、超限 entry、bomb ratio 和伪图片均不能写入 processable row。旧 multipart POST 因同路径 GET 存在而返回 405，独立 doc 不再存在。取消获胜后没有 package browse row和对象残留；终态先获胜时 cancel 明确冲突。
 
 查询验收要求 Materials 只返回 READY/PARTIAL 的 Original Image，Outputs 只返回 READY Generated Image。所有 page 为 1-based；filter/search/sort/exclusion 在数据库分页前执行。parentKey 层级正确，超过 20 个 exclusions 被拒绝。display rename 不改变 key，历史 message snapshot 不改变，预签名 URL 不进入身份或持久化。
 
@@ -386,6 +406,10 @@ File publication seam 应等价于：
 依赖最终应满足：`pixflow-contracts` asset package只依赖 JDK；`pixflow-module-file` 依赖 Common、Contracts、Permission SPI、Storage、Cache、MQ、MyBatis 和归档解析库；不依赖 Task、Imagegen、Conversation、Agent、Vision 或 Web。`pixflow-app` 可以依赖两侧 public API做 adapter。Storage 只提供 I/O 和 key factory，不分配 imageId、判断 epoch、写 lineage 或决定 deletion。
 
 ## Revision Notes
+
+2026-07-19 / Codex: 完成计划中的全部非前端实现。落地 ZIP/RAR/7z 真实提取与统一安全限制、12 小时分片会话和 orphan cleanup、Materials/Outputs/Task-lineage 查询、Generated Image publication、Reference Tombstone/cleanup intent 删除恢复；删除旧 multipart、旧 reference SPI、Imagegen 裸身份合同和软删除兼容。按用户要求只串行验证 File、Imagegen、Task、App，并在每轮测试前执行对应 `-DskipTests verify`；前端不执行。
+
+2026-07-19 / Codex: 完成 Milestone 4 的真实依赖验收。新增 MySQL 8.4 + MinIO publication integration suite，5 项覆盖并发唯一 READY identity、reservation/copy/READY/cleanup crash windows、双对象缺失诊断及有序多源 lineage；File strict verify、Task fencing/orphan object 和 App adapter boundary 同步通过。更新 Outcomes/Orientation，明确 Reference Tombstone 仍属于未完成的 Milestone 5，不把 publication 完成扩大为整个 File 计划完成。
 
 2026-07-17 / Codex: 创建本计划。依据活动后端总计划的 Milestone 1/3、最新 File/Asset Reference 设计、ADR 0005/0006、当前源码和 Lint 计划，把 `pixflow-file` 拆成 canonical key、归档协议、查询、可恢复 publication、tombstone 删除和组合清理六个增量里程碑。明确使用 reservation 状态机弥合 MySQL/MinIO 非原子边界，使用 Task-owned port + App adapter 避免 Task/File 反向依赖，并按用户要求把每一轮验证固定为 strict lint/static analysis 成功后才运行测试。
 

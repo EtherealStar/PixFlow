@@ -21,7 +21,7 @@ This ExecPlan is a living document. The sections `Progress`, `Surprises & Discov
 - [x] (2026-07-17 13:15+08:00) Milestone 2：MQ 默认值与开发配置收敛为三次和 5s/30s/2m，新增配置绑定、retry boundary、AckDrop 与 schema 测试；17 项测试通过。
 - [x] (2026-07-17 13:22+08:00) Milestone 3：Storage 新增严格 archive/stable asset keys 和 MinIO server-side `copy`；按用户要求删除一参数兼容入口并原子迁移 ZIP 调用方；19 项测试（含 4 项真实 MinIO 集成测试）通过。
 - [x] (2026-07-18) Milestone 4：Task-owned `GeneratedAssetPublicationPort`、File 幂等 publication 和 App 接线已落地；DAG/Imagegen candidate 已原子切到 TMP，生成式与确定性前缀分离，旧稳定桶 producer/reader 合同已删除。
-- [ ] Milestone 5（已完成：三个 infra 模块统一严格 lint、依赖负向搜索、真实 Redis/MinIO 测试；剩余：publication seam 后的直接消费者/全仓端到端门禁）。
+- [x] (2026-07-18 23:31+08:00) Milestone 5：三个 infra 模块测试、publication 直接消费者定向测试、17 模块触达链严格 verify、负向源码搜索和真实 Redis/MinIO/MySQL publication 故障矩阵全部通过；按用户明确要求不执行全仓 `mvn verify`，该命令不作为本次完成证据。
 
 ## Surprises & Discoveries
 
@@ -51,6 +51,12 @@ This ExecPlan is a living document. The sections `Progress`, `Surprises & Discov
 
 - Observation: Storage 直接消费者组合测试在到达目标模块前被既有 Eval 测试阻断，随后 30 模块 `-DskipTests verify` 又受 5 分钟命令时限中止；三个 infra 模块自身的统一严格门禁已独立成功，完整 App reactor 的生产与测试源码编译也成功。
   Evidence: `TraceRecorderTest.externalizesLargePayloadAfterSanitizingAndReplaysIt` 在 `TraceRecorderTest.java:89` 抛 `NoSuchElementException`；五模块严格 verify 为 BUILD SUCCESS、零 Checkstyle/SpotBugs；`mvn -pl pixflow-app -am -DskipTests test` 的 30 模块 reactor 为 BUILD SUCCESS。
+
+- Observation: Milestone 4 原子切换后仍有两个直接消费者测试 fixture 停留在旧稳定桶合同，另一个 Task fixture 仍只 stub 已被 `stat` 取代的 `exists`。
+  Evidence: `DefaultImageGenExecutorTest` 曾期待 `GENERATED/results/...`，实际正确结果为 `TMP/generated/...`；`WorkUnitResultRepositoryTest` 的 Mockito `stat` 默认返回 null。更新合同后 Imagegen 9 项和 Task candidate/publication 7 项均通过。
+
+- Observation: Docker Desktop 已恢复，原先无法执行的 publication crash-window 可以用真实 MySQL 8.4 与 MinIO 验收。
+  Evidence: `GeneratedImagePublicationIntegrationTest` 5 项零失败、零跳过，覆盖并发重放唯一 imageId、有序 lineage、reservation/copy/READY/cleanup 恢复窗口和双对象缺失诊断。
 
 ## Decision Log
 
@@ -86,11 +92,17 @@ This ExecPlan is a living document. The sections `Progress`, `Surprises & Discov
   Rationale: 用户要求不要为了兼容性保留旧代码；显式格式参数让现有能力真实可见，也避免双 API 长期漂移，同时不伪造 RAR/7z 解压已实现。
   Date/Author: 2026-07-17 / Codex
 
+- Decision: Milestone 5 以本计划三个 infra 模块、publication 直接消费者、真实 publication 集成测试和触达链严格 verify 收口，不运行全仓 `mvn verify`。
+  Rationale: 用户于 2026-07-18 明确要求“不用全仓验证”。App 定向测试仍编译了 30 模块生产与测试源码，但只执行指定组合测试；不能把它表述为全仓测试通过。
+  Date/Author: 2026-07-18 / Codex
+
 ## Outcomes & Retrospective
 
-基础设施可独立完成的切片已经落地。Cache 不再注册或依赖 confirmation，Maven Enforcer 证明其 PixFlow 内部直接依赖只有 Common；20 项测试含断连 fail-closed 与所有权丢失故障注入，零跳过。MQ 以 17 项测试证明 retry count 0、1、2 返回重投、3 进入终态，AckDrop 与 unsupported schema 不重投。Storage 提供无旧重载的 archive keys、稳定 RESULTS/GENERATED asset keys 和纯 I/O server-side copy；真实 MinIO 测试证明 TMP 到 GENERATED 跨桶复制后字节和 content type 一致、源仍存在、缺失源确定性失败。
+本计划已经完成。Cache 不再注册或依赖 confirmation，Maven Enforcer 证明其 PixFlow 内部直接依赖只有 Common；20 项测试含断连 fail-closed 与所有权丢失故障注入，零跳过。MQ 以 17 项测试证明 retry count 0、1、2 返回重投、3 进入终态，AckDrop 与 unsupported schema 不重投。Storage 提供无旧重载的 archive keys、稳定 RESULTS/GENERATED asset keys 和纯 I/O server-side copy；19 项测试包含真实 MinIO 跨桶复制，证明字节和 content type 一致、源仍存在、缺失源确定性失败。
 
-三个 infra 模块的统一 `-DskipTests verify` 已通过，Cache/MQ/Storage 均为零 Checkstyle、零 SpotBugs；完整 App reactor 的 30 模块生产与测试源码编译通过。计划仍未端到端完成：仓库尚无 `GeneratedAssetPublicationPort`，按本计划硬前置条件不能把 candidate 原子切到 TMP。组合测试还记录了一个无关既有 Eval 测试失败；未把该失败或受命令时限中止的全组合 verify 描述为通过。
+publication seam、TMP candidate 原子切换和直接消费者合同均已落地。File publication 单元/恢复测试 7 项、Imagegen 9 项、Task candidate/publication 7 项和 App adapter 1 项通过；真实 MySQL 8.4 + MinIO 集成测试 5 项证明同一 result 并发/重放只产生一个 READY imageId，copy 后数据库 finalize 失败保留 candidate，READY 后删除失败可恢复，双对象缺失保留同一 reservation 供诊断。17 模块触达链严格 verify 为零 Checkstyle、零 SpotBugs，三组负向源码搜索无输出。
+
+按用户明确要求，本次没有运行全仓 `mvn verify`，因此不把全仓测试记作完成证据。App adapter 定向命令确实完成了 30 模块生产与测试源码编译，但只执行了指定测试。更大范围的 Task 删除独立性、Generated Image 再次作为新任务 source 等产品端到端验收继续由后端 publication 专项计划和后端总计划负责，不再阻塞本基础设施子计划完成。
 
 ## Context and Orientation
 
@@ -303,3 +315,5 @@ Storage 不公开 `publishAsset`，不依赖 Task 或 File。Task-owned `Generat
 2026-07-17 / Codex: 实施 Milestone 0-3 并完成三个 infra 模块统一 lint。Cache confirmation 全链路和 Contracts 依赖已删除；MQ 三次重试边界已由测试固定；Storage archive/stable keys 与跨桶 copy 已通过真实 MinIO。根据用户“不要为了兼容性保留旧代码”的要求删除一参数 archive key 入口并迁移 ZIP 调用方。由于 Task/File publication seam 尚不存在，Milestone 4 保持未完成，未制造 TMP producer 与稳定 reader 并存的半迁移。
 
 2026-07-18 / Codex: 后端 publication 专项计划已满足 Milestone 4 的进入条件并完成原子切换：Task/File owner-defined seam、App adapter、TMP candidate 与稳定 File publication 同批存在，Imagegen 裸 object-key/default bucket 旧合同也已删除。真实 MinIO/MySQL publication 故障矩阵仍由专项计划负责，Milestone 5 端到端交接保持部分完成。
+
+2026-07-18 / Codex: 完成 Milestone 5 和本计划。修正 Imagegen/Task 三处滞后的 candidate 测试合同，增加 File copy-finalize 与 READY-cleanup 两个恢复断言；三个 infra 模块 56 项测试、publication 直接消费者定向测试、17 模块严格 verify 和负向搜索通过。Docker 恢复后执行真实 MySQL 8.4 + MinIO publication 集成测试 5 项，覆盖并发与主要 crash window。依用户要求不执行全仓验证，并在 Progress、Decision Log 与 Outcomes 中明确限定证据范围。

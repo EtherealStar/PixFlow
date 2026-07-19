@@ -14,6 +14,8 @@ This ExecPlan is a living document. The sections `Progress`, `Surprises & Discov
 
 ## Progress
 
+- [x] (2026-07-19 14:29+08:00) Rubrics 专项计划接管并删除已移除 `RubricsController`、`RubricsAlertEntity`、`RubricsBaselineEntity` 的 13 条精确 suppression；Rubrics suppression 从 118 降到 105。该批次由 Rubrics 模块静态门禁验证，不计入本计划其他文件的机械格式化批次。
+
 - [x] (2026-07-16) 阅读 `AGENTS.md`、`PLANS.md`、`docs/design-docs/index.md`、当前执行计划、`docs/development/linting.md` 和三种 linter 基线。
 - [x] (2026-07-16) 运行当前严格门禁：前端 ESLint 成功；后端 30 模块 Checkstyle/SpotBugs reactor 成功。
 - [x] (2026-07-16) 统计并审阅历史问题：ESLint 647 条；Checkstyle 初始审计 4,940 条、当前 689 个精确 suppression；SpotBugs 3 条告警、2 个精确 filter。
@@ -36,10 +38,15 @@ This ExecPlan is a living document. The sections `Progress`, `Surprises & Discov
 - [x] (2026-07-17 12:12+08:00) Milestone 4/5 第十二批：完整清空 common 模块的 8 个 suppression，修复 22 个历史违规行，剩余 446；模块严格 verify 成功，clean test 23 项全部通过。
 - [x] (2026-07-17 12:34+08:00) Milestone 4/5 第十三批：完整清空 file 模块的 33 个 suppression，修复严格检查报告的 135 个问题，剩余 413；File 模块 Checkstyle 严格门禁与 32 项测试全部通过。
 - [x] (2026-07-17 12:45+08:00) Milestone 4/5 第十四批：原子清理 rubrics 的 `RubricsRunEntity`，删除 2 个 suppression 并修复 59 个历史违规行，剩余 411；Rubrics 模块严格 verify 与 12 项测试全部通过。
+- [x] (2026-07-19) Milestone 4/5 Task 批次：Generated Image publication 专项原子清空 Task 模块全部 57 个 suppression；Task strict Checkstyle/SpotBugs 为零，`rg -n "pixflow-module-task" config/checkstyle/suppressions.xml` 无输出，Task 完整模块测试通过。
+- [x] (2026-07-19 02:25+08:00) Milestone 4/5 Vision 批次：随 Product Visual Facts 一次性切换删除旧同步 Vision、Copy Enrichment 和旧图片解析代码；连同前置切片已删的自动配置条目，Vision 模块全部 14 个 suppression 清零，当前全文件条目为 315，Vision 四模块严格 reactor 与 23 项模块测试通过。
 - [ ] Milestone 5：按模块和文件批次清理后端布局问题并清空 Checkstyle suppression。
 - [ ] Milestone 6：完成文档、全仓验证和基线不可回增检查。
 
 ## Surprises & Discoveries
+
+- Observation: Vision 剩余 suppression 全部属于被目标设计删除的旧同步问答、Copy Enrichment、旧图片解析或旧配置代码，修复这些死路径不如按产品架构删除。
+  Evidence: 全仓生产引用审计没有 Vision 旧 API 消费者；删除后 `rg -n "pixflow-module-vision" config/checkstyle/suppressions.xml` 无输出，严格 Checkstyle/SpotBugs 与测试成功。
 
 - Observation: 严格门禁当前全部成功，但成功依赖三个已审阅的历史基线，并不表示源码零问题。
   Evidence: `pixflow-web/eslint-suppressions.json` 含 87 个文件、174 个 file/rule pair、647 条违规；`config/checkstyle/suppressions.xml` 含 689 个条目；`config/spotbugs/exclude-filter.xml` 含 2 个 Match。
@@ -120,9 +127,16 @@ This ExecPlan is a living document. The sections `Progress`, `Surprises & Discov
   Evidence: 补齐该构造调用的参数换行后，`mvn -pl pixflow-common -DskipTests verify` 报告零 Checkstyle 与零 SpotBugs；随后 `mvn -pl pixflow-common clean test` 强制重编译 22 个生产源文件和 8 个测试源文件，23 项测试全部通过。
 
 - Observation: Rubrics 的 `RubricsRunEntity` 单一文件的 2 个 suppression 覆盖 59 个历史违规行，均为连续字段与单行 accessor 的布局问题；无需改变 Evaluation Run 的持久化字段、访问器或 MyBatis 映射即可清理。
+
+- Observation: Task 的 57 个 suppression 与 Generated Image publication 业务批次高度重叠，继续延后机械清理会让 worker/query/download/persistence 的真实静态基线失真。
+  Evidence: publication 专项按“业务修改 + 触达文件全部 suppression”执行后，Task 条目已清零，完整 Task strict verify 报告零 Checkstyle/SpotBugs，当前全文件 suppression 快照为 329。
   Evidence: 删除两项精确 suppression 并展开字段、getter、setter 后，`mvn -pl pixflow-module-rubrics -DskipTests verify` 报告零 Checkstyle 与零 SpotBugs；`mvn -pl pixflow-module-rubrics test` 的 12 项测试零失败、零错误、零跳过。
 
 ## Decision Log
+
+- Decision: Vision 模块通过业务计划的一次性旧路径删除清空 suppression，不为满足 Lint 计划重排或格式化即将删除的代码。
+  Rationale: 目标设计已明确删除通用 Vision Q&A 与 Copy Enrichment；保留并格式化死代码会制造兼容面，且与用户“不为兼容保留”的明确要求冲突。
+  Date/Author: 2026-07-19 / Codex
 
 - Decision: 最终清空三种基线，不把“减少一定比例”作为完成条件。
   Rationale: 门禁已稳定接入，历史问题也已分类；继续长期保留基线会让真实风险与机械债务混在一起，并增加触达代码时的维护成本。
@@ -203,6 +217,10 @@ This ExecPlan is a living document. The sections `Progress`, `Surprises & Discov
   Rationale: 两项 suppression 覆盖 59 条违规，已达到用户的测试前修复阈值；字段和 accessor 的格式化不会改变 Evaluation Run 的数据库或 JavaBean 合同，且避免与仍在演进的 Rubrics 迁移计划重叠。
   Date/Author: 2026-07-17 / Codex
 
+- Decision: Task 模块由 Generated Image publication 专项接管并一次性清空全部 suppression，不再等待通用 lint 计划逐文件处理。
+  Rationale: 57 个条目覆盖的正是本次 worker、query、download、persistence 与配置边界；在同一业务批次内修复并运行 strict verify，能避免行号漂移和重复冲突。
+  Date/Author: 2026-07-19 / Codex
+
 ## Outcomes & Retrospective
 
 Milestone 1 和 2 已完成。SpotBugs filter 从 2 个 Match 降为空，三处无效自赋值已删除，nullable `CopyContext` 组件、`ImagegenPlan.prompt` 保留和 null 拒绝均有定向测试证据；严格 verify 成功且两个目标模块的 SpotBugs 均为零。完整 DAG/Imagegen 测试集按用户指示跳过。
@@ -238,6 +256,10 @@ Milestone 4 第二批从 infra-thirdparty 的 Aliyun Market provider、可配置
 第十三批完整清空了 file 模块的 Checkstyle 基线。20 个文件只做无用 import 删除、字段/常量间隔、长表达式换行和既有单语句控制流的大括号展开，33 个 suppression 对应的 135 个严格检查问题全部归零，基线从 446 降到 413。独立绑定的 Checkstyle 严格门禁为零；`mvn -pl pixflow-module-file test` 的 32 项测试零失败、零错误、零跳过。完整 12 模块 `-am -DskipTests verify` 在当前桌面工具的 124 秒进程上限中未取得结果，遗留的两条 Maven Java 进程已停止，未将超时计为通过。
 
 第十四批原子清理了 Rubrics 的 `RubricsRunEntity`。该文件只做字段间隔和 getter/setter 的等价展开，2 个 suppression 覆盖的 59 个严格检查问题全部归零，基线从 413 降到 411。首次带 `-am` 的 reactor 达到桌面 124 秒命令上限，短暂遗留的 Maven 进程使结果 XML 损坏；进程退出后串行 `mvn -pl pixflow-module-rubrics -DskipTests verify` 成功，随后 12 项模块测试零失败、零错误、零跳过。
+
+Generated Image publication 专项随后完整清空 Task 模块的 57 个 suppression。业务重构与每个触达文件的基线删除保持原子，Task strict Checkstyle/SpotBugs 和完整模块测试均成功；守护搜索确认 Task 条目为零。当前 suppression 文件共有 329 个条目，剩余模块仍按本计划继续处理，不能把 Task 清零扩大为全仓基线完成。
+
+Product Visual Facts 专项随后完整清空 Vision 模块的全部 14 个 suppression，其中自动配置条目已在前置切片删除，其余 13 个随旧路径清理删除。旧同步问答、Copy Enrichment、直接 Storage 图片解析和旧配置随业务一次性切换删除，新 current-facts 代码在零 Vision suppression 下通过四模块严格 Checkstyle/SpotBugs reactor；Vision 23 项、Common 23 项、Image 32 项测试均通过。当前 suppression 文件共有 315 个条目，其他模块仍按本计划继续处理。
 
 ## Context and Orientation
 
@@ -492,6 +514,10 @@ Java public interface、数据库 schema、REST API 和 Maven 依赖不因本计
 ESLint、Checkstyle 与 SpotBugs 的版本、规则、threshold 和 lifecycle 保持 `linter-adoption-plan.md` 定义。audit 与严格命令必须继续使用同一规则集；本计划不能通过降低 severity、改变 threshold 或跳过模块来达成空基线。
 
 ## Revision Notes
+
+2026-07-19 / Codex: 记录 Product Visual Facts 专项清空 Vision 模块全部 14 个 suppression（前置切片 1 个、本次旧路径清理 13 个）。旧路径按产品设计删除而非格式化，Vision 静态 reactor 与测试全绿；当前 Checkstyle suppression 精确计数为 315。
+
+2026-07-19 / Codex: 同步 Generated Image publication 专项接管的 Task lint 批次。Task 57 个 suppression 已全部清零，strict Checkstyle/SpotBugs、完整模块测试与空搜索通过；当前全文件条目快照为 329。新增 Progress/Discovery/Decision/Outcome，明确这是业务批次内的原子清理，不代表 Milestone 5 全仓基线已经完成。
 
 2026-07-17 / Codex: 按用户要求先修复至少 50 条问题再运行测试。选择工作树未触及的 rubrics `RubricsRunEntity` 做原子清理，删除 2 个 suppression 并修复 59 个历史违规行，剩余 411；修改只包含字段和 accessor 的等价布局整理，不改变 Evaluation Run 持久化合同。首次 `-am` reactor 在桌面 124 秒命令上限中断且遗留 Maven 进程短暂竞争导致 Checkstyle 结果 XML 损坏，进程退出后串行模块严格 verify 成功；随后模块 12 项测试全部通过。
 
