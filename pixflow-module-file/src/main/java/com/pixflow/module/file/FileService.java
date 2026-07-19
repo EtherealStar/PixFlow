@@ -5,41 +5,28 @@ import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.pixflow.common.error.PixFlowException;
 import com.pixflow.common.web.PageResponse;
-import com.pixflow.infra.mq.PublishResult;
 import com.pixflow.infra.storage.BucketType;
 import com.pixflow.infra.storage.ObjectLocation;
 import com.pixflow.infra.storage.ObjectStorage;
 import com.pixflow.contracts.asset.CanonicalAssetReferenceCodec;
 import com.pixflow.contracts.asset.ImageAssetReferenceKey;
 import com.pixflow.module.file.api.AssetSourceType;
-import com.pixflow.infra.storage.StorageKeys;
+import com.pixflow.module.file.api.AssetDeletionService;
 import com.pixflow.infra.storage.StoredObjectMetadata;
-import com.pixflow.module.file.copydoc.AssetCopy;
-import com.pixflow.module.file.copydoc.AssetCopyMapper;
-import com.pixflow.module.file.copydoc.CsvCopyDocParser;
-import com.pixflow.module.file.copydoc.ExcelCopyDocParser;
-import com.pixflow.module.file.copydoc.CopyDocParser;
-import com.pixflow.module.file.copydoc.ParsedCopyRow;
 import com.pixflow.module.file.error.AssetIngestError;
 import com.pixflow.module.file.error.AssetIngestErrorMapper;
 import com.pixflow.module.file.error.FileErrorCode;
-import com.pixflow.module.file.error.IngestStage;
 import com.pixflow.module.file.image.AssetImage;
 import com.pixflow.module.file.image.AssetImageMapper;
 import com.pixflow.module.file.image.AssetImageView;
-import com.pixflow.module.file.ingest.ExtractionPublisher;
+import com.pixflow.module.file.image.AssetSkuView;
 import com.pixflow.module.file.pkg.AssetPackage;
 import com.pixflow.module.file.pkg.AssetPackageMapper;
 import com.pixflow.module.file.pkg.AssetPackageService;
-import com.pixflow.module.file.pkg.PackageStatus;
-import java.io.IOException;
-import java.io.InputStream;
 import java.net.URL;
-import java.time.Clock;
 import java.time.Duration;
 import java.util.List;
 import java.util.Locale;
-import org.springframework.web.multipart.MultipartFile;
 
 public class FileService {
     private static final Duration IMAGE_PREVIEW_TTL = Duration.ofMinutes(15);
@@ -52,64 +39,27 @@ public class FileService {
 
     private final AssetIngestErrorMapper errorMapper;
 
-    private final AssetCopyMapper copyMapper;
-
-    private final CsvCopyDocParser csvCopyDocParser;
-
-    private final ExcelCopyDocParser excelCopyDocParser;
-
     private final ObjectStorage objectStorage;
 
-    private final ExtractionPublisher extractionPublisher;
-
-    private final Clock clock;
-
     private final CanonicalAssetReferenceCodec referenceCodec;
+
+    private final AssetDeletionService deletionService;
 
     public FileService(
             AssetPackageService packageService,
             AssetPackageMapper packageMapper,
             AssetImageMapper imageMapper,
             AssetIngestErrorMapper errorMapper,
-            AssetCopyMapper copyMapper,
-            CsvCopyDocParser csvCopyDocParser,
-            ExcelCopyDocParser excelCopyDocParser,
             ObjectStorage objectStorage,
-            ExtractionPublisher extractionPublisher,
-            Clock clock,
-            CanonicalAssetReferenceCodec referenceCodec) {
+            CanonicalAssetReferenceCodec referenceCodec,
+            AssetDeletionService deletionService) {
         this.packageService = packageService;
         this.packageMapper = packageMapper;
         this.imageMapper = imageMapper;
         this.errorMapper = errorMapper;
-        this.copyMapper = copyMapper;
-        this.csvCopyDocParser = csvCopyDocParser;
-        this.excelCopyDocParser = excelCopyDocParser;
         this.objectStorage = objectStorage;
-        this.extractionPublisher = extractionPublisher;
-        this.clock = clock;
         this.referenceCodec = referenceCodec;
-    }
-
-    public UploadPackageResponse upload(MultipartFile zip, MultipartFile doc) throws IOException {
-        AssetPackage assetPackage = packageService.createUploadingPackage(zip.getOriginalFilename());
-        long packageId = assetPackage.getId();
-        ObjectLocation zipLocation = StorageKeys.packageSource(packageId, "zip");
-        objectStorage.put(zipLocation, zip.getInputStream(), zip.getSize(), contentType(zip, "application/zip"));
-
-        String docKey = null;
-        if (doc != null && !doc.isEmpty()) {
-            ObjectLocation docLocation = StorageKeys.packageDoc(packageId, doc.getOriginalFilename());
-            objectStorage.put(
-                    docLocation, doc.getInputStream(), doc.getSize(), contentType(doc, "application/octet-stream"));
-            docKey = docLocation.key();
-        }
-        packageService.markSourceStored(packageId, zipLocation.key(), docKey);
-        if (doc != null && !doc.isEmpty()) {
-            importCopyDoc(packageId, doc);
-        }
-        PublishResult result = extractionPublisher.publish(packageId);
-        return new UploadPackageResponse(packageId, assetPackage.getStatus(), result.confirmed());
+        this.deletionService = deletionService;
     }
 
     public AssetPackage detail(long packageId) {
@@ -119,6 +69,46 @@ public class FileService {
     public PageResponse<AssetPackage> list(long page, long size) {
         IPage<AssetPackage> result = packageMapper.selectPage(new Page<>(page, size), packageService.visiblePackages());
         return new PageResponse<>(result.getRecords(), result.getTotal(), result.getCurrent(), result.getSize());
+    }
+
+    public PageResponse<AssetSkuView> skus(long packageId, long page, long size) {
+        packageService.require(packageId);
+        long total = imageMapper.countReadyOriginalSkus(packageId, List.of());
+        List<AssetSkuView> records = imageMapper.listReadyOriginalSkus(
+                        packageId, List.of(), (page - 1) * size, size).stream()
+                .map(skuId -> new AssetSkuView(packageId, skuId,
+                        imageMapper.selectCount(new LambdaQueryWrapper<AssetImage>()
+                                .eq(AssetImage::getPackageId, packageId)
+                                .eq(AssetImage::getSkuId, skuId)
+                                .eq(AssetImage::getSourceType, "ORIGINAL")
+                                .eq(AssetImage::getPublicationStatus, "READY")
+                                .isNull(AssetImage::getDeletionStatus))))
+                .toList();
+        return new PageResponse<>(records, total, page, size);
+    }
+
+    public PageResponse<AssetImageView> globalImages(
+            Long packageId, String skuId, String queryText, long page, long size) {
+        LambdaQueryWrapper<AssetImage> query = new LambdaQueryWrapper<AssetImage>()
+                .eq(AssetImage::getSourceType, "ORIGINAL")
+                .eq(AssetImage::getPublicationStatus, "READY")
+                .isNull(AssetImage::getDeletionStatus)
+                .orderByDesc(AssetImage::getCreatedAt);
+        if (packageId != null) {
+            query.eq(AssetImage::getPackageId, packageId);
+        }
+        if (skuId != null && !skuId.isBlank()) {
+            query.eq(AssetImage::getSkuId, skuId);
+        }
+        if (queryText != null && !queryText.isBlank()) {
+            String term = queryText.trim();
+            query.and(item -> item.like(AssetImage::getDisplayName, term)
+                    .or().like(AssetImage::getOriginalPath, term)
+                    .or().like(AssetImage::getSkuId, term));
+        }
+        IPage<AssetImage> result = imageMapper.selectPage(new Page<>(page, size), query);
+        return new PageResponse<>(result.getRecords().stream().map(this::toView).toList(),
+                result.getTotal(), result.getCurrent(), result.getSize());
     }
 
     public PageResponse<AssetIngestError> errors(long packageId, long page, long size) {
@@ -137,23 +127,16 @@ public class FileService {
                 new Page<>(page, size),
                 new LambdaQueryWrapper<AssetImage>()
                         .eq(AssetImage::getPackageId, packageId)
+                        .eq(AssetImage::getSourceType, "ORIGINAL")
                         .eq(AssetImage::getPublicationStatus, "READY")
-                        .isNull(AssetImage::getDeletedAt)
+                        .isNull(AssetImage::getDeletionStatus)
                         .orderByAsc(AssetImage::getId));
         List<AssetImageView> views = result.getRecords().stream().map(this::toView).toList();
         return new PageResponse<>(views, result.getTotal(), result.getCurrent(), result.getSize());
     }
 
     public void deleteImage(long packageId, long imageId) {
-        AssetImage image = requireImage(packageId, imageId);
-        if (image.getDeletedAt() != null) {
-            return;
-        }
-        AssetImage update = new AssetImage();
-        update.setId(image.getId());
-        // 单图删除只隐藏数据库事实，不删除 MinIO 对象，避免破坏历史任务回放。
-        update.setDeletedAt(clock.instant());
-        imageMapper.updateById(update);
+        deletionService.deleteImage(packageId, imageId);
     }
 
     public AssetImageView renameImage(long packageId, long imageId, String displayName) {
@@ -169,68 +152,36 @@ public class FileService {
     }
 
     public void delete(long packageId) {
-        packageService.delete(packageId);
+        deletionService.deletePackage(packageId);
     }
 
-    private void importCopyDoc(long packageId, MultipartFile doc) throws IOException {
-        String fileName = doc.getOriginalFilename();
-        if (fileName == null || fileName.isBlank()) {
+    public AssetPackage renamePackage(long packageId, String displayName) {
+        AssetPackage assetPackage = packageService.require(packageId);
+        String normalized = normalizeDisplayName(displayName);
+        if (normalized == null) {
+            throw new PixFlowException(FileErrorCode.ASSET_IMAGE_NAME_INVALID,
+                    "package display name is required");
+        }
+        AssetPackage update = new AssetPackage();
+        update.setId(packageId);
+        update.setName(normalized);
+        packageMapper.updateById(update);
+        assetPackage.setName(normalized);
+        return assetPackage;
+    }
+
+    public void cancelExtraction(long packageId) {
+        AssetPackage assetPackage = packageMapper.selectById(packageId);
+        if (assetPackage == null) {
             return;
         }
-        CopyDocParser parser = parserFor(fileName);
-        if (parser == null) {
-            return;
+        if (assetPackage.getStatus() == com.pixflow.module.file.pkg.PackageStatus.READY
+                || assetPackage.getStatus() == com.pixflow.module.file.pkg.PackageStatus.PARTIAL
+                || assetPackage.getStatus() == com.pixflow.module.file.pkg.PackageStatus.FAILED) {
+            throw new PixFlowException(FileErrorCode.PACKAGE_ALREADY_REFERENCED,
+                    "terminal package cannot be cancelled");
         }
-        try (InputStream inputStream = doc.getInputStream()) {
-            List<ParsedCopyRow> rows = parser.parse(inputStream);
-            boolean hasFailure = false;
-            for (ParsedCopyRow row : rows) {
-                if (row.skuId() == null || row.skuId().isBlank()) {
-                    // 文案缺 sku_id 只记失败明细，不让整包上传直接失败。
-                    recordCopyDocError(packageId, row.rowNumber(), "COPYDOC_PARSE", "SKIP", "missing sku_id");
-                    hasFailure = true;
-                    continue;
-                }
-                AssetCopy copy = new AssetCopy();
-                copy.setPackageId(packageId);
-                copy.setSkuId(row.skuId());
-                copy.setProductName(row.productName());
-                copy.setKeywords(row.keywords());
-                copy.setDescription(row.description());
-                copyMapper.insert(copy);
-            }
-            // 文案只影响辅助信息，不阻断图片入库；只要出现跳过行，就把包标成 PARTIAL。
-            if (hasFailure) {
-                packageService.finish(packageId, PackageStatus.PARTIAL, "copy doc contains skipped rows");
-            }
-        } catch (IOException ex) {
-            recordCopyDocError(packageId, null, "COPYDOC_PARSE", "SKIP", ex.getMessage());
-            packageService.finish(packageId, PackageStatus.PARTIAL, ex.getMessage());
-        }
-    }
-
-    private CopyDocParser parserFor(String fileName) {
-        if (csvCopyDocParser.supports(fileName)) {
-            return csvCopyDocParser;
-        }
-        if (excelCopyDocParser.supports(fileName)) {
-            return excelCopyDocParser;
-        }
-        return null;
-    }
-
-    private static String contentType(MultipartFile file, String fallback) {
-        return file.getContentType() == null ? fallback : file.getContentType();
-    }
-
-    private void recordCopyDocError(long packageId, Integer rowNumber, String stage, String code, String message) {
-        AssetIngestError error = new AssetIngestError();
-        error.setPackageId(packageId);
-        error.setOriginalPath(rowNumber == null ? null : "row-" + rowNumber);
-        error.setStage(IngestStage.COPYDOC_PARSE);
-        error.setCode(code);
-        error.setMessage(message);
-        errorMapper.insert(error);
+        deletionService.deletePackage(packageId);
     }
 
     private AssetImage requireImage(long packageId, long imageId) {
@@ -239,7 +190,7 @@ public class FileService {
                 .eq(AssetImage::getPackageId, packageId)
                 .eq(AssetImage::getId, imageId)
                 .eq(AssetImage::getPublicationStatus, "READY")
-                .isNull(AssetImage::getDeletedAt)
+                .isNull(AssetImage::getDeletionStatus)
                 .last("limit 1"));
         if (image == null) {
             throw new PixFlowException(FileErrorCode.ASSET_IMAGE_NOT_FOUND,

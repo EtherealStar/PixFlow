@@ -78,6 +78,8 @@ class DefaultAssetReferenceServiceTest {
         image.setPackageId(packageId);
         image.setSkuId(skuId);
         image.setOriginalPath(path);
+        image.setSourceType("ORIGINAL");
+        image.setPublicationStatus("READY");
         image.setMinioKey(storageKey);
         return image;
     }

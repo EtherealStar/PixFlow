@@ -210,7 +210,7 @@ public final class DefaultGeneratedImagePublisher implements GeneratedImagePubli
     }
     String reference =
         codec.serialize(new ImageAssetReferenceKey(image.getPackageId(), image.getId()));
-    return new PublishedImage(image.getId(), reference, stable);
+    return new PublishedImage(image.getId(), reference);
   }
 
   ObjectLocation stableLocation(AssetImage image) {

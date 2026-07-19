@@ -21,8 +21,10 @@ import com.pixflow.module.file.copydoc.CsvCopyDocParser;
 import com.pixflow.module.file.copydoc.ExcelCopyDocParser;
 import com.pixflow.module.file.error.AssetIngestErrorMapper;
 import com.pixflow.module.file.image.AssetImageMapper;
-import com.pixflow.module.file.api.AssetImageQuery;
+import com.pixflow.module.file.runtime.AssetImageQuery;
 import com.pixflow.module.file.internal.image.DefaultAssetImageQuery;
+import com.pixflow.module.file.internal.image.DefaultAssetContentReader;
+import com.pixflow.module.file.api.AssetContentReader;
 import com.pixflow.module.file.internal.publication.AssetImageLineageSourceMapper;
 import com.pixflow.module.file.internal.publication.DefaultGeneratedImagePublisher;
 import com.pixflow.module.file.internal.publication.GeneratedImagePublicationRecovery;
@@ -33,23 +35,36 @@ import com.pixflow.module.file.ingest.ExtractionDestination;
 import com.pixflow.module.file.ingest.ImageAdmission;
 import com.pixflow.module.file.ingest.PublishGapRescan;
 import com.pixflow.module.file.ingest.ZipExtractor;
+import com.pixflow.module.file.ingest.RarExtractor;
+import com.pixflow.module.file.ingest.SevenZExtractor;
+import com.pixflow.module.file.ingest.ArchiveExtractor;
+import com.pixflow.module.file.ingest.ArchiveEntryProcessor;
+import com.pixflow.module.file.ingest.ArchiveSafetyPolicy;
+import com.pixflow.module.file.ingest.ArchiveExtractionDispatcher;
 import com.pixflow.module.file.naming.DefaultSkuExtractor;
 import com.pixflow.module.file.naming.FileNameParser;
 import com.pixflow.module.file.naming.SkuExtractor;
 import com.pixflow.module.file.pkg.AssetPackageMapper;
 import com.pixflow.module.file.pkg.AssetPackageService;
-import com.pixflow.module.file.pkg.ConservativePackageReferenceChecker;
-import com.pixflow.module.file.pkg.DefaultPackageReferenceResolver;
-import com.pixflow.module.file.pkg.PackageReferenceChecker;
-import com.pixflow.module.file.pkg.PackageReferenceResolver;
 import com.pixflow.module.file.permission.AssetPermissionProof;
 import com.pixflow.module.file.api.AssetReferenceResolver;
 import com.pixflow.module.file.internal.reference.DefaultAssetReferenceService;
+import com.pixflow.module.file.internal.reference.DefaultAssetReferenceCatalog;
+import com.pixflow.module.file.api.AssetReferenceCatalog;
+import com.pixflow.module.file.api.AssetDeletionService;
+import com.pixflow.module.file.internal.deletion.AssetCleanupIntentMapper;
+import com.pixflow.module.file.internal.deletion.AssetReferenceTombstoneMapper;
+import com.pixflow.module.file.internal.deletion.DefaultAssetDeletionService;
+import com.pixflow.module.file.internal.deletion.AssetDeletionRecovery;
+import com.pixflow.module.file.internal.deletion.DefaultAssetReferenceHistory;
+import com.pixflow.module.file.api.AssetReferenceHistory;
 import com.pixflow.module.file.upload.UploadSessionService;
 import com.pixflow.module.file.upload.UploadSessionStore;
 import com.pixflow.module.file.upload.RedisUploadSessionStore;
+import com.pixflow.module.file.upload.UploadOrphanCleanup;
 import com.pixflow.module.file.web.FileController;
 import java.time.Clock;
+import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
@@ -75,7 +90,9 @@ import org.springframework.transaction.support.TransactionTemplate;
                 AssetImageMapper.class,
                 AssetImageLineageSourceMapper.class,
                 AssetIngestErrorMapper.class,
-                AssetCopyMapper.class
+                AssetCopyMapper.class,
+                AssetCleanupIntentMapper.class,
+                AssetReferenceTombstoneMapper.class
         },
         annotationClass = Mapper.class)
 public class FileAutoConfiguration {
@@ -119,20 +136,6 @@ public class FileAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public PackageReferenceChecker packageReferenceChecker() {
-        return new ConservativePackageReferenceChecker();
-    }
-
-    @Bean
-    @ConditionalOnMissingBean
-    public PackageReferenceResolver packageReferenceResolver(
-            AssetPackageService packageService,
-            AssetImageMapper imageMapper) {
-        return new DefaultPackageReferenceResolver(packageService, imageMapper);
-    }
-
-    @Bean
-    @ConditionalOnMissingBean
     public CanonicalAssetReferenceCodec canonicalAssetReferenceCodec() {
         return new CanonicalAssetReferenceCodec();
     }
@@ -142,8 +145,48 @@ public class FileAutoConfiguration {
     public DefaultAssetReferenceService assetReferenceService(
             CanonicalAssetReferenceCodec codec,
             AssetPackageService packageService,
+            AssetImageMapper imageMapper,
+            AssetReferenceTombstoneMapper tombstoneMapper) {
+        return new DefaultAssetReferenceService(codec, packageService, imageMapper, tombstoneMapper);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public AssetReferenceCatalog assetReferenceCatalog(
+            CanonicalAssetReferenceCodec codec,
+            AssetPackageMapper packageMapper,
             AssetImageMapper imageMapper) {
-        return new DefaultAssetReferenceService(codec, packageService, imageMapper);
+        return new DefaultAssetReferenceCatalog(codec, packageMapper, imageMapper);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public AssetDeletionService assetDeletionService(
+            AssetPackageMapper packageMapper,
+            AssetImageMapper imageMapper,
+            AssetCopyMapper copyMapper,
+            AssetIngestErrorMapper errorMapper,
+            AssetReferenceTombstoneMapper tombstoneMapper,
+            AssetCleanupIntentMapper intentMapper,
+            ObjectStorage objectStorage,
+            PlatformTransactionManager transactionManager,
+            Clock clock) {
+        return new DefaultAssetDeletionService(packageMapper, imageMapper, copyMapper, errorMapper,
+                tombstoneMapper, intentMapper, objectStorage,
+                new TransactionTemplate(transactionManager), clock);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public AssetDeletionRecovery assetDeletionRecovery(AssetDeletionService deletionService) {
+        return new AssetDeletionRecovery(deletionService);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public AssetReferenceHistory assetReferenceHistory(
+            CanonicalAssetReferenceCodec codec, AssetReferenceTombstoneMapper tombstoneMapper) {
+        return new DefaultAssetReferenceHistory(codec, tombstoneMapper);
     }
 
     @Bean
@@ -157,6 +200,15 @@ public class FileAutoConfiguration {
     @ConditionalOnMissingBean
     public AssetImageQuery assetImageQuery(AssetImageMapper imageMapper) {
         return new DefaultAssetImageQuery(imageMapper);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public AssetContentReader assetContentReader(
+            CanonicalAssetReferenceCodec codec,
+            AssetImageMapper imageMapper,
+            ObjectStorage objectStorage) {
+        return new DefaultAssetContentReader(codec, imageMapper, objectStorage);
     }
 
     @Bean
@@ -186,10 +238,8 @@ public class FileAutoConfiguration {
     @ConditionalOnMissingBean
     public AssetPackageService assetPackageService(
             AssetPackageMapper packageMapper,
-            PackageReferenceChecker referenceChecker,
-            ObjectStorage objectStorage,
             Clock clock) {
-        return new AssetPackageService(packageMapper, referenceChecker, objectStorage, clock);
+        return new AssetPackageService(packageMapper, clock);
     }
 
     @Bean
@@ -206,25 +256,17 @@ public class FileAutoConfiguration {
             AssetPackageMapper packageMapper,
             AssetImageMapper imageMapper,
             AssetIngestErrorMapper errorMapper,
-            AssetCopyMapper copyMapper,
-            CsvCopyDocParser csvCopyDocParser,
-            ExcelCopyDocParser excelCopyDocParser,
             ObjectStorage objectStorage,
-            ExtractionPublisher extractionPublisher,
-            Clock clock,
-            CanonicalAssetReferenceCodec referenceCodec) {
+            CanonicalAssetReferenceCodec referenceCodec,
+            AssetDeletionService deletionService) {
         return new FileService(
                 packageService,
                 packageMapper,
                 imageMapper,
                 errorMapper,
-                copyMapper,
-                csvCopyDocParser,
-                excelCopyDocParser,
                 objectStorage,
-                extractionPublisher,
-                clock,
-                referenceCodec);
+                referenceCodec,
+                deletionService);
     }
 
     @Bean
@@ -265,45 +307,80 @@ public class FileAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     @ConditionalOnBean(UploadSessionService.class)
-    public FileController fileController(FileService fileService, UploadSessionService uploadSessionService) {
-        return new FileController(fileService, uploadSessionService);
+    public FileController fileController(FileService fileService,
+                                         UploadSessionService uploadSessionService,
+                                         AssetReferenceCatalog referenceCatalog) {
+        return new FileController(fileService, uploadSessionService, referenceCatalog);
     }
 
     @Bean
     @ConditionalOnMissingBean
-    @ConditionalOnBean({
-            ObjectStorage.class,
-            AssetPackageService.class,
-            AssetImageMapper.class,
-            AssetIngestErrorMapper.class
-    })
-    public ZipExtractor zipExtractor(
+    public ArchiveSafetyPolicy archiveSafetyPolicy(FileProperties properties) {
+        return new ArchiveSafetyPolicy(properties);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public UploadOrphanCleanup uploadOrphanCleanup(
+            UploadSessionStore store, ObjectStorage objectStorage, Clock clock) {
+        return new UploadOrphanCleanup(store, objectStorage, clock);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public ArchiveEntryProcessor archiveEntryProcessor(
             ObjectStorage objectStorage,
             AssetPackageService packageService,
             AssetImageMapper imageMapper,
             AssetIngestErrorMapper errorMapper,
             FileNameParser fileNameParser,
             ImageAdmission imageAdmission,
-            FileProperties properties,
+            ArchiveSafetyPolicy safetyPolicy,
             ProgressNotifier progressNotifier,
-            Clock clock) {
-        return new ZipExtractor(
-                objectStorage,
-                packageService,
-                imageMapper,
-                errorMapper,
-                fileNameParser,
-                imageAdmission,
-                properties,
-                progressNotifier,
-                clock);
+            Clock clock,
+            AssetCopyMapper copyMapper,
+            CsvCopyDocParser csvParser,
+            ExcelCopyDocParser excelParser) {
+        return new ArchiveEntryProcessor(objectStorage, packageService, imageMapper, errorMapper,
+                fileNameParser, imageAdmission, safetyPolicy, progressNotifier, clock,
+                copyMapper, csvParser, excelParser);
     }
 
     @Bean
     @ConditionalOnMissingBean
-    @ConditionalOnBean(ZipExtractor.class)
-    public ExtractionConsumer extractionConsumer(ZipExtractor zipExtractor) {
-        return new ExtractionConsumer(zipExtractor);
+    public ZipExtractor zipExtractor(ObjectStorage objectStorage,
+                                     AssetPackageService packageService,
+                                     ArchiveEntryProcessor processor) {
+        return new ZipExtractor(objectStorage, packageService, processor);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public RarExtractor rarExtractor(ObjectStorage objectStorage,
+                                     AssetPackageService packageService,
+                                     ArchiveEntryProcessor processor) {
+        return new RarExtractor(objectStorage, packageService, processor);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public SevenZExtractor sevenZExtractor(ObjectStorage objectStorage,
+                                           AssetPackageService packageService,
+                                           ArchiveEntryProcessor processor) {
+        return new SevenZExtractor(objectStorage, packageService, processor);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public ArchiveExtractionDispatcher archiveExtractionDispatcher(
+            AssetPackageService packageService, List<ArchiveExtractor> extractors) {
+        return new ArchiveExtractionDispatcher(packageService, extractors);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public ExtractionConsumer extractionConsumer(ArchiveExtractionDispatcher dispatcher) {
+        return new ExtractionConsumer(dispatcher);
     }
 
     @Bean

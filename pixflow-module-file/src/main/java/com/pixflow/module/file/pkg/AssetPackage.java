@@ -18,6 +18,10 @@ public class AssetPackage {
 
     private String docKey;
 
+    private String archiveFormat;
+
+    private String cleanupStatus;
+
     private PackageStatus status;
 
     private Integer imageCount;
@@ -25,8 +29,6 @@ public class AssetPackage {
     private Integer extractedCount;
 
     private String errorSummary;
-
-    private Instant deletedAt;
 
     private Instant createdAt;
 
@@ -72,6 +74,22 @@ public class AssetPackage {
         this.docKey = docKey;
     }
 
+    public String getArchiveFormat() {
+        return archiveFormat;
+    }
+
+    public void setArchiveFormat(String archiveFormat) {
+        this.archiveFormat = archiveFormat;
+    }
+
+    public String getCleanupStatus() {
+        return cleanupStatus;
+    }
+
+    public void setCleanupStatus(String cleanupStatus) {
+        this.cleanupStatus = cleanupStatus;
+    }
+
     public PackageStatus getStatus() {
         return status;
     }
@@ -102,14 +120,6 @@ public class AssetPackage {
 
     public void setErrorSummary(String errorSummary) {
         this.errorSummary = errorSummary;
-    }
-
-    public Instant getDeletedAt() {
-        return deletedAt;
-    }
-
-    public void setDeletedAt(Instant deletedAt) {
-        this.deletedAt = deletedAt;
     }
 
     public Instant getCreatedAt() {

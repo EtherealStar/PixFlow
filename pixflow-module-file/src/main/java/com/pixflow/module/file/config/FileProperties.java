@@ -51,7 +51,7 @@ public class FileProperties {
 
         private DataSize chunkSize = DataSize.ofMegabytes(5);
 
-        private Duration sessionTtl = Duration.ofHours(24);
+        private Duration sessionTtl = Duration.ofHours(12);
 
         public DataSize getMaxZipSize() {
             return maxZipSize;

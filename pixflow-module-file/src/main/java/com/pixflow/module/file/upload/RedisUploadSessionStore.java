@@ -10,6 +10,7 @@ import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.List;
 
 public final class RedisUploadSessionStore implements UploadSessionStore {
     private final ExpiringStateStore stateStore;
@@ -66,6 +67,7 @@ public final class RedisUploadSessionStore implements UploadSessionStore {
         UploadSession renewed = session.withExpiry(clock.instant().plus(ttl));
         writeSession(renewed);
         stateStore.put(fileHashKey(renewed.fileHash()), renewed.uploadId(), ttl);
+        index(renewed);
     }
 
     @Override
@@ -80,6 +82,7 @@ public final class RedisUploadSessionStore implements UploadSessionStore {
         if (!snapshot.chunks().isEmpty()) {
             hashStore.expire(chunksKey(renewed.uploadId()), ttl);
         }
+        index(renewed);
     }
 
     @Override
@@ -91,6 +94,7 @@ public final class RedisUploadSessionStore implements UploadSessionStore {
             stateStore.expire(fileHashKey(session.fileHash()), ttl);
         }
         hashStore.expire(chunksKey(session.uploadId()), ttl);
+        index(session.withExpiry(clock.instant().plus(ttl)));
     }
 
     @Override
@@ -118,6 +122,7 @@ public final class RedisUploadSessionStore implements UploadSessionStore {
     public void clearChunksAndActive(UploadSession session) {
         hashStore.delete(chunksKey(session.uploadId()));
         stateStore.delete(fileHashKey(session.fileHash()));
+        hashStore.deleteField(indexKey(), session.uploadId());
     }
 
     @Override
@@ -126,6 +131,28 @@ public final class RedisUploadSessionStore implements UploadSessionStore {
         hashStore.delete(chunksKey(session.uploadId()));
         stateStore.delete(fileHashKey(session.fileHash()));
         hashStore.delete(sessionKey(session.uploadId()));
+        hashStore.deleteField(indexKey(), session.uploadId());
+    }
+
+    @Override
+    public List<String> findExpiredUploadIds(Instant now, int limit) {
+        return hashStore.entries(indexKey(), String.class).entrySet().stream()
+                .filter(entry -> {
+                    try {
+                        return !Instant.parse(entry.getValue()).isAfter(now);
+                    } catch (RuntimeException malformed) {
+                        return true;
+                    }
+                })
+                .map(Map.Entry::getKey)
+                .sorted()
+                .limit(limit)
+                .toList();
+    }
+
+    @Override
+    public void forgetUploadId(String uploadId) {
+        hashStore.deleteField(indexKey(), uploadId);
     }
 
     private void writeSession(UploadSession session) {
@@ -183,6 +210,14 @@ public final class RedisUploadSessionStore implements UploadSessionStore {
 
     private CacheKey fileHashKey(String fileHash) {
         return namespace.withDefaultTtl(ttl).key("upload", "filehash", fileHash);
+    }
+
+    private CacheKey indexKey() {
+        return namespace.withDefaultTtl(ttl.multipliedBy(3)).key("upload", "index");
+    }
+
+    private void index(UploadSession session) {
+        hashStore.put(indexKey(), session.uploadId(), session.expiresAt().toString(), ttl.multipliedBy(3));
     }
 
     private static String field(int index) {

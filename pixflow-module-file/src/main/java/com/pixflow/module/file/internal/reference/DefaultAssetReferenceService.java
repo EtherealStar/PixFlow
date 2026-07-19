@@ -21,6 +21,7 @@ import com.pixflow.module.file.image.AssetImageMapper;
 import com.pixflow.module.file.pkg.AssetPackage;
 import com.pixflow.module.file.pkg.AssetPackageService;
 import com.pixflow.module.file.pkg.PackageStatus;
+import com.pixflow.module.file.internal.deletion.AssetReferenceTombstoneMapper;
 import com.pixflow.common.error.PixFlowException;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -35,13 +36,24 @@ public final class DefaultAssetReferenceService
 
     private final AssetImageMapper imageMapper;
 
+    private final AssetReferenceTombstoneMapper tombstoneMapper;
+
     public DefaultAssetReferenceService(
             CanonicalAssetReferenceCodec codec,
             AssetPackageService packageService,
             AssetImageMapper imageMapper) {
+        this(codec, packageService, imageMapper, null);
+    }
+
+    public DefaultAssetReferenceService(
+            CanonicalAssetReferenceCodec codec,
+            AssetPackageService packageService,
+            AssetImageMapper imageMapper,
+            AssetReferenceTombstoneMapper tombstoneMapper) {
         this.codec = codec;
         this.packageService = packageService;
         this.imageMapper = imageMapper;
+        this.tombstoneMapper = tombstoneMapper;
     }
 
     @Override
@@ -50,11 +62,12 @@ public final class DefaultAssetReferenceService
             throw new IllegalArgumentException("asset use must not be null");
         }
         AssetReferenceKey key = codec.parse(referenceKey);
-        AssetPackage assetPackage = requireUsablePackage(key.packageId(), use);
         if (key instanceof PackageAssetReferenceKey packageKey) {
+            AssetPackage assetPackage = requireUsablePackage(key.packageId(), use);
             return packageView(packageKey, assetPackage);
         }
         if (key instanceof SkuAssetReferenceKey skuKey) {
+            AssetPackage assetPackage = requireUsablePackage(key.packageId(), use);
             List<AssetImage> images = selectImages(key.packageId(), skuKey.skuId());
             requireProcessable(images, use, referenceKey);
             return new ResolvedAssetReference(
@@ -65,12 +78,20 @@ public final class DefaultAssetReferenceService
         AssetImage image = imageMapper.selectById(imageKey.imageId());
         if (image == null || image.getPackageId() == null
                 || imageKey.packageId() != image.getPackageId()
-                || image.getDeletedAt() != null
+                || image.getDeletionStatus() != null
                 || !"READY".equals(image.getPublicationStatus())) {
             throw notFound(referenceKey);
         }
         requireProcessable(List.of(image), use, referenceKey);
-        return imageView(imageKey, image, assetPackage);
+        String packageName;
+        if (AssetSourceType.GENERATED.name().equals(image.getSourceType())) {
+            AssetPackage currentPackage = packageServicePackage(imageKey.packageId());
+            packageName = currentPackage == null ? tombstonePackageName(imageKey.packageId())
+                    : currentPackage.getName();
+        } else {
+            packageName = requireUsablePackage(key.packageId(), use).getName();
+        }
+        return imageView(imageKey, image, packageName);
     }
 
     @Override
@@ -99,14 +120,14 @@ public final class DefaultAssetReferenceService
                     ? selectImages(reference.packageId(), reference.skuId())
                     : selectImages(reference.packageId(), null);
             for (AssetImage image : images) {
-                if (image.getDeletedAt() == null
+                if (image.getDeletionStatus() == null
                         && "READY".equals(image.getPublicationStatus())
                         && image.getMinioKey() != null
                         && !image.getMinioKey().isBlank()) {
                     ImageAssetReferenceKey imageKey = new ImageAssetReferenceKey(
                             reference.packageId(), image.getId());
                     unique.putIfAbsent(codec.serialize(imageKey),
-                            imageView(imageKey, image, packageService.require(reference.packageId())));
+                            imageView(imageKey, image, packageService.require(reference.packageId()).getName()));
                 }
             }
         }
@@ -120,10 +141,10 @@ public final class DefaultAssetReferenceService
     }
 
     private ResolvedAssetReference imageView(
-            ImageAssetReferenceKey key, AssetImage image, AssetPackage assetPackage) {
+            ImageAssetReferenceKey key, AssetImage image, String packageName) {
         String imageName = image.getOriginalPath() == null
                 ? "Generated Image " + image.getId() : image.getOriginalPath();
-        String displayPath = assetPackage.getName() + " / " + imageName;
+        String displayPath = packageName + " / " + imageName;
         return new ResolvedAssetReference(
                 codec.serialize(key), AssetReferenceKind.IMAGE,
                 AssetSourceType.valueOf(image.getSourceType()),
@@ -132,7 +153,8 @@ public final class DefaultAssetReferenceService
 
     private AssetPackage requireUsablePackage(long packageId, AssetUse use) {
         AssetPackage assetPackage = packageService.require(packageId);
-        if (assetPackage.getDeletedAt() != null || !processable(assetPackage.getStatus())) {
+        if (assetPackage.getCleanupStatus() != null
+                || !processable(assetPackage.getStatus())) {
             throw notFound("package:" + packageId);
         }
         return assetPackage;
@@ -142,7 +164,7 @@ public final class DefaultAssetReferenceService
         LambdaQueryWrapper<AssetImage> query = new LambdaQueryWrapper<AssetImage>()
                 .eq(AssetImage::getPackageId, packageId)
                 .eq(AssetImage::getPublicationStatus, "READY")
-                .isNull(AssetImage::getDeletedAt)
+                .isNull(AssetImage::getDeletionStatus)
                 .orderByAsc(AssetImage::getId);
         if (skuId != null) {
             query.eq(AssetImage::getSkuId, skuId);
@@ -160,6 +182,19 @@ public final class DefaultAssetReferenceService
 
     private static boolean processable(PackageStatus status) {
         return status == PackageStatus.READY || status == PackageStatus.PARTIAL;
+    }
+
+    private AssetPackage packageServicePackage(long packageId) {
+        try {
+            return packageService.require(packageId);
+        } catch (PixFlowException missing) {
+            return null;
+        }
+    }
+
+    private String tombstonePackageName(long packageId) {
+        String displayName = tombstoneMapper == null ? null : tombstoneMapper.findPackageDisplayName(packageId);
+        return displayName == null ? "Package " + packageId : displayName;
     }
 
     private static PixFlowException notFound(String referenceKey) {

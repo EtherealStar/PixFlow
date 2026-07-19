@@ -95,4 +95,42 @@ public interface AssetImageMapper extends BaseMapper<AssetImage> {
             """)
     int recordPublicationError(@Param("imageId") long imageId,
                                @Param("error") String error, @Param("now") Instant now);
+
+    @Select("""
+            <script>
+            select distinct sku_id from asset_image
+            where package_id = #{packageId}
+              and source_type = 'ORIGINAL' and publication_status = 'READY'
+              and deletion_status is null and sku_id is not null and sku_id != ''
+            <if test="excludedSkuIds != null and !excludedSkuIds.isEmpty()">
+              and sku_id not in
+              <foreach collection="excludedSkuIds" item="sku" open="(" separator="," close=")">
+                #{sku}
+              </foreach>
+            </if>
+            order by sku_id
+            limit #{limit} offset #{offset}
+            </script>
+            """)
+    List<String> listReadyOriginalSkus(@Param("packageId") long packageId,
+                                       @Param("excludedSkuIds") List<String> excludedSkuIds,
+                                       @Param("offset") long offset,
+                                       @Param("limit") long limit);
+
+    @Select("""
+            <script>
+            select count(distinct sku_id) from asset_image
+            where package_id = #{packageId}
+              and source_type = 'ORIGINAL' and publication_status = 'READY'
+              and deletion_status is null and sku_id is not null and sku_id != ''
+            <if test="excludedSkuIds != null and !excludedSkuIds.isEmpty()">
+              and sku_id not in
+              <foreach collection="excludedSkuIds" item="sku" open="(" separator="," close=")">
+                #{sku}
+              </foreach>
+            </if>
+            </script>
+            """)
+    long countReadyOriginalSkus(@Param("packageId") long packageId,
+                                @Param("excludedSkuIds") List<String> excludedSkuIds);
 }

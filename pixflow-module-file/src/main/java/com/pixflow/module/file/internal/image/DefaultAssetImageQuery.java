@@ -3,8 +3,8 @@ package com.pixflow.module.file.internal.image;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.pixflow.infra.storage.BucketType;
 import com.pixflow.infra.storage.ObjectLocation;
-import com.pixflow.module.file.api.AssetImageDescriptor;
-import com.pixflow.module.file.api.AssetImageQuery;
+import com.pixflow.module.file.runtime.AssetImageDescriptor;
+import com.pixflow.module.file.runtime.AssetImageQuery;
 import com.pixflow.module.file.api.AssetSourceType;
 import com.pixflow.module.file.image.AssetImage;
 import com.pixflow.module.file.image.AssetImageMapper;
@@ -38,7 +38,7 @@ public final class DefaultAssetImageQuery implements AssetImageQuery {
         LambdaQueryWrapper<AssetImage> query = new LambdaQueryWrapper<AssetImage>()
                         .eq(AssetImage::getPackageId, packageId)
                         .eq(AssetImage::getPublicationStatus, "READY")
-                        .isNull(AssetImage::getDeletedAt)
+                        .isNull(AssetImage::getDeletionStatus)
                         .orderByAsc(AssetImage::getId);
         if (imageIds != null) {
             query.in(AssetImage::getId, imageIds);
@@ -59,7 +59,7 @@ public final class DefaultAssetImageQuery implements AssetImageQuery {
     @Override
     public AssetImageDescriptor require(long imageId) {
         AssetImage image = mapper.selectById(imageId);
-        if (image == null || image.getDeletedAt() != null
+        if (image == null || image.getDeletionStatus() != null
                 || !"READY".equals(image.getPublicationStatus())) {
             throw new IllegalArgumentException("READY image not found");
         }

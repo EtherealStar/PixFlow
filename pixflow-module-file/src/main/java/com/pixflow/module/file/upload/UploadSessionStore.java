@@ -1,6 +1,8 @@
 package com.pixflow.module.file.upload;
 
 import java.util.Optional;
+import java.time.Instant;
+import java.util.List;
 
 /**
  * 上传会话的领域存储边界。调用方只处理快照和幂等结果，不感知 Redis key、Hash 或 TTL。
@@ -23,4 +25,11 @@ public interface UploadSessionStore {
     void clearChunksAndActive(UploadSession session);
 
     void delete(UploadSnapshot snapshot);
+
+    default List<String> findExpiredUploadIds(Instant now, int limit) {
+        return List.of();
+    }
+
+    default void forgetUploadId(String uploadId) {
+    }
 }

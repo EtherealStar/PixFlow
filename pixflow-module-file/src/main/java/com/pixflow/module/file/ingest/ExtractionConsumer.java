@@ -4,14 +4,14 @@ import com.pixflow.infra.mq.MessageEnvelope;
 import com.pixflow.infra.mq.consumer.ManagedMessageHandler;
 
 public class ExtractionConsumer implements ManagedMessageHandler<ExtractionMessage> {
-    private final ZipExtractor zipExtractor;
+    private final ArchiveExtractionDispatcher dispatcher;
 
-    public ExtractionConsumer(ZipExtractor zipExtractor) {
-        this.zipExtractor = zipExtractor;
+    public ExtractionConsumer(ArchiveExtractionDispatcher dispatcher) {
+        this.dispatcher = dispatcher;
     }
 
     @Override
     public void handle(MessageEnvelope<ExtractionMessage> envelope) {
-        zipExtractor.extract(envelope.payload().packageId());
+        dispatcher.extract(envelope.payload().packageId());
     }
 }

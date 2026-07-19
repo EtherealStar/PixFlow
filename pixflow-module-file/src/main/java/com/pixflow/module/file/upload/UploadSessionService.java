@@ -11,6 +11,7 @@ import com.pixflow.infra.storage.StorageKeys;
 import com.pixflow.module.file.config.FileProperties;
 import com.pixflow.module.file.error.FileErrorCode;
 import com.pixflow.module.file.ingest.ExtractionPublisher;
+import com.pixflow.module.file.ingest.ArchiveFormat;
 import com.pixflow.module.file.pkg.AssetPackage;
 import com.pixflow.module.file.pkg.AssetPackageMapper;
 import com.pixflow.module.file.pkg.AssetPackageService;
@@ -201,13 +202,18 @@ public class UploadSessionService {
                         : normalizeHash(request.fileHash());
                 assetPackage = packageService.createUploadingPackage(session.filename(), session.fileHash());
                 long packageId = assetPackage.getId();
-                target = StorageKeys.packageSource(packageId, "zip");
+                ArchiveFormat declaredFormat = ArchiveFormat.fromFilename(session.filename());
+                target = StorageKeys.packageSource(packageId, declaredFormat.extension());
                 String actualHash = writeComposedObject(chunks, target, session.size());
                 if (!actualHash.equalsIgnoreCase(expectedHash)) {
                     throw new PixFlowException(FileErrorCode.FILE_HASH_MISMATCH, "file hash mismatch");
                 }
                 // complete 是分片上传进入素材包事实源的边界：写 source.zip、落包记录、发解压消息。
-                packageService.markSourceStored(packageId, target.key(), null);
+                ArchiveFormat detectedFormat = detectStoredFormat(target);
+                if (detectedFormat != declaredFormat) {
+                    throw new PixFlowException(FileErrorCode.INVALID_ZIP, "archive extension and signature mismatch");
+                }
+                packageService.markSourceStored(packageId, target.key(), null, detectedFormat.name());
                 UploadSession ready = session.withStatus(STATUS_READY, packageId, clock.instant());
                 store.save(ready);
                 // READY 必须先于消息发布持久化，避免消费者看到尚未终结的上传会话。
@@ -278,13 +284,31 @@ public class UploadSessionService {
             throw new PixFlowException(FileErrorCode.CHUNK_SIZE_MISMATCH, "chunk size mismatch");
         }
         normalizeHash(request.fileHash());
+        ArchiveFormat.fromFilename(request.filename());
+    }
+
+    private ArchiveFormat detectStoredFormat(ObjectLocation location) {
+        byte[] header = new byte[8];
+        try (InputStream input = objectStorage.getStream(location)) {
+            int offset = 0;
+            while (offset < header.length) {
+                int read = input.read(header, offset, header.length - offset);
+                if (read < 0) {
+                    break;
+                }
+                offset += read;
+            }
+            return ArchiveFormat.detect(java.util.Arrays.copyOf(header, offset));
+        } catch (IOException ex) {
+            throw new PixFlowException(FileErrorCode.INVALID_ZIP, "cannot inspect archive signature", ex);
+        }
     }
 
     private AssetPackage findDedupReadyPackage(String fileHash) {
         return packageMapper.selectOne(new LambdaQueryWrapper<AssetPackage>()
                 .eq(AssetPackage::getFileHash, fileHash)
-                .eq(AssetPackage::getStatus, PackageStatus.READY)
-                .isNull(AssetPackage::getDeletedAt)
+                .in(AssetPackage::getStatus, PackageStatus.READY, PackageStatus.PARTIAL)
+                .isNull(AssetPackage::getCleanupStatus)
                 .last("limit 1"));
     }
 

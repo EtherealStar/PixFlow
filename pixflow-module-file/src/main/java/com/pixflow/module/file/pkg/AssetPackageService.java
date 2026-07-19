@@ -3,8 +3,6 @@ package com.pixflow.module.file.pkg;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.pixflow.common.error.PixFlowException;
 import com.pixflow.common.sanitize.Sanitizer;
-import com.pixflow.infra.storage.BucketType;
-import com.pixflow.infra.storage.ObjectStorage;
 import com.pixflow.module.file.error.FileErrorCode;
 import java.time.Clock;
 import java.time.Instant;
@@ -12,20 +10,12 @@ import java.time.Instant;
 public class AssetPackageService {
     private final AssetPackageMapper packageMapper;
 
-    private final PackageReferenceChecker referenceChecker;
-
-    private final ObjectStorage objectStorage;
-
     private final Clock clock;
 
     public AssetPackageService(
             AssetPackageMapper packageMapper,
-            PackageReferenceChecker referenceChecker,
-            ObjectStorage objectStorage,
             Clock clock) {
         this.packageMapper = packageMapper;
-        this.referenceChecker = referenceChecker;
-        this.objectStorage = objectStorage;
         this.clock = clock;
     }
 
@@ -49,17 +39,22 @@ public class AssetPackageService {
 
     public AssetPackage require(long packageId) {
         AssetPackage assetPackage = packageMapper.selectById(packageId);
-        if (assetPackage == null) {
+        if (assetPackage == null || assetPackage.getCleanupStatus() != null) {
             throw new PixFlowException(FileErrorCode.PACKAGE_NOT_FOUND, "package not found: " + packageId);
         }
         return assetPackage;
     }
 
     public void markSourceStored(long packageId, String zipKey, String docKey) {
+        markSourceStored(packageId, zipKey, docKey, null);
+    }
+
+    public void markSourceStored(long packageId, String sourceKey, String docKey, String archiveFormat) {
         AssetPackage update = new AssetPackage();
         update.setId(packageId);
-        update.setMinioZipKey(zipKey);
+        update.setMinioZipKey(sourceKey);
         update.setDocKey(docKey);
+        update.setArchiveFormat(archiveFormat);
         update.setUpdatedAt(clock.instant());
         packageMapper.updateById(update);
     }
@@ -78,26 +73,18 @@ public class AssetPackageService {
     }
 
     public void finish(long packageId, PackageStatus status, String errorSummary) {
-        updateStatus(packageId, status, errorSummary);
-    }
-
-    public void delete(long packageId) {
-        require(packageId);
-        if (referenceChecker.isReferenced(packageId)) {
-            AssetPackage update = new AssetPackage();
-            update.setId(packageId);
-            update.setDeletedAt(clock.instant());
-            update.setUpdatedAt(clock.instant());
-            packageMapper.updateById(update);
-            return;
+        int updated = packageMapper.finishExtraction(packageId, status.name(),
+                errorSummary == null ? null : Sanitizer.sanitizeMessage(errorSummary), clock.instant());
+        if (updated == 0) {
+            require(packageId);
+            throw new PixFlowException(FileErrorCode.PACKAGE_ALREADY_REFERENCED,
+                    "extraction terminal state already decided");
         }
-        // 物理删除必须先清对象前缀；若对象清理失败，DB 行仍保留，便于重试删除。
-        objectStorage.deleteByPrefix(BucketType.PACKAGES, packageId + "/");
-        packageMapper.deleteById(packageId);
     }
 
     public LambdaQueryWrapper<AssetPackage> visiblePackages() {
-        return new LambdaQueryWrapper<AssetPackage>().isNull(AssetPackage::getDeletedAt);
+        return new LambdaQueryWrapper<AssetPackage>()
+                .isNull(AssetPackage::getCleanupStatus);
     }
 
     private void updateStatus(long packageId, PackageStatus status, String errorSummary) {

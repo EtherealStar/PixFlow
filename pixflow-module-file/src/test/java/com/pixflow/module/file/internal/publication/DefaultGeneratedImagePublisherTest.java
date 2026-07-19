@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -73,7 +74,6 @@ class DefaultGeneratedImagePublisherTest {
     var first = publisher.publish(command);
 
     assertThat(first.imageId()).isEqualTo(91L);
-    assertThat(first.stableObject()).isEqualTo(stable);
     assertThat(first.referenceKey()).isEqualTo("package:7/image:91");
     verify(storage).copy(candidate, stable);
     verify(lineage, times(2)).insert(any(AssetImageLineageSource.class));
@@ -83,6 +83,51 @@ class DefaultGeneratedImagePublisherTest {
 
     assertThat(replay).isEqualTo(first);
     verify(images).insert(any(AssetImage.class));
+  }
+
+  @Test
+  void keepsCandidateWhenReadyFinalizeFailsAfterCopy() {
+    AssetImageMapper images = mock(AssetImageMapper.class);
+    AssetImageLineageSourceMapper lineage = mock(AssetImageLineageSourceMapper.class);
+    ObjectStorage storage = mock(ObjectStorage.class);
+    AssetImage reservation = reservation();
+    when(images.findBySourceResult(5L, 6L)).thenReturn(reservation);
+    when(images.selectById(91L)).thenReturn(reservation);
+    when(lineage.findByImageId(91L))
+        .thenReturn(List.of(lineage(91L, 0, "11"), lineage(91L, 1, "12")));
+    ObjectLocation stable = ObjectLocation.of(BucketType.RESULTS, "7/images/91/output.png");
+    when(storage.exists(stable)).thenReturn(false);
+    when(storage.exists(candidate())).thenReturn(true);
+    when(storage.stat(any())).thenReturn(new StoredObjectMetadata(8L, "image/png", "etag", NOW));
+    when(images.finalizeReady(91L, stable.key(), NOW)).thenReturn(0);
+
+    assertThatThrownBy(() -> publisher(images, lineage, storage).publish(command(candidate())))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("fenced");
+
+    verify(storage).copy(candidate(), stable);
+    verify(storage, never()).delete(candidate());
+  }
+
+  @Test
+  void cleanupFailureDoesNotRollBackReadyAsset() {
+    AssetImageMapper images = mock(AssetImageMapper.class);
+    AssetImageLineageSourceMapper lineage = mock(AssetImageLineageSourceMapper.class);
+    ObjectStorage storage = mock(ObjectStorage.class);
+    AssetImage ready = reservation();
+    ready.setPublicationStatus("READY");
+    ready.setMinioKey("7/images/91/output.png");
+    when(images.findBySourceResult(5L, 6L)).thenReturn(ready);
+    when(lineage.findByImageId(91L))
+        .thenReturn(List.of(lineage(91L, 0, "11"), lineage(91L, 1, "12")));
+    doThrow(new IllegalStateException("temporary delete failure"))
+        .when(storage).delete(candidate());
+
+    var published = publisher(images, lineage, storage).publish(command(candidate()));
+
+    assertThat(published.imageId()).isEqualTo(91L);
+    verify(images).recordCleanupError(91L, "temporary delete failure", NOW);
+    verify(images, never()).markCleaned(anyLong(), any());
   }
 
   @Test

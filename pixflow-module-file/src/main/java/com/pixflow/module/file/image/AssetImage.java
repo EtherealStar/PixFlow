@@ -70,7 +70,7 @@ public class AssetImage {
 
   private String cleanupLastError;
 
-  private Instant deletedAt;
+  private String deletionStatus;
 
   private Instant createdAt;
 
@@ -322,12 +322,12 @@ public class AssetImage {
     this.cleanupLastError = cleanupLastError;
   }
 
-  public Instant getDeletedAt() {
-    return deletedAt;
+  public String getDeletionStatus() {
+    return deletionStatus;
   }
 
-  public void setDeletedAt(Instant deletedAt) {
-    this.deletedAt = deletedAt;
+  public void setDeletionStatus(String deletionStatus) {
+    this.deletionStatus = deletionStatus;
   }
 
   public Instant getCreatedAt() {

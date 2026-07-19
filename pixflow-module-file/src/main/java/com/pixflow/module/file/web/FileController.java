@@ -3,9 +3,12 @@ package com.pixflow.module.file.web;
 import com.pixflow.common.web.ApiResponse;
 import com.pixflow.common.web.PageResponse;
 import com.pixflow.module.file.FileService;
-import com.pixflow.module.file.UploadPackageResponse;
+import com.pixflow.module.file.api.AssetReferenceCandidate;
+import com.pixflow.module.file.api.AssetReferenceCatalog;
+import com.pixflow.module.file.api.AssetReferenceSource;
 import com.pixflow.module.file.error.AssetIngestError;
 import com.pixflow.module.file.image.AssetImageView;
+import com.pixflow.module.file.image.AssetSkuView;
 import com.pixflow.module.file.pkg.AssetPackage;
 import com.pixflow.module.file.upload.CancelUploadResponse;
 import com.pixflow.module.file.upload.CompleteUploadRequest;
@@ -29,9 +32,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.multipart.MultipartFile;
 
 @Validated
 @RestController
@@ -40,9 +41,13 @@ public class FileController {
 
     private final UploadSessionService uploadSessionService;
 
-    public FileController(FileService fileService, UploadSessionService uploadSessionService) {
+    private final AssetReferenceCatalog referenceCatalog;
+
+    public FileController(FileService fileService, UploadSessionService uploadSessionService,
+                          AssetReferenceCatalog referenceCatalog) {
         this.fileService = fileService;
         this.uploadSessionService = uploadSessionService;
+        this.referenceCatalog = referenceCatalog;
     }
 
     @PostMapping("/api/files/packages/init")
@@ -81,11 +86,15 @@ public class FileController {
         return ApiResponse.ok(uploadSessionService.cancel(uploadId));
     }
 
-    @PostMapping(path = "/api/files/packages", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public ApiResponse<UploadPackageResponse> upload(
-            @RequestPart("zip") MultipartFile zip,
-            @RequestPart(value = "doc", required = false) MultipartFile doc) throws IOException {
-        return ApiResponse.ok(fileService.upload(zip, doc));
+    @GetMapping("/api/asset-references")
+    public ApiResponse<PageResponse<AssetReferenceCandidate>> assetReferences(
+            @RequestParam(value = "source", required = false) AssetReferenceSource source,
+            @RequestParam(value = "parentKey", required = false) String parentKey,
+            @RequestParam(value = "query", required = false) String query,
+            @RequestParam(value = "page", defaultValue = "1") long page,
+            @RequestParam(value = "size", defaultValue = "50") long size,
+            @RequestParam(value = "excludeReferenceKey", required = false) java.util.List<String> exclusions) {
+        return ApiResponse.ok(referenceCatalog.list(source, parentKey, query, page, size, exclusions));
     }
 
     @GetMapping("/api/files/packages/{id}")
@@ -106,6 +115,24 @@ public class FileController {
             @RequestParam(value = "page", defaultValue = "1") long page,
             @RequestParam(value = "size", defaultValue = "20") long size) {
         return ApiResponse.ok(fileService.errors(id, page, size));
+    }
+
+    @GetMapping("/api/files/packages/{id}/skus")
+    public ApiResponse<PageResponse<AssetSkuView>> skus(
+            @PathVariable("id") long id,
+            @RequestParam(value = "page", defaultValue = "1") long page,
+            @RequestParam(value = "size", defaultValue = "50") long size) {
+        return ApiResponse.ok(fileService.skus(id, page, size));
+    }
+
+    @GetMapping("/api/files/images")
+    public ApiResponse<PageResponse<AssetImageView>> globalImages(
+            @RequestParam(value = "packageId", required = false) Long packageId,
+            @RequestParam(value = "skuId", required = false) String skuId,
+            @RequestParam(value = "query", required = false) String query,
+            @RequestParam(value = "page", defaultValue = "1") long page,
+            @RequestParam(value = "size", defaultValue = "50") long size) {
+        return ApiResponse.ok(fileService.globalImages(packageId, skuId, query, page, size));
     }
 
     @GetMapping("/api/files/packages/{id}/images")
@@ -133,6 +160,18 @@ public class FileController {
     @DeleteMapping("/api/files/packages/{id}")
     public ApiResponse<Void> delete(@PathVariable("id") long id) {
         fileService.delete(id);
+        return ApiResponse.ok(null);
+    }
+
+    @PatchMapping("/api/files/packages/{id}")
+    public ApiResponse<AssetPackage> renamePackage(
+            @PathVariable("id") long id, @RequestBody RenameImageRequest request) {
+        return ApiResponse.ok(fileService.renamePackage(id, request.displayName()));
+    }
+
+    @PostMapping("/api/files/packages/{id}/cancel-extraction")
+    public ApiResponse<Void> cancelExtraction(@PathVariable("id") long id) {
+        fileService.cancelExtraction(id);
         return ApiResponse.ok(null);
     }
 

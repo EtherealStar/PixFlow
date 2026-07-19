@@ -4,11 +4,12 @@ CREATE TABLE IF NOT EXISTS asset_package (
     file_hash VARCHAR(64),
     minio_zip_key VARCHAR(512),
     doc_key VARCHAR(512),
+    archive_format VARCHAR(16),
+    cleanup_status VARCHAR(32),
     status VARCHAR(32) NOT NULL,
     image_count INT,
     extracted_count INT,
     error_summary VARCHAR(2000),
-    deleted_at TIMESTAMP NULL,
     created_at TIMESTAMP NOT NULL,
     updated_at TIMESTAMP NOT NULL
 );
@@ -46,16 +47,45 @@ CREATE TABLE IF NOT EXISTS asset_image (
     cleanup_status VARCHAR(32),
     cleanup_attempt_count INT NOT NULL DEFAULT 0,
     cleanup_last_error VARCHAR(1000),
-    deleted_at TIMESTAMP NULL,
+    deletion_status VARCHAR(32),
     created_at TIMESTAMP NOT NULL,
     CONSTRAINT uk_asset_image_package_path UNIQUE (package_id, original_path),
     CONSTRAINT uq_asset_image_source_result UNIQUE (source_task_id, source_result_id)
 );
-CREATE INDEX idx_asset_image_package_visible ON asset_image (package_id, deleted_at, id);
+CREATE INDEX idx_asset_image_package_visible ON asset_image (package_id, deletion_status, id);
 CREATE INDEX idx_asset_image_publication_recovery
     ON asset_image (publication_status, publication_updated_at);
 CREATE INDEX idx_asset_image_cleanup_recovery
     ON asset_image (cleanup_status, publication_updated_at);
+
+CREATE TABLE IF NOT EXISTS asset_reference_tombstone (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    reference_kind VARCHAR(16) NOT NULL,
+    package_id BIGINT NOT NULL,
+    sku_id VARCHAR(128) NOT NULL DEFAULT '',
+    image_id BIGINT NOT NULL DEFAULT 0,
+    display_name VARCHAR(512) NOT NULL,
+    CONSTRAINT uq_asset_reference_tombstone_identity
+        UNIQUE (reference_kind, package_id, sku_id, image_id)
+);
+
+CREATE TABLE IF NOT EXISTS asset_cleanup_intent (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    reference_kind VARCHAR(16) NOT NULL,
+    package_id BIGINT NOT NULL,
+    image_id BIGINT NOT NULL DEFAULT 0,
+    storage_bucket VARCHAR(32) NOT NULL,
+    storage_key VARCHAR(512) NOT NULL,
+    prefix_cleanup BOOLEAN NOT NULL DEFAULT FALSE,
+    status VARCHAR(32) NOT NULL,
+    attempt_count INT NOT NULL DEFAULT 0,
+    last_error VARCHAR(1000),
+    created_at TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP NOT NULL,
+    CONSTRAINT uq_asset_cleanup_intent_identity
+        UNIQUE (reference_kind, package_id, image_id)
+);
+CREATE INDEX idx_asset_cleanup_intent_status ON asset_cleanup_intent (status, id);
 
 CREATE TABLE IF NOT EXISTS asset_image_lineage_source (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,

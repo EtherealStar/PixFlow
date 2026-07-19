@@ -22,10 +22,12 @@ import com.pixflow.module.file.FileService;
 import com.pixflow.module.file.api.AssetReferenceExpander;
 import com.pixflow.module.file.api.AssetReferenceInspector;
 import com.pixflow.module.file.api.AssetReferenceResolver;
-import com.pixflow.module.file.api.AssetImageQuery;
+import com.pixflow.module.file.internal.deletion.AssetDeletionRecovery;
+import com.pixflow.module.file.internal.publication.GeneratedImagePublicationRecovery;
+import com.pixflow.module.file.ingest.PublishGapRescan;
+import com.pixflow.module.file.upload.UploadOrphanCleanup;
+import com.pixflow.module.file.runtime.AssetImageQuery;
 import com.pixflow.module.file.api.publication.GeneratedImagePublisher;
-import com.pixflow.module.file.pkg.ConservativePackageReferenceChecker;
-import com.pixflow.module.file.pkg.PackageReferenceChecker;
 import com.pixflow.module.file.web.FileController;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
@@ -51,6 +53,11 @@ import org.springframework.transaction.PlatformTransactionManager;
 class FileAutoConfigurationTest {
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
             .withConfiguration(AutoConfigurations.of(TimeAutoConfiguration.class, FileAutoConfiguration.class))
+            .withBean(AssetDeletionRecovery.class, () -> mock(AssetDeletionRecovery.class))
+            .withBean(GeneratedImagePublicationRecovery.class,
+                    () -> mock(GeneratedImagePublicationRecovery.class))
+            .withBean(PublishGapRescan.class, () -> mock(PublishGapRescan.class))
+            .withBean(UploadOrphanCleanup.class, () -> mock(UploadOrphanCleanup.class))
             .withUserConfiguration(RequiredPorts.class);
 
     @Test
@@ -63,8 +70,6 @@ class FileAutoConfigurationTest {
             assertThat(context).hasSingleBean(AssetReferenceResolver.class);
             assertThat(context).hasSingleBean(AssetReferenceInspector.class);
             assertThat(context).hasSingleBean(AssetReferenceExpander.class);
-            assertThat(context.getBean(PackageReferenceChecker.class))
-                    .isInstanceOf(ConservativePackageReferenceChecker.class);
         });
     }
 
