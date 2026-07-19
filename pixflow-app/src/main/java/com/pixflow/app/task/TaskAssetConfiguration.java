@@ -1,6 +1,7 @@
 package com.pixflow.app.task;
 
-import com.pixflow.module.file.api.AssetImageQuery;
+import com.pixflow.module.file.runtime.AssetImageQuery;
+import com.pixflow.module.file.api.AssetContentReader;
 import com.pixflow.module.file.api.publication.GeneratedImagePublisher;
 import com.pixflow.module.conversation.progress.ConversationProgressBridge;
 import com.pixflow.module.imagegen.port.SourceImageReader;
@@ -23,8 +24,8 @@ public class TaskAssetConfiguration {
     }
 
     @Bean
-    public SourceImageReader sourceImageReader(AssetImageQuery images) {
-        return new FileSourceImageReader(images);
+    public SourceImageReader sourceImageReader(AssetContentReader contents) {
+        return new FileSourceImageReader(contents);
     }
 
     @Bean

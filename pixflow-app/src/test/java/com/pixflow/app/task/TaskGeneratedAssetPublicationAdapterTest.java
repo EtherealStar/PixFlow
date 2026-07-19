@@ -24,9 +24,8 @@ class TaskGeneratedAssetPublicationAdapterTest {
   void translatesTheCompleteTaskCandidateWithoutLosingLineageOrProvenance() {
     GeneratedImagePublisher publisher = mock(GeneratedImagePublisher.class);
     ObjectLocation candidate = ObjectLocation.of(BucketType.TMP, "generated/9/output.png");
-    ObjectLocation stable = ObjectLocation.of(BucketType.GENERATED, "7/images/31.png");
     when(publisher.publish(org.mockito.ArgumentMatchers.any()))
-        .thenReturn(new PublishedImage(31L, "package:7/image:31", stable));
+        .thenReturn(new PublishedImage(31L, "package:7/image:31"));
     var adapter = new TaskGeneratedAssetPublicationAdapter(publisher);
 
     var published =

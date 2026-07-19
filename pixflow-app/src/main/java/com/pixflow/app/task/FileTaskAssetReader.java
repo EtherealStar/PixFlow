@@ -2,8 +2,8 @@ package com.pixflow.app.task;
 
 import com.pixflow.common.error.PixFlowException;
 import com.pixflow.module.dag.expand.ImageDescriptor;
-import com.pixflow.module.file.api.AssetImageDescriptor;
-import com.pixflow.module.file.api.AssetImageQuery;
+import com.pixflow.module.file.runtime.AssetImageDescriptor;
+import com.pixflow.module.file.runtime.AssetImageQuery;
 import com.pixflow.module.task.api.port.TaskAssetReader;
 import com.pixflow.module.task.domain.error.TaskErrorCode;
 import java.util.List;
