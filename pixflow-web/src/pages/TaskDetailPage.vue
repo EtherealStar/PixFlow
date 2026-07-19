@@ -97,7 +97,7 @@ async function onCancel(): Promise<void> {
 
 async function onRetry(): Promise<void> {
   try {
-    const derived = await retryFailedTask(tid.value, crypto.randomUUID())
+    const derived = await retryFailedTask(tid.value)
     tasks.addQueued(derived.taskId, derived.retryOfTaskId)
     await router.push({ path: `/tasks/${derived.taskId}`, query: route.query })
   } catch (e) {

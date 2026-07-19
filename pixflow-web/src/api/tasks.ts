@@ -139,10 +139,9 @@ export function cancelTask(conversationId: string, taskId: string): Promise<Canc
   )
 }
 
-export function retryFailedTask(taskId: string, idempotencyKey: string): Promise<RetryTaskResponse> {
+export function retryFailedTask(taskId: string): Promise<RetryTaskResponse> {
   return request<RetryTaskResponse>(`/api/tasks/${encodeURIComponent(taskId)}/retry-failed`, {
     method: 'POST',
-    idempotencyKey,
     noRetry: true
   })
 }

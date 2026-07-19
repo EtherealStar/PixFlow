@@ -9,7 +9,7 @@ describe('task API contract', () => {
     vi.stubGlobal('fetch', fetchMock)
   })
 
-  it('retries failed units with only the idempotency header', async () => {
+  it('retries failed units without a client-generated idempotency identity', async () => {
     fetchMock.mockResolvedValue(new Response(JSON.stringify({
       success: true,
       code: 'OK',
@@ -21,13 +21,13 @@ describe('task API contract', () => {
       }
     }), { status: 200, headers: { 'content-type': 'application/json' } }))
 
-    const response = await retryFailedTask('99', 'request-key')
+    const response = await retryFailedTask('99')
 
     expect(response.taskId).toBe('101')
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
     expect(url).toBe('/api/tasks/99/retry-failed')
     expect(init.method).toBe('POST')
-    expect(init.headers).toMatchObject({ 'Idempotency-Key': 'request-key' })
+    expect(init.headers).not.toHaveProperty('Idempotency-Key')
     expect(init.body).toBeUndefined()
   })
 })
