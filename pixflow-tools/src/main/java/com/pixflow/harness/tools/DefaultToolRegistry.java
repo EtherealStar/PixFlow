@@ -21,13 +21,7 @@ public class DefaultToolRegistry implements ToolRegistry {
         this.permissionPolicy = permissionPolicy;
         this.descriptors = new LinkedHashMap<>();
         for (ToolDescriptor descriptor : descriptors) {
-            Objects.requireNonNull(descriptor, "descriptor");
-            if (!TOOL_NAME.matcher(descriptor.name()).matches()) {
-                throw new IllegalArgumentException("工具名必须是 snake_case: " + descriptor.name());
-            }
-            if (!descriptor.inputSchema().isEmpty() && !"object".equals(descriptor.inputSchema().get("type"))) {
-                throw new IllegalArgumentException("工具输入 schema 必须是 object: " + descriptor.name());
-            }
+            validateDescriptor(descriptor);
             if (this.descriptors.putIfAbsent(descriptor.name(), descriptor) != null) {
                 throw new IllegalArgumentException("重复的工具名: " + descriptor.name());
             }
@@ -77,13 +71,7 @@ public class DefaultToolRegistry implements ToolRegistry {
 
     @Override
     public synchronized void registerDynamic(ToolDescriptor descriptor) {
-        Objects.requireNonNull(descriptor, "descriptor");
-        if (!TOOL_NAME.matcher(descriptor.name()).matches()) {
-            throw new IllegalArgumentException("工具名必须是 snake_case: " + descriptor.name());
-        }
-        if (!descriptor.inputSchema().isEmpty() && !"object".equals(descriptor.inputSchema().get("type"))) {
-            throw new IllegalArgumentException("工具输入 schema 必须是 object: " + descriptor.name());
-        }
+        validateDescriptor(descriptor);
         if (descriptors.putIfAbsent(descriptor.name(), descriptor) != null) {
             throw new IllegalStateException("重复的动态工具名: " + descriptor.name());
         }
@@ -92,5 +80,20 @@ public class DefaultToolRegistry implements ToolRegistry {
     @Override
     public synchronized void unregisterDynamic(String name) {
         descriptors.remove(name);
+    }
+
+    private static void validateDescriptor(ToolDescriptor descriptor) {
+        Objects.requireNonNull(descriptor, "descriptor");
+        if (!TOOL_NAME.matcher(descriptor.name()).matches()) {
+            throw new IllegalArgumentException("工具名必须是 snake_case: " + descriptor.name());
+        }
+        if (!"object".equals(descriptor.inputSchema().get("type"))) {
+            throw new IllegalArgumentException("工具输入 schema 必须是 object: " + descriptor.name());
+        }
+        // 工具入参是模型到业务模块的安全边界，必须拒绝 schema 未声明的字段。
+        if (!Boolean.FALSE.equals(descriptor.inputSchema().get("additionalProperties"))) {
+            throw new IllegalArgumentException(
+                    "工具输入 schema 必须设置 additionalProperties=false: " + descriptor.name());
+        }
     }
 }
