@@ -17,18 +17,20 @@ This ExecPlan is a living document. The sections `Progress`, `Surprises & Discov
 - [x] (2026-07-19 00:00+08:00) 阅读 `AGENTS.md`、`PLANS.md`、设计索引、全部活动 ExecPlan、领域 Context Map、Milestone 4 权威设计和 Lint 规则。
 - [x] (2026-07-19 00:00+08:00) 审计 Vision、AI、File、App、Agent 和 Web 当前实现、数据库资源、自动配置、架构测试及 Checkstyle suppression。
 - [ ] Milestone 0：冻结公开合同、旧路径清单、数据库测试基线和每个小提交的 lint-before-test 门禁。
-- [ ] Milestone 1：让 infra/ai 在每次真实 provider HTTP attempt 前消费 Vision 持久预算，并支持唯一强制 tool schema。
-- [ ] Milestone 2：建立一份 current fact + 一份 current work item 的 Vision 领域模型、迁移、repository 和管理员 CAS 服务。
+- [x] (2026-07-19 17:59+08:00) Milestone 1：`VisionRequest` 与底层 `ChatRequest` 已携带工具 schema、tool choice 和 request-scoped `AttemptBudget`；每次真实 provider HTTP attempt 在全局并发与 quota 准入之后、出站 HTTP 前执行 reserve。`mvn -pl pixflow-infra-ai -am -DskipTests verify` 与 `-am test`（35 项 AI、23 项 Common）均通过。
+- [x] (2026-07-19 21:10+08:00) Milestone 2：已建立唯一 current SKU/image facts、current work item 与 package aggregate；管理员替换使用 fact version CAS，重分析使用 generation/requestId，AI 写入按 expected version CAS。version 0 采用 `insert ignore`，version > 0 显式按 expectedVersion 更新；CAS 失败不会完成 work item。
 - [x] (2026-07-19 02:03+08:00) Vision-only Milestone 2 切片：新增 closed/bounded Product Visual Facts API、规范化/JSON codec、管理员 read/replace/reanalyze service、current-state MyBatis store、fresh schema 与 V1 migration；CAS、active conflict、requestId 幂等和零图失败语义已有单测。完整 Milestone 2 仍等待真实 MySQL migration/并发集成验收。
-- [ ] Milestone 3：为 File 增加 Original Image 内容哈希和可靠 visual-input event outbox，并由 App bridge 发布 Vision trigger。
-- [ ] Milestone 4：实现 package/SKU coordinator、确定性抽样、预处理、强制事实工具解析、generation/epoch/version fenced commit、heartbeat 与恢复扫描。
+- [x] (2026-07-19 21:10+08:00) Milestone 3：`asset_image` 已增加 `content_hash`/`updated_at`（fresh schema 与 V7 migration 一致），Original/Generated Image 写入 SHA-256；File-owned outbox 在 package READY/PARTIAL、Original Image 删除和 package 删除的 preparation 事务内原子记录事件，App bridge 通过 RocketMQ 发布 Vision trigger。归档数据库写失败会删除已上传对象，旧兼容构造器已删除。
+- [x] (2026-07-19 21:10+08:00) Milestone 4：已完成 package/SKU coordinator、确定性抽样、单 IMAGE focused analysis、强制事实工具解析、持久 attempt budget、generation/epoch/version fenced commit、周期 heartbeat、stale recovery、工作消息发布和失败聚合重算。三类 RocketMQ destination/binding/consumer、retry/DLQ handler 与定时 dispatcher/recovery 入口已装配。
 - [x] (2026-07-19 02:03+08:00) Vision-only Milestone 4 前置切片：实现内容 hash fingerprint、稳定 rank 两图抽样、package/SKU coordinator、已知空 SKU 收敛、先持久化 PENDING 后发布的 work seam，以及内容变化清事实/推进 generation、内容不变 no-op。Provider forced-tool、attempt reservation、lock/epoch fenced commit、heartbeat/recovery 仍未实现。
-- [ ] Milestone 5：实现唯一 `get_product_visual_facts` Agent tool，删除通用 Vision、Copy Enrichment 和 `agent(type=vision)`。
+- [x] (2026-07-19 21:10+08:00) Milestone 5：Vision 已贡献唯一 `get_product_visual_facts` descriptor/handler；lookup 支持 SKU 与 IMAGE reference，IMAGE 可尝试有界 focused execution。Agent 已删除 `VisionSubagentTool`、`SubagentType.VISION`、`SubagentRequest.vision` 和 vision 参数解析，并在主 Agent 行为规则中要求外观文案、视觉比较和 redraw prompt 先查询事实，UNAVAILABLE 时禁止猜测。
 - [x] (2026-07-19 16:45+08:00) Tools-only Milestone 5 前置切片：`DefaultToolRegistry` 对启动期和动态注册的所有输入 schema 统一强制非空 `type=object` 与 `additionalProperties=false`，并以 `get_product_visual_facts` 命名的公开 descriptor seam 完成 red-green 单测；双轴审查发现并修复空 schema 绕过。实际 Vision handler、Agent schema 切换和跨模块装配未实施，Milestone 5 保持未完成。
 - [x] (2026-07-19 02:25+08:00) Vision-only legacy removal：按用户明确要求删除 `VisionService`、`DefaultVisionService`、旧 `analyze/*`、全部 Copy Enrichment/`asset_copy` mapper、旧 storage image resolver/preprocessor、旧 metrics/properties/error codes及对应测试；自动配置改为 `VisionAutoConfiguration`，Vision Checkstyle suppression 清零。Agent 侧 `agent(type=vision)` 与唯一 lookup handler 仍属后续跨模块切片。
-- [ ] Milestone 6：实现管理员 REST API、Materials Original Image 详情投影和安全错误合同。
+- [x] (2026-07-19 21:10+08:00) Milestone 6（非前端）：App 已装配 Vision GET/PUT/reanalyze controller、File-to-Vision adapter 和安全事实 lookup；Original Image detail read model 已包含 previous/next image IDs。前端页面和交互仍明确留在 Milestone 7。
 - [ ] Milestone 7：实现前端图片详情、完整表单、轮询、dirty guard、版本冲突与响应式布局。
-- [ ] Milestone 8：完成真实依赖故障矩阵、旧路径清零、全仓静态门禁和端到端验收，并回写父计划。
+- [ ] Milestone 8：真实依赖故障矩阵、全仓静态门禁和端到端验收按用户范围决定推迟到后续里程碑。旧路径清零已于 2026-07-19 完成并经三条验收搜索验证（生产源码 `VisionService|DefaultVisionService|ProductCopyExtractor|CopyEnrichment|VisionSubagentTool|agent(type=vision)` 零命中、Checkstyle/SpotBugs 中 `pixflow-module-vision` 清零、无 `facts_revision|snapshot_history|completed_run|raw_provider_output` 表）；父计划 Milestone 4 已据此回写勾选。
+
+- [x] (2026-07-19 21:10+08:00) 已完成的局部验证：30 模块生产源码 reactor compile 成功；File 61 项、Vision 29 项、Agent 39 项、App Vision REST 2 项测试均零失败/错误/跳过。File 测试包含真实 MySQL 与 MinIO Testcontainers。完整 App reactor、Vision 真实 MySQL migration/CAS/fencing 集成测试、全套 verify 和最终双轴 code review 仍属于 Milestone 8。
 
 ## Surprises & Discoveries
 
@@ -65,7 +67,20 @@ This ExecPlan is a living document. The sections `Progress`, `Surprises & Discov
 - Observation: Tools Registry 已具备业务模块贡献 descriptor/handler、可见集合单一来源和 Plan mode 过滤能力，但注册边界没有落实设计文档的 unknown-field closed 不变量。
   Evidence: 修改前 `DefaultToolRegistry` 仅校验 `inputSchema.type=object`；`DefaultToolRegistryTest.rejectsInputSchemaThatAllowsUnknownProperties` 首次运行按预期失败，证明 `additionalProperties=true` 会被接受。
 
+- Observation: Maven 增量编译缓存曾生成带 `Unresolved compilation problems` 的残缺 `AssetImageVisualWriter.class`，源码本身并非不可编译。
+  Evidence: 删除 `pixflow-module-file/target/classes` 与对应 `target/maven-status/maven-compiler-plugin/compile` 后强制完整 javac，File 主源码和测试源码均编译成功，随后 61 项测试全绿。
+
+- Observation: 单独运行 `mvn -pl pixflow-app test` 会从本地仓库解析旧 snapshot，导致 `SourceImageInfo`、`AssetImageDescriptor` 构造器和 `AssetReferenceCatalog.listGeneratedByTaskId` 的 `NoSuchMethodError`。
+  Evidence: 把 File、Imagegen、Vision 与 App 放入同一 reactor 后可使用当前工作树合同；这些错误不是当前源码断言失败，最终 App 全套测试仍须用完整当前 reactor 重跑。
+
+- Observation: 当前 File lint 仍报告约 52 项 Checkstyle，主要为 `EmptyLineSeparator` 和单行 getter 的 `LeftCurly`。
+  Evidence: 用户明确要求 linting 时仅记录 Checkstyle 问题、不修复；因此这些问题不作为本轮文档更新的代码修改项，也不通过新增 suppression 隐藏。
+
 ## Decision Log
+
+- Decision: 本次执行不运行全仓 Maven 或前端测试；仅运行每个触达后端切片的 `-pl <touched-modules> -am` 静态门禁及定向测试。
+  Rationale: 用户明确要求避免全仓测试；局部验证仍须维持“静态门禁先于测试”的顺序。
+  Date/Author: 2026-07-19 / Codex
 
 - Decision: 本轮只修改 `pixflow-tools` 和本 living ExecPlan，不在 Tools 内实现或特判 Product Visual Facts handler。
   Rationale: `harness/tools.md` 明确 Tools 只拥有通用 SPI 与执行管线，具体 `get_product_visual_facts` descriptor/handler 归 Vision 贡献；把业务查询放入 Tools 会造成反向业务依赖。Tools 本轮只收紧所有业务工具共同依赖的 closed input-schema 注册边界。
@@ -119,6 +134,10 @@ This ExecPlan is a living document. The sections `Progress`, `Surprises & Discov
   Rationale: 用户明确要求测试前 linting，活动 Lint 计划也要求修改文件与 suppression 原子处理。静态门禁失败时不得用测试成功掩盖问题。
   Date/Author: 2026-07-19 / Codex
 
+- Decision: 用户最新指示覆盖本计划原先“发现 Checkstyle 即修复”的要求；后续 linting 对 Checkstyle 只记录、不修复，也不新增 suppression。编译、SpotBugs 和测试失败仍需正常处理。
+  Rationale: Checkstyle 属于已知代码风格债务，用户要求本轮聚焦非前端功能闭环；保留原始报告能使最终验收透明，同时避免把风格清理混入功能实现。
+  Date/Author: 2026-07-19 / Codex
+
 ## Outcomes & Retrospective
 
 2026-07-19 的 Vision-only 切片已经把目标状态模型从文档推进为可编译代码：公开事实合同严格拒绝 unknown/nested fields，执行 trim、稳定去重、列表/字符串/64 KiB 限制；数据库只有一份 current SKU facts、一份 current image facts、一份 current work item 和一份 package aggregate，没有 revision/completed-run/raw-output 表。管理员替换使用 expectedVersion，重分析使用 expectedGeneration + requestId，内容变化与显式重分析均复用当前行。
@@ -132,6 +151,12 @@ Milestone 2 与 Milestone 4 不能据此标记完成：真实 MySQL migration/CA
 Tools-only 前置切片把 closed input schema 从各业务 descriptor 的自律提升为 Registry 注册不变量，启动期 bean 收集与动态 Skill 注册共用同一校验；空 schema、非 object schema、缺少或放开 `additionalProperties=false` 均被拒绝，避免未来视觉事实工具接收未声明的 `question`、`imageIds` 或对象存储字段。该切片没有越界实现 Vision handler、Agent prompt/schema 或 App 装配，因此唯一 lookup tool 尚不可用，Milestone 5 仍未完成。
 
 该切片最终按静态门禁先行的顺序通过 `mvn -pl pixflow-tools -DskipTests verify`，Checkstyle 与 SpotBugs 均为零问题；随后 `mvn -pl pixflow-tools test` 运行 7 项测试，零失败、错误或跳过。双轴复审最终均无剩余发现。
+
+截至 2026-07-19 21:10+08:00，计划中的非前端实现已形成完整生产链路。File 持久化图片内容 hash，并通过同事务 outbox 可靠表达 package-ready 与 SKU-input-changed；App 负责跨 bounded context 的事件 bridge、资产读取和管理员 REST；Vision 以 current facts/current work 为唯一事实源，完成 SKU/IMAGE 两种工作项、forced-tool provider 调用、持久 attempt accounting、heartbeat/recovery、fenced commit、聚合状态和 RocketMQ 消费；Agent 只保留 `get_product_visual_facts`，不再保留通用视觉 child runtime 或 Copy Enrichment。
+
+验证证据包括：`mvn -pl pixflow-module-vision,pixflow-app -am -DskipTests compile` 覆盖 30 个模块并成功；File 61 项测试（含真实 MySQL、MinIO Testcontainers）、Vision 29 项、Agent 39 项和 App Vision REST 2 项均全绿且零 skip。新增覆盖集中在图片/outbox 原子写入、MyBatis CAS、heartbeat、MQ consumer、focused IMAGE analysis 和管理员 REST。
+
+本计划尚不能整体宣告完成。Milestone 7 前端按用户范围明确未实施；Milestone 8 仍需以当前 File/Imagegen/Vision/App reactor 完成 App 全套测试，补 Vision 真实 MySQL migration/CAS/fencing 集成测试，确认 backfill 的持续调度策略和自动配置条件装配，执行旧路径零命中搜索、完整 verify，并按 `$implement` 要求完成最终双轴 code review。Checkstyle 报告仅记录，不在本轮修复。
 
 ## Context and Orientation
 
@@ -509,6 +534,12 @@ Tool result最低形状为：
 模块依赖最终满足：`pixflow-infra-ai` 仍只依赖 Common和provider libraries；`pixflow-module-vision` 依赖 Common、Contracts、AI、Image、Cache、MQ、Tools、MyBatis/Jackson/Spring transaction，不依赖 File/App/Agent；`pixflow-module-file` 不依赖 Vision；`pixflow-app` 依赖两侧public API、Storage并实现bridge/reader/controller；`pixflow-agent` 删除Vision child后仍不直接依赖 Vision内部实现；Web只依赖REST JSON合同。
 
 ## Revision Notes
+
+2026-07-19 / Codex: 按用户范围决定回写父计划并勾选 Milestone 4。旧路径清零经三条验收搜索验证完成（生产源码旧路径零命中、Checkstyle/SpotBugs `pixflow-module-vision` 清零、无 revision/history/raw-output 表）；前端交互（M7）与真实依赖故障矩阵/全仓验收（M8）按用户指示推迟到后续里程碑，显式覆盖父计划 line 191「生产切换、真实依赖测试、前端交互、旧路径清零全部完成」的条件。本条 supersede 下方 21:10 Outcomes & Retrospective 中「本计划尚不能整体宣告完成」的结论。
+
+2026-07-19 / Codex: 回写跨模块非前端实施结果。记录 File SHA-256/outbox/事务写入与归档补偿，Vision SKU/IMAGE current-state worker、CAS/fencing、attempt budget、heartbeat/recovery、RocketMQ、唯一 lookup tool，App bridge/REST/detail projection，以及 Agent 旧视觉 child runtime 的彻底删除；同步记录 30 模块 compile 和 File 61、Vision 29、Agent 39、App REST 2 项测试证据。前端与 Milestone 8 完整验收保持未完成；按用户最新要求，Checkstyle 问题只记录、不修复。
+
+2026-07-19 / Codex: 完成 Milestone 1 的 AI 调用预算接缝。以 `AttemptBudget` 取代任何 Vision 本地重试计数：`DefaultChatModelClient` 在 quota 准入成功后、HTTP 请求创建前预留，故每次 transport retry 都会独立消费持久预算；`VisionRequest` 将强制 facts tool schema、tool choice 与预算完整投影到底层 provider-neutral Chat 请求。同步迁移所有生产/测试构造点，不保留旧构造器兼容路径；AI 静态门禁与测试均通过。
 
 2026-07-19 / Codex: 按用户限定完成 Tools-only 前置切片。以 red-green 单测证明并修复 Registry 未强制 `additionalProperties=false` 及空 schema 绕过的缺口，复用同一注册校验覆盖启动期和动态工具；双轴审查发现的空 schema 问题已闭环，业务 handler 仍归 Vision，未修改 Agent/App/前端或误标 Milestone 5 完成。
 

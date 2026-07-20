@@ -40,7 +40,9 @@ This ExecPlan is a living document. The sections `Progress`, `Surprises & Discov
 - [x] (2026-07-17 12:45+08:00) Milestone 4/5 第十四批：原子清理 rubrics 的 `RubricsRunEntity`，删除 2 个 suppression 并修复 59 个历史违规行，剩余 411；Rubrics 模块严格 verify 与 12 项测试全部通过。
 - [x] (2026-07-19) Milestone 4/5 Task 批次：Generated Image publication 专项原子清空 Task 模块全部 57 个 suppression；Task strict Checkstyle/SpotBugs 为零，`rg -n "pixflow-module-task" config/checkstyle/suppressions.xml` 无输出，Task 完整模块测试通过。
 - [x] (2026-07-19 02:25+08:00) Milestone 4/5 Vision 批次：随 Product Visual Facts 一次性切换删除旧同步 Vision、Copy Enrichment 和旧图片解析代码；连同前置切片已删的自动配置条目，Vision 模块全部 14 个 suppression 清零，当前全文件条目为 315，Vision 四模块严格 reactor 与 23 项模块测试通过。
-- [ ] Milestone 5：按模块和文件批次清理后端布局问题并清空 Checkstyle suppression。
+- [x] (2026-07-19) Milestone 4/5 继续批次：在零冲突工作树原子清空 permission、state、imagegen、app 四模块的 Checkstyle suppression。permission 的 2 条全部 stale（DefaultPermissionPolicy 已重构为 deny-first 策略，line 17/127 违规已不存在），直接删除；state 修复 21 个违规，含 DefaultProgressReader、DefaultRunStateRefStore 的 logger 常量 `log`→`LOGGER` 全引用重命名（对齐仓库 LOGGER 约定）与字段空行、长表达式换行；imagegen 修复 7 个违规（GenerativeUnitSpec 的 NeedBraces 与长三元拆分、ImagegenProperties 字段空行），并删除 1 条已 stale 的 suppression；app 修复 5 个违规（DotenvEnvironmentPostProcessor 长链调用换行与三处字段空行），并删除 5 条已 stale 的 suppression。四模块各自 `mvn -pl <module> checkstyle:check` 报告 0 违规。剩余模块（infra-ai、loop、dag、conversation、memory、infra-cache、infra-thirdparty）由并行子代理处理中，随后统一做全 reactor 严格 verify。
+- [x] (2026-07-19) Milestone 4/5 并行子代理批次：infra-ai（26 违规，保留 DefaultChatModelClient 2 条给并行重构）、infra-cache（55，含 RedissonDistributedSemaphore、RedissonCacheStore 两处 logger 重命名 `log` 改 `LOGGER`）、infra-thirdparty（55）、memory（41，含 InsightRecallService 两处 UnusedImports）、conversation（49，含 SseTurnSession 一处 logger 重命名）、loop（21，保留 AgentLoop.java 5 条给并行重构）、dag（约 112，保留 CopyUnitExecutor 1 条给并行重构）七模块的布局违规由 7 个并行子代理按精确违规清单（`.scratch/checkstyle-violations.txt`，由空-suppression 审计一次生成）修复源码；子代理只改本模块源码、不动 suppressions.xml、不跑 Maven、不触碰 defer 文件。已确认子代理未触碰 defer 文件（AgentLoop/CopyUnitExecutor 的 mtime 仍为会话前的 17:55，未被改）。各模块 `mvn -pl <module> checkstyle:check` 报告 0 违规；全 reactor `mvn -DskipTests verify`（沿用既有 target）在 30 模块 BUILD SUCCESS；另跑 `mvn -DskipTests clean verify` 清缓存复验，29 模块 BUILD SUCCESS（Checkstyle 0、SpotBugs `BugInstance size is 0`，均为 fresh 扫描无缓存），仅 pixflow-app 在 test-compile 阶段失败——app 测试引用 task 模块新增未跟踪包 `com.pixflow.module.task.api.authorization.TaskAuthorizationFactsQuery`（refactor 进行中），非 checkstyle 问题、非本批改动；按用户指示跳过 app 模块，其 checkstyle 另由 `mvn -pl pixflow-app checkstyle:check` 单独验证为 0。基线 suppression 从 197（去除 rubrics 后的工作树基线）降到 8，仅剩 DefaultChatModelClient(2)、AgentLoop(5)、CopyUnitExecutor(1) 三处并行重构活跃文件。
+- [ ] Milestone 5：按模块和文件批次清理后端布局问题并清空 Checkstyle suppression。仅剩 3 个并行重构活跃文件的 8 条 suppression（DefaultChatModelClient、AgentLoop、CopyUnitExecutor），待各自重构批次完成后由其清零。
 - [ ] Milestone 6：完成文档、全仓验证和基线不可回增检查。
 
 ## Surprises & Discoveries
@@ -132,6 +134,9 @@ This ExecPlan is a living document. The sections `Progress`, `Surprises & Discov
   Evidence: publication 专项按“业务修改 + 触达文件全部 suppression”执行后，Task 条目已清零，完整 Task strict verify 报告零 Checkstyle/SpotBugs，当前全文件 suppression 快照为 329。
   Evidence: 删除两项精确 suppression 并展开字段、getter、setter 后，`mvn -pl pixflow-module-rubrics -DskipTests verify` 报告零 Checkstyle 与零 SpotBugs；`mvn -pl pixflow-module-rubrics test` 的 12 项测试零失败、零错误、零跳过。
 
+- Observation: loop 模块的两个测试失败（`RuntimeScopeTranslatorTest.subagentEvalMapsToSubagentHooks` 期望 `subagentType=sub_agent` 实际为 `subagent`；`RuntimeStateTest.runtimeScopeDefaultsToMain` 因 `runtimeScope()` 返回 null 而 NPE）是并行 subagent 重构引入的既有不一致，不是本批 lint 清理造成。
+  Evidence: `RuntimeState.java` 的 diff 仅在字段间补空行（无逻辑改动）；失败发生在 `subagentType` 取值域，`SubagentType.java` 被重构修改（+2/-4），`RuntimeScopeTranslator.java:55` 仍返回 `RuntimeScope.of("subagent")` 而测试期望 `sub_agent`；该文件不在 loop suppression 清单、未被本批次触碰。对照证据：state 17 项、infra-cache（含 `RedisIntegrationTest`）测试均通过，证明 logger `log` 改 `LOGGER` 重命名行为安全。
+
 ## Decision Log
 
 - Decision: Vision 模块通过业务计划的一次性旧路径删除清空 suppression，不为满足 Lint 计划重排或格式化即将删除的代码。
@@ -220,6 +225,14 @@ This ExecPlan is a living document. The sections `Progress`, `Surprises & Discov
 - Decision: Task 模块由 Generated Image publication 专项接管并一次性清空全部 suppression，不再等待通用 lint 计划逐文件处理。
   Rationale: 57 个条目覆盖的正是本次 worker、query、download、persistence 与配置边界；在同一业务批次内修复并运行 strict verify，能避免行号漂移和重复冲突。
   Date/Author: 2026-07-19 / Codex
+
+- Decision: 对剩余 7 个低冲突模块（infra-ai、infra-cache、infra-thirdparty、memory、conversation、loop、dag）采用并行子代理按精确违规清单修复源码，而非逐模块串行手改。
+  Rationale: 392 条可修复违规以 EmptyLineSeparator/LineLength 等机械布局为主；先做一次空-suppression 审计生成精确 file:line:check 清单（`.scratch/checkstyle-violations.txt`），使每个子代理可在不跑 Maven、不动 suppressions.xml、只改本模块源码的前提下独立完成；不同模块文件互不重叠，无写冲突。验证改为：每个模块删 suppression 后跑只读的 `mvn -pl <module> checkstyle:check`（无 spotbugs、不编译，不与子代理争用 target），最后由主代理串行跑一次全 reactor `mvn -DskipTests verify` 同时确认编译、Checkstyle 与 SpotBugs。
+  Date/Author: 2026-07-19 / Claude
+
+- Decision: 仍被并行重构活跃修改的三个文件（DefaultChatModelClient、AgentLoop、CopyUnitExecutor）及其 8 条 suppression 完整保留，不在本批次清零。
+  Rationale: 这三处文件的工作树修改属于 Product Visual Facts / Rubrics deep-module 重构，mtime 显示为会话前的 17:55；提前做机械布局清理会与重构的同文件改动冲突，违反计划“重叠文件放最后”的约束。其 suppression 留给各自重构批次按 file/check/line 精确删除。
+  Date/Author: 2026-07-19 / Claude
 
 ## Outcomes & Retrospective
 
@@ -514,6 +527,8 @@ Java public interface、数据库 schema、REST API 和 Maven 依赖不因本计
 ESLint、Checkstyle 与 SpotBugs 的版本、规则、threshold 和 lifecycle 保持 `linter-adoption-plan.md` 定义。audit 与严格命令必须继续使用同一规则集；本计划不能通过降低 severity、改变 threshold 或跳过模块来达成空基线。
 
 ## Revision Notes
+
+2026-07-19 / Claude: 继续清零后端 Checkstyle 基线。先做一次空-suppression 审计生成精确 file:line:check 清单（401 条真实违规），据此识别并删除 permission/imagegen/app 等已 stale 的 suppression。零冲突工作树中手工清空 permission、state（含 2 处 logger `log` 改 `LOGGER` 全引用重命名）、imagegen、app 四模块；infra-ai、infra-cache、infra-thirdparty、memory、conversation、loop、dag 七模块由 7 个并行子代理按清单修复源码，保留 DefaultChatModelClient、AgentLoop、CopyUnitExecutor 三处并行重构文件不动（已用 mtime 确认子代理未触碰）。各模块 `mvn -pl <module> checkstyle:check` 报 0 违规；全 reactor `mvn -DskipTests verify` 30 模块 BUILD SUCCESS（Checkstyle 0、SpotBugs `BugInstance size is 0`）；state 17 项测试通过。基线从 197（去 rubrics 后工作树基线）降到 8，仅剩三处 defer 文件。
 
 2026-07-19 / Codex: 记录 Product Visual Facts 专项清空 Vision 模块全部 14 个 suppression（前置切片 1 个、本次旧路径清理 13 个）。旧路径按产品设计删除而非格式化，Vision 静态 reactor 与测试全绿；当前 Checkstyle suppression 精确计数为 315。
 

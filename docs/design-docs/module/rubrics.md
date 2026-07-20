@@ -414,6 +414,8 @@ The completed `rubrics-module-implementation-plan.md` remains a historical recor
 
 ## Revision Notes
 
+2026-07-19 / Codex: Implemented the backend deep-module path for immutable datasets and transactional Gold Labels, complete-HOLDOUT calibration reports, first formal baselines and paired alerts, durable event/scheduled admission and recovery, heartbeat fencing, Micrometer, and architecture guards. Confirmed Task Decision evidence now exposes only the owner-persisted Canonical DAG snapshot; requirements, validated proposal, and criterion-specific Eval trace remain unavailable rather than being fabricated. Frontend cleanup and existing Checkstyle suppressions were not changed under the user's explicit scope.
+
 2026-07-19 / Codex: 冻结 `RubricsEvaluationService.start/resume/get` 深模块接口与类型化 `RunSelection`，删除后端 end-user Controller，并把开发期数据库策略收敛为无 scalar score/Promotion 兼容的 fresh schema；同时修正 ADR 中残留的 Memory Promotion 表述。
 
 2026-07-12 / Codex: Replaced the v1 confidence-weighted 0-100 scoring design with typed Evaluation Subjects, atomic Hard Rules and Principles, four-state Criterion Verdicts, system-owned Evidence Packs, repeated judge agreement, mandatory gold-set validation, versioned replayable datasets, and automation lifecycle gates. Post-training remains explicitly out of scope.

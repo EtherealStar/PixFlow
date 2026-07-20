@@ -24,10 +24,15 @@ This ExecPlan is a living document. The sections `Progress`, `Surprises & Discov
 - [x] Milestone 1：落地 canonical Asset Reference、File 解析边界和 USER message references，删除 ATTACHMENT 身份模型。（2026-07-18：纯 JDK canonical codec、typed keys、File resolver/inspect/expand 首个切片与直接 DAG/Imagegen/Task/App 消费方已落地；Context/Session/Conversation/Loop/Hooks/Agent/Web 消息链已按子计划切换为单条 USER message 的 ordered references，旧 ATTACHMENT、单包绑定和 V1 schema 列已删除。File source type、tombstone 等仍以活动 File 计划为准；Docker 不可用使 Session fresh-schema 2 项容器测试 skipped，全部验收前本里程碑保持未完成。）
 - [x] (2026-07-17) Milestone 2：落地单一管理员、deny-first Permission 和 Conversation 所属的临时 Proposal，删除确认令牌与 durable pending plan。Auth/Permission 已接五类 current-facts proof、可信 runtime context、发布二次授权和空 body confirm/reject；本轮把 Proposal store/CAS/幂等归属 Conversation，DAG/Imagegen 只返回 validated payload，App 负责可信发布，并删除 contracts Proposal、producer publisher 与多源 Imagegen 工具合同。
 - [x] (2026-07-19) Milestone 3：对齐 DAG、Imagegen、Task、State、Storage、Cache 与 Image 执行链，并把成功结果发布为独立 Generated Image。TMP candidate、fenced SUCCESS/publication backlog、File PUBLISHING/READY 幂等发布、App adapters、published identity 查询/下载和 Task lint 已完成；30 模块严格静态 reactor BUILD SUCCESS，真实 MySQL 8.4、MinIO、Redis 故障矩阵零跳过，删除独立性、File 删除后诊断、Generated Image source reuse 与固定业务身份 Derived Retry 均已验收。
-- [ ] Milestone 4：把 Vision 替换为可恢复 Product Visual Facts 作业和唯一 Agent lookup tool。
+- [x] (2026-07-19) Milestone 4：把 Vision 替换为可恢复 Product Visual Facts 作业和唯一 Agent lookup tool。后端生产链路与旧路径清零已落地并验证；前端交互（专项 M7）与真实依赖故障矩阵/全仓 verify（专项 M8）按用户范围决定推迟到后续里程碑，显式覆盖 line 191「全部完成」条件。详见 `exec-plans/completed/product-visual-facts-milestone-4-implementation-plan.md` 与 Revision Notes。
 - [ ] Milestone 5：把 Memory、Vector、Hooks 与 Agent 收窄为只读召回和视觉事实消费，删除全部在线写回路径。（2026-07-17：Vector/Memory 子范围已完成，唯一运行时能力为三方法 `VectorSearch`，在线 ingest/reinforcement/lifecycle/rebuild 与旧 hook 已删除；canonical Asset Reference 和视觉事实消费仍待本总计划后续切片。）
 - [ ] Milestone 6：完成 Rubrics 四态 Criterion、Evidence Pack、dataset/regression 和离线自动化边界，不实现 Promotion。
+- [x] (2026-07-19 20:44+08:00) Milestone 6 后端主体切片已落地：四态 Criterion/Evidence Pack、fenced resumable run、immutable Dataset/Gold Label/完整 holdout 校准、formal paired regression/Rubrics-owned alert、Copy/DAG Decision、durable event/scheduled automation、heartbeat/recovery、Micrometer 与 ArchUnit 已实现。Milestone 仍不勾选：Task Decision 缺 requirements/proposal/Eval trace owner seam，Image 缺真实 MinIO 故障矩阵，App 缺完整 context test，前端按用户明确要求未修改；最后审查修复仅编译未复验。
 - [ ] Milestone 7：完成 App 组合根、前端合同、旧路径清理、故障注入和全仓验收。
+- [ ] (2026-07-19) Milestone 7 App 子范围已建立专项计划 `app-composition-root-completion-refactor-plan.md`；计划覆盖唯一传输边界、owner public API、Activity 持久投影、数据库目标基线、fail-fast 装配、真实依赖与端到端验收。本次只创建计划，未实施 App 重构，不勾选总里程碑。
+- [x] (2026-07-20) Milestone 7 App 子范围第一批后端迁移已落地：Task authorization facts 与进度桥改走 owner public API；File 内容读取和 Published Asset 改为受控 stream/presign；Vision RocketMQ trigger publisher 归还 Vision owner；Conversation/File controller 迁入 App、Commerce controller 删除；新增 `/turns/stop`；custom download 统一 canonical IMAGE `referenceKey`；默认 dev profile 和部分模块 Web starter 已删除；未修改前端，也未保留旧 wire model。
+- [ ] (2026-07-20) Milestone 7 App 子范围仍未完成：canonical source/content、Conversation SSE/controller 归属和生产 Tool trace 已收口；Activity typed projection/JDBC outbox/REST/STOMP dispatcher 已开始落地，但 Task/File owner snapshot、对账、全局数据库 baseline、wiring contract 与 fail-fast 矩阵尚未闭合。此前 30 模块 lint/static 与 Activity/架构定向测试成功；最新 File owner 编译因 `DefaultFileActivitySource` 方法引用错误暂停，前端与全仓测试不在本轮推进条件内。总里程碑保持未勾选。
+- [x] (2026-07-20) Milestone 7 App 后端三模块切片闭环：Task/File owner Activity snapshot、stale-source 对账与 owner command 已完成；File/Task/App Activity 建立独立目标 V1 baseline/history table；File 删除 Noop progress 和 `@ConditionalOnBean` 静默缺装。File/Task/App lint 为 0，App 56 项测试通过；未运行全仓或前端测试。其余 owner baseline、完整 wiring/真实依赖/端到端仍待完成，因此总里程碑保持未勾选。
 
 ## Surprises & Discoveries
 
@@ -187,7 +192,7 @@ Conversation 新增本地、短生命周期、线程安全的 ephemeral Proposal
 
 ### Milestone 4：用 Product Visual Facts 替换通用 Vision 与上传期文案富化
 
-本里程碑的完整实施顺序、持久 attempt budget、File 可靠事件桥、Vision current-row 状态机、管理员 API、Materials 图片详情、故障矩阵和 lint-before-test 门禁由 `docs/design-docs/exec-plans/product-visual-facts-milestone-4-implementation-plan.md` 具体执行。在该专项计划的生产切换、真实依赖测试、前端交互和旧路径清零全部完成前，本里程碑保持未完成。
+本里程碑的完整实施顺序、持久 attempt budget、File 可靠事件桥、Vision current-row 状态机、管理员 API、Materials 图片详情、故障矩阵和 lint-before-test 门禁由 `docs/design-docs/exec-plans/completed/product-visual-facts-milestone-4-implementation-plan.md` 具体执行。原要求在该专项计划的生产切换、真实依赖测试、前端交互和旧路径清零全部完成前本里程碑保持未完成；2026-07-19 范围决定已显式覆盖该条件——后端生产链路与旧路径清零达标即视为完成，前端交互与真实依赖测试推迟到后续里程碑（见 Revision Notes 与专项计划 M8）。
 
 本里程碑把视觉理解变为 Vision 自有的持久、可恢复当前事实源。File 在包解压终态后发布 package-ready domain event，并仅在 Original Image 新增、删除、替换或内容哈希变化时发布 SKU visual-input-changed event；app bridge 触发 Vision，避免 File 编译依赖 Vision。Vision 按 `(packageId, skuId)` 维护一条 SKU work item 和一条当前事实，确定性选择至多两张图；具体 IMAGE lookup 可维护一条 image-scoped current work/fact。MySQL work item 持有 status、analysis_generation、run_epoch、heartbeat、provider_attempt_count、structure_round_count 与 last_request_id，fact row 持有 nullable facts_json、optimistic version、last_writer 和当前 bounded operational metadata。
 
@@ -224,6 +229,8 @@ Vision 输入通过 Storage 的 reopenable source 和 Image 的全局 Pixel Budg
 完成标准是四态、nullable passRate/coverage、Quality Gate、非法 evidence、judge disagreement、selfJudged provenance、dataset pairing 和 non-replayable 行为都有测试；Rubrics 对 Memory/Vision/File/Agent/Loop/Tools/Hooks 零编译依赖，对 Task 只消费 public immutable outcome/event。
 
 ### Milestone 7：组合根、前端对齐、清理与端到端验收
+
+本里程碑的 App 组合根、传输边界、全局 Activity、数据库启动基线、必需 Bean 守护、真实依赖故障矩阵和 lint-before-test 验收，由 `docs/design-docs/exec-plans/app-composition-root-completion-refactor-plan.md` 具体执行。该专项计划允许在 owner 模块中新增最窄 public API 并删除模块内旧 Web controller，但不重写业务内核；它完成后只能勾选本里程碑的 App 子范围，前端源码对齐和全仓最终验收仍需独立证明。
 
 本里程碑把已经独立验证的模块在 `pixflow-app` 组合根接线。App 提供 AI quota/concurrency 到 Cache 的 adapters、Permission proof ports、DAG/Imagegen Proposal ToolHandlers、File package-ready 到 Vision 的 bridge、Task GeneratedAssetPublicationPort 到 File 的 adapter、ToolTraceSink 到 Eval 的 adapter，以及 HTTP/SSE/STOMP controllers。必需生产 bean 缺失时启动失败；测试用 fake 必须显式注入，不能靠 `@ConditionalOnBean` 静默少装能力。
 
@@ -390,6 +397,8 @@ Proposal 丢失按设计恢复为重新生成，不从 transcript、Redis 或 pe
     infra/vector: verify/search/get only；在线运行时无写侧能力。
     permission: 五个 current-facts proof port 和 direct-confirm policy。
 
+Milestone 7 App 子范围第一批记录（2026-07-20）：Task、File、Vision 与 transport 的部分 owner/public seam 已完成；30 模块 `-DskipTests compile` 成功。后续八模块 lint/static 在 File、Imagegen、Task、Conversation、Commerce、Vision、Rubrics 到达 Checkstyle 0 violations 与 SpotBugs audit，App 起初因测试调用名错误停止，修正后未完成全 reactor 重跑。没有运行本批测试或任何前端命令；Activity、数据库/Flyway 和端到端验收均未开始。
+
 这些实现不是完整业务路径：Asset Reference parser/resolver、GeneratedAssetPublicationPort、Task publication adapter 和 Vision work-item owner 仍由后续属主里程碑实现。
 
 最终旧路径清理搜索至少覆盖：
@@ -483,6 +492,18 @@ Rubrics 最终以一个深模块 service 隐藏 template、Evidence Pack、rollo
 Rubrics 只依赖 Task public outcome/event、Eval read contract、infra/ai、infra/storage、infra/image 和自己的 persistence。它不依赖 Vision、File 内部实现、Memory、Agent、Loop、Tools 或 Hooks。
 
 ## Revision Notes
+
+2026-07-20 / Codex: 更新 Milestone 7 App 子范围第一批实施状态。记录 Task authorization facts、File content capability、Vision MQ publisher、Conversation/File controller、`/turns/stop`、canonical download wire contract、默认 profile 与 Web dependency 清理；明确剩余 File runtime/ObjectLocation、Conversation SSE、Activity、Flyway、Eval trace 和 fail-fast wiring 缺口。30 模块 compile 成功，但修正 App test compile 后尚未完成 lint/static 重跑，测试与前端均未运行；陈旧本地 Maven artifacts 使 `-rf :pixflow-app` 结果失真，因此不勾选 Milestone 7。
+
+2026-07-20 / Codex: 记录 App Activity 后端切片停止点。App 已有 typed Activity projection/source revision、JDBC projection/outbox、独立 app activity migration、REST snapshot/detail/command 和 `/user/queue/activity` dispatcher；旧 generic progress transport 与 Conversation/Task bridge 删除。Task/File owner snapshot 与 cleanup 接线仍在工作树中，最新 File source 编译错误待下一切片修复；不修改前端、不把 Activity 或 Milestone 7 标记完成。
+
+2026-07-20 / Codex: 更新 Milestone 7 App 子范围当前进度。已完成 App-owned Activity 核心 read model、source revision 幂等投影、JDBC projection/outbox、独立 `db/app-activity` migration、管理员 Activity REST snapshot/detail/cancel/clear 以及单一 `/user/queue/activity` dispatcher；同时删除 generic progress notifier、Conversation progress bridge 和 Task progress bridge。Task/File owner Activity snapshot 与 cleanup seam 已落入工作树，Task cleanup 明确不删除 File-owned Generated Image。当前仍由 `DefaultFileActivitySource` 两处静态 `upload` 方法引用错误阻断 clean reactor test-compile；Activity stale-source 对账、完整 App wiring/fail-fast/Flyway baseline、真实依赖故障矩阵及端到端验收尚未完成，Milestone 7 保持未勾选。未修改前端、未新增 suppression、未提交或暂存。
+
+2026-07-19 / Codex: 为 Milestone 7 新增 `app-composition-root-completion-refactor-plan.md`。专项计划基于当前 App 内部包直连、Activity 空缺、Noop trace、dev profile 默认激活和无统一可验证迁移入口等实际缺口，固定唯一传输边界、owner public API、App-owned Activity 投影、fail-fast 组合和真实依赖端到端验收。按用户要求，所有测试前先 lint；Checkstyle 问题只记录、不在该专项修复，也不新增 suppression。本次只撰写计划，未标记实施完成。
+
+2026-07-19 / Codex: 勾选并确认 Milestone 4。后端生产链路已落地--infra-ai request-scoped `AttemptBudget`、Vision current facts/current work 持久模型与 CAS/reanalysis 状态机、File `asset_image.content_hash` + 可靠 visual-input outbox + App bridge、Vision package/SKU/item coordinator 与确定性两图抽样、forced-tool provider 调用与持久 attempt accounting、lock/generation/epoch/fact-version fenced commit、heartbeat/stale/PENDING recovery、RocketMQ destination/consumer/retry/DLQ、唯一 `get_product_visual_facts` lookup tool、App GET/PUT/reanalyze controller 与 Original Image detail read model；旧路径清零经专项计划三条验收搜索全部通过（生产源码对 `VisionService|DefaultVisionService|ProductCopyExtractor|CopyEnrichment|VisionSubagentTool|agent(type=vision)` 零命中，唯一命中 `VisionArchitectureTest` 负向守卫属计划允许；Checkstyle/SpotBugs 中 `pixflow-module-vision` 条目清零；无 `facts_revision|snapshot_history|completed_run|raw_provider_output` 表）。本次范围决定显式覆盖 line 191「生产切换、真实依赖测试、前端交互、旧路径清零全部完成」的条件：前端 Materials 图片详情/表单/轮询/dirty guard（专项 M7）与真实 MySQL/RocketMQ/Redis 故障矩阵 + 全仓 `mvn verify`/pnpm 验收（专项 M8）按用户指示推迟到后续里程碑，专项计划已据此标注 M8 为范围外推迟。专项计划已移入 `exec-plans/completed/`。
+
+2026-07-19 / Codex: 更新 Milestone 6 实施事实。Rubrics 后端主体、校准/回归/自动化/观测和架构边界已落地，且无 Promotion/Memory 写回；保留 Task Decision trace、真实 MinIO、App context 与未授权前端清理缺口，因此父里程碑保持未勾选。
 
 2026-07-19 / Codex: 为 Milestone 4 新增 `product-visual-facts-milestone-4-implementation-plan.md`。专项计划把高层目标拆成 infra/ai 持久 attempt seam、current facts/current work、File outbox + App bridge、Vision fencing/recovery、唯一 lookup tool、管理员 API 和 Materials detail，并要求所有测试前先通过对应后端静态门禁或前端 lint/typecheck；本次只创建计划，不把 Milestone 4 标记为已实施。
 
