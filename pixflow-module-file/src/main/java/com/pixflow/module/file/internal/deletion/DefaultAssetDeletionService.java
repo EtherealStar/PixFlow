@@ -14,6 +14,7 @@ import com.pixflow.module.file.image.AssetImage;
 import com.pixflow.module.file.image.AssetImageMapper;
 import com.pixflow.module.file.pkg.AssetPackage;
 import com.pixflow.module.file.pkg.AssetPackageMapper;
+import com.pixflow.module.file.visual.AssetVisualInputOutboxWriter;
 import java.time.Clock;
 import java.util.List;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -37,6 +38,8 @@ public final class DefaultAssetDeletionService implements AssetDeletionService {
 
     private final Clock clock;
 
+    private final AssetVisualInputOutboxWriter visualOutbox;
+
     public DefaultAssetDeletionService(
             AssetPackageMapper packageMapper,
             AssetImageMapper imageMapper,
@@ -46,7 +49,8 @@ public final class DefaultAssetDeletionService implements AssetDeletionService {
             AssetCleanupIntentMapper intentMapper,
             ObjectStorage objectStorage,
             TransactionTemplate transactions,
-            Clock clock) {
+            Clock clock,
+            AssetVisualInputOutboxWriter visualOutbox) {
         this.packageMapper = packageMapper;
         this.imageMapper = imageMapper;
         this.copyMapper = copyMapper;
@@ -56,6 +60,7 @@ public final class DefaultAssetDeletionService implements AssetDeletionService {
         this.objectStorage = objectStorage;
         this.transactions = transactions;
         this.clock = clock;
+        this.visualOutbox = visualOutbox;
     }
 
     @Override
@@ -113,6 +118,9 @@ public final class DefaultAssetDeletionService implements AssetDeletionService {
         // intent 落库后立即从 resolver/listing 隐藏，避免删除已确认后仍参与处理。
         update.setDeletionStatus("PENDING");
         imageMapper.updateById(update);
+        if ("ORIGINAL".equals(image.getSourceType())) {
+            visualOutbox.skuChanged(image.getPackageId(), image.getSkuId(), clock.instant());
+        }
     }
 
     private void preparePackage(AssetPackage assetPackage) {
@@ -128,6 +136,7 @@ public final class DefaultAssetDeletionService implements AssetDeletionService {
             String name = image.getDisplayName() == null ? image.getOriginalPath() : image.getDisplayName();
             tombstoneMapper.insertIfAbsent("IMAGE", assetPackage.getId(), normalizedSku(image.getSkuId()),
                     image.getId(), name == null ? "Image " + image.getId() : name);
+            visualOutbox.skuChanged(assetPackage.getId(), image.getSkuId(), clock.instant());
         }
         intentMapper.insertIfAbsent("PACKAGE", assetPackage.getId(), 0L, BucketType.PACKAGES.name(),
                 assetPackage.getId() + "/", true, clock.instant());

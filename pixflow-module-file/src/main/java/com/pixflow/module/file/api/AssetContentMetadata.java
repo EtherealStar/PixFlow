@@ -9,5 +9,6 @@ public record AssetContentMetadata(
         String viewId,
         AssetSourceType sourceType,
         String contentType,
+        String contentHash,
         long size) {
 }

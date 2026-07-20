@@ -1,7 +1,6 @@
 package com.pixflow.module.file.config;
 
 import com.baomidou.mybatisplus.autoconfigure.MybatisPlusAutoConfiguration;
-import com.pixflow.common.progress.ProgressNotifier;
 import com.pixflow.infra.mq.MessagePublisher;
 import com.pixflow.infra.cache.key.CacheNamespace;
 import com.pixflow.infra.cache.lock.LockTemplate;
@@ -15,14 +14,14 @@ import com.pixflow.infra.mq.config.MqAutoConfiguration;
 import com.pixflow.infra.storage.ObjectStorage;
 import com.pixflow.infra.storage.config.StorageAutoConfiguration;
 import com.pixflow.module.file.FileService;
+import com.pixflow.module.file.api.activity.FileActivitySource;
+import com.pixflow.module.file.api.activity.FileActivityCommandService;
 import com.pixflow.module.file.copydoc.AssetCopyMapper;
 import com.pixflow.contracts.asset.CanonicalAssetReferenceCodec;
 import com.pixflow.module.file.copydoc.CsvCopyDocParser;
 import com.pixflow.module.file.copydoc.ExcelCopyDocParser;
 import com.pixflow.module.file.error.AssetIngestErrorMapper;
 import com.pixflow.module.file.image.AssetImageMapper;
-import com.pixflow.module.file.runtime.AssetImageQuery;
-import com.pixflow.module.file.internal.image.DefaultAssetImageQuery;
 import com.pixflow.module.file.internal.image.DefaultAssetContentReader;
 import com.pixflow.module.file.api.AssetContentReader;
 import com.pixflow.module.file.internal.publication.AssetImageLineageSourceMapper;
@@ -45,6 +44,8 @@ import com.pixflow.module.file.naming.DefaultSkuExtractor;
 import com.pixflow.module.file.naming.FileNameParser;
 import com.pixflow.module.file.naming.SkuExtractor;
 import com.pixflow.module.file.pkg.AssetPackageMapper;
+import com.pixflow.module.file.internal.activity.DefaultFileActivitySource;
+import com.pixflow.module.file.internal.activity.DefaultFileActivityCommandService;
 import com.pixflow.module.file.pkg.AssetPackageService;
 import com.pixflow.module.file.permission.AssetPermissionProof;
 import com.pixflow.module.file.api.AssetReferenceResolver;
@@ -62,13 +63,11 @@ import com.pixflow.module.file.upload.UploadSessionService;
 import com.pixflow.module.file.upload.UploadSessionStore;
 import com.pixflow.module.file.upload.RedisUploadSessionStore;
 import com.pixflow.module.file.upload.UploadOrphanCleanup;
-import com.pixflow.module.file.web.FileController;
 import java.time.Clock;
 import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -92,17 +91,11 @@ import org.springframework.transaction.support.TransactionTemplate;
                 AssetIngestErrorMapper.class,
                 AssetCopyMapper.class,
                 AssetCleanupIntentMapper.class,
-                AssetReferenceTombstoneMapper.class
+                AssetReferenceTombstoneMapper.class,
+                com.pixflow.module.file.visual.AssetVisualInputOutboxMapper.class
         },
         annotationClass = Mapper.class)
 public class FileAutoConfiguration {
-
-    @Bean
-    @ConditionalOnMissingBean
-    public ProgressNotifier noopProgressNotifier() {
-        return (channel, event) -> {
-        };
-    }
 
     @Bean
     @ConditionalOnMissingBean
@@ -170,10 +163,11 @@ public class FileAutoConfiguration {
             AssetCleanupIntentMapper intentMapper,
             ObjectStorage objectStorage,
             PlatformTransactionManager transactionManager,
-            Clock clock) {
+            Clock clock,
+            com.pixflow.module.file.visual.AssetVisualInputOutboxWriter visualOutbox) {
         return new DefaultAssetDeletionService(packageMapper, imageMapper, copyMapper, errorMapper,
                 tombstoneMapper, intentMapper, objectStorage,
-                new TransactionTemplate(transactionManager), clock);
+                new TransactionTemplate(transactionManager), clock, visualOutbox);
     }
 
     @Bean
@@ -194,12 +188,6 @@ public class FileAutoConfiguration {
     public AssetPermissionProof assetPermissionProof(
             CanonicalAssetReferenceCodec codec, AssetReferenceResolver referenceResolver) {
         return new AssetPermissionProof(codec, referenceResolver);
-    }
-
-    @Bean
-    @ConditionalOnMissingBean
-    public AssetImageQuery assetImageQuery(AssetImageMapper imageMapper) {
-        return new DefaultAssetImageQuery(imageMapper);
     }
 
     @Bean
@@ -238,13 +226,36 @@ public class FileAutoConfiguration {
     @ConditionalOnMissingBean
     public AssetPackageService assetPackageService(
             AssetPackageMapper packageMapper,
+            Clock clock,
+            com.pixflow.module.file.visual.AssetVisualInputOutboxWriter visualOutbox) {
+        return new AssetPackageService(packageMapper, clock, visualOutbox);
+    }
+
+    @Bean
+    public com.pixflow.module.file.visual.AssetVisualInputOutboxWriter assetVisualInputOutboxWriter(
+            com.pixflow.module.file.visual.AssetVisualInputOutboxMapper mapper) {
+        return new com.pixflow.module.file.visual.AssetVisualInputOutboxWriter(mapper);
+    }
+
+    @Bean
+    public com.pixflow.module.file.visual.AssetImageVisualWriter assetImageVisualWriter(
+            AssetImageMapper imageMapper,
+            com.pixflow.module.file.visual.AssetVisualInputOutboxWriter outbox,
+            PlatformTransactionManager transactionManager) {
+        return new com.pixflow.module.file.visual.AssetImageVisualWriter(
+                imageMapper, outbox, new TransactionTemplate(transactionManager));
+    }
+
+    @Bean
+    public com.pixflow.module.file.visual.AssetVisualInputOutboxDispatcher assetVisualInputOutboxDispatcher(
+            com.pixflow.module.file.visual.AssetVisualInputOutboxMapper mapper,
+            com.pixflow.module.file.api.visual.AssetVisualInputEventSink sink,
             Clock clock) {
-        return new AssetPackageService(packageMapper, clock);
+        return new com.pixflow.module.file.visual.AssetVisualInputOutboxDispatcher(mapper, sink, clock);
     }
 
     @Bean
     @ConditionalOnMissingBean
-    @ConditionalOnBean(MessagePublisher.class)
     public ExtractionPublisher extractionPublisher(MessagePublisher messagePublisher) {
         return new ExtractionPublisher(messagePublisher);
     }
@@ -271,7 +282,6 @@ public class FileAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    @ConditionalOnBean({ExpiringStateStore.class, ExpiringHashStore.class})
     public UploadSessionStore uploadSessionStore(
             ExpiringStateStore stateStore,
             ExpiringHashStore hashStore,
@@ -283,13 +293,14 @@ public class FileAutoConfiguration {
     }
 
     @Bean
+    @ConditionalOnMissingBean(FileActivitySource.class)
+    public FileActivitySource fileActivitySource(
+            UploadSessionStore uploadSessionStore, AssetPackageMapper packageMapper) {
+        return new DefaultFileActivitySource(uploadSessionStore, packageMapper);
+    }
+
+    @Bean
     @ConditionalOnMissingBean
-    @ConditionalOnBean({
-            UploadSessionStore.class,
-            LockTemplate.class,
-            ObjectStorage.class,
-            ExtractionPublisher.class
-    })
     public UploadSessionService uploadSessionService(
             UploadSessionStore uploadSessionStore,
             LockTemplate lockTemplate,
@@ -305,12 +316,10 @@ public class FileAutoConfiguration {
     }
 
     @Bean
-    @ConditionalOnMissingBean
-    @ConditionalOnBean(UploadSessionService.class)
-    public FileController fileController(FileService fileService,
-                                         UploadSessionService uploadSessionService,
-                                         AssetReferenceCatalog referenceCatalog) {
-        return new FileController(fileService, uploadSessionService, referenceCatalog);
+    @ConditionalOnMissingBean(FileActivityCommandService.class)
+    public FileActivityCommandService fileActivityCommandService(
+            UploadSessionService uploadSessionService, FileService fileService) {
+        return new DefaultFileActivityCommandService(uploadSessionService, fileService);
     }
 
     @Bean
@@ -331,18 +340,17 @@ public class FileAutoConfiguration {
     public ArchiveEntryProcessor archiveEntryProcessor(
             ObjectStorage objectStorage,
             AssetPackageService packageService,
-            AssetImageMapper imageMapper,
+            com.pixflow.module.file.visual.AssetImageVisualWriter imageWriter,
             AssetIngestErrorMapper errorMapper,
             FileNameParser fileNameParser,
             ImageAdmission imageAdmission,
             ArchiveSafetyPolicy safetyPolicy,
-            ProgressNotifier progressNotifier,
             Clock clock,
             AssetCopyMapper copyMapper,
             CsvCopyDocParser csvParser,
             ExcelCopyDocParser excelParser) {
-        return new ArchiveEntryProcessor(objectStorage, packageService, imageMapper, errorMapper,
-                fileNameParser, imageAdmission, safetyPolicy, progressNotifier, clock,
+        return new ArchiveEntryProcessor(objectStorage, packageService, imageWriter, errorMapper,
+                fileNameParser, imageAdmission, safetyPolicy, clock,
                 copyMapper, csvParser, excelParser);
     }
 
@@ -391,7 +399,6 @@ public class FileAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    @ConditionalOnBean({AssetPackageService.class, AssetPackageMapper.class, ExtractionPublisher.class})
     public PublishGapRescan publishGapRescan(
             AssetPackageService packageService,
             AssetPackageMapper packageMapper,
@@ -402,7 +409,6 @@ public class FileAutoConfiguration {
     }
 
     @Bean
-    @ConditionalOnBean(DestinationRegistrar.class)
     public Object fileExtractionDestinationRegistration(DestinationRegistrar registrar) {
         registrar.register(ExtractionDestination.destination(0));
         registrar.register(ExtractionDestination.binding());
@@ -410,7 +416,6 @@ public class FileAutoConfiguration {
     }
 
     @Bean
-    @ConditionalOnBean({ManagedListenerContainerFactory.class, ExtractionConsumer.class, ExtractionErrorHandler.class})
     public ManagedMessageContainer fileExtractionListenerContainer(
             ManagedListenerContainerFactory factory,
             ExtractionConsumer consumer,

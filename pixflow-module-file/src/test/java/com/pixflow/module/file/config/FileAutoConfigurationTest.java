@@ -1,11 +1,15 @@
 package com.pixflow.module.file.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.pixflow.infra.mq.MessagePublisher;
 import com.pixflow.infra.mq.PublishResult;
+import com.pixflow.infra.mq.consumer.ManagedListenerContainerFactory;
+import com.pixflow.infra.mq.consumer.ManagedMessageContainer;
+import com.pixflow.infra.mq.destination.DestinationRegistrar;
 import com.pixflow.common.time.TimeAutoConfiguration;
 import com.pixflow.infra.cache.key.CacheKey;
 import com.pixflow.infra.cache.key.CacheNamespace;
@@ -26,9 +30,7 @@ import com.pixflow.module.file.internal.deletion.AssetDeletionRecovery;
 import com.pixflow.module.file.internal.publication.GeneratedImagePublicationRecovery;
 import com.pixflow.module.file.ingest.PublishGapRescan;
 import com.pixflow.module.file.upload.UploadOrphanCleanup;
-import com.pixflow.module.file.runtime.AssetImageQuery;
 import com.pixflow.module.file.api.publication.GeneratedImagePublisher;
-import com.pixflow.module.file.web.FileController;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.net.URL;
@@ -61,11 +63,10 @@ class FileAutoConfigurationTest {
             .withUserConfiguration(RequiredPorts.class);
 
     @Test
-    void fileServiceAndControllerAreCreatedTogetherWhenRequiredPortsExist() {
+    void fileServiceIsCreatedWithoutModuleWebController() {
         contextRunner.run(context -> {
             assertThat(context).hasSingleBean(FileService.class);
-            assertThat(context).hasSingleBean(FileController.class);
-            assertThat(context).hasSingleBean(AssetImageQuery.class);
+            assertThat(context).doesNotHaveBean("fileController");
             assertThat(context).hasSingleBean(GeneratedImagePublisher.class);
             assertThat(context).hasSingleBean(AssetReferenceResolver.class);
             assertThat(context).hasSingleBean(AssetReferenceInspector.class);
@@ -144,6 +145,23 @@ class FileAutoConfigurationTest {
         @Bean
         MessagePublisher messagePublisher() {
             return request -> PublishResult.confirmed(request.topic(), request.tag(), "message-id", "queue");
+        }
+
+        @Bean
+        DestinationRegistrar destinationRegistrar() {
+            return mock(DestinationRegistrar.class);
+        }
+
+        @Bean
+        ManagedListenerContainerFactory managedListenerContainerFactory() {
+            ManagedListenerContainerFactory factory = mock(ManagedListenerContainerFactory.class);
+            when(factory.create(any(), any(), any())).thenReturn(mock(ManagedMessageContainer.class));
+            return factory;
+        }
+
+        @Bean
+        com.pixflow.module.file.api.visual.AssetVisualInputEventSink assetVisualInputEventSink() {
+            return event -> { };
         }
 
         @Bean

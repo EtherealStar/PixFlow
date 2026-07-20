@@ -19,6 +19,7 @@ import com.pixflow.module.file.error.FileErrorCode;
 import com.pixflow.module.file.image.AssetImage;
 import com.pixflow.module.file.image.AssetImageMapper;
 import com.pixflow.module.file.image.AssetImageView;
+import com.pixflow.module.file.image.AssetImageDetailView;
 import com.pixflow.module.file.image.AssetSkuView;
 import com.pixflow.module.file.pkg.AssetPackage;
 import com.pixflow.module.file.pkg.AssetPackageMapper;
@@ -133,6 +134,26 @@ public class FileService {
                         .orderByAsc(AssetImage::getId));
         List<AssetImageView> views = result.getRecords().stream().map(this::toView).toList();
         return new PageResponse<>(views, result.getTotal(), result.getCurrent(), result.getSize());
+    }
+
+    public AssetImageDetailView imageDetail(long packageId, long imageId) {
+        AssetImage current = requireImage(packageId, imageId);
+        if (!"ORIGINAL".equals(current.getSourceType())) {
+            throw new PixFlowException(FileErrorCode.ASSET_IMAGE_NOT_FOUND, "original image not found");
+        }
+        List<AssetImage> ordered = imageMapper.selectList(new LambdaQueryWrapper<AssetImage>()
+                .eq(AssetImage::getPackageId, packageId)
+                .eq(AssetImage::getSourceType, "ORIGINAL")
+                .eq(AssetImage::getPublicationStatus, "READY")
+                .isNull(AssetImage::getDeletionStatus)
+                .orderByAsc(AssetImage::getId));
+        int index = java.util.stream.IntStream.range(0, ordered.size())
+                .filter(position -> ordered.get(position).getId() == imageId)
+                .findFirst()
+                .orElseThrow();
+        String previous = index == 0 ? null : String.valueOf(ordered.get(index - 1).getId());
+        String next = index + 1 == ordered.size() ? null : String.valueOf(ordered.get(index + 1).getId());
+        return new AssetImageDetailView(toView(current), previous, next);
     }
 
     public void deleteImage(long packageId, long imageId) {

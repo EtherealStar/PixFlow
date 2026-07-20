@@ -12,7 +12,8 @@ import com.pixflow.infra.storage.ObjectStorage;
 import com.pixflow.module.file.config.FileProperties;
 import com.pixflow.module.file.error.AssetIngestErrorMapper;
 import com.pixflow.module.file.image.AssetImage;
-import com.pixflow.module.file.image.AssetImageMapper;
+import com.pixflow.module.file.visual.AssetImageVisualWriter;
+import com.pixflow.module.file.image.AssetImage;
 import com.pixflow.module.file.naming.DefaultSkuExtractor;
 import com.pixflow.module.file.naming.FileNameParser;
 import com.pixflow.module.file.pkg.AssetPackage;
@@ -32,7 +33,7 @@ class SevenZExtractorTest {
     void extractsARealSevenZArchiveThroughSharedAdmissionPipeline() throws Exception {
         ObjectStorage storage = mock(ObjectStorage.class);
         AssetPackageService packages = mock(AssetPackageService.class);
-        AssetImageMapper images = mock(AssetImageMapper.class);
+        AssetImageVisualWriter images = mock(AssetImageVisualWriter.class);
         AssetIngestErrorMapper errors = mock(AssetIngestErrorMapper.class);
         FileProperties properties = new FileProperties();
         AssetPackage assetPackage = new AssetPackage();
@@ -47,12 +48,13 @@ class SevenZExtractorTest {
         ArchiveEntryProcessor processor = new ArchiveEntryProcessor(
                 storage, packages, images, errors,
                 new FileNameParser(new DefaultSkuExtractor()), new ImageAdmission(properties),
-                new ArchiveSafetyPolicy(properties), (channel, event) -> { }, Clock.systemUTC());
+                new ArchiveSafetyPolicy(properties), Clock.systemUTC(),
+                null, null, null);
         SevenZExtractor extractor = new SevenZExtractor(storage, packages, processor);
 
         extractor.extract(99L);
 
-        verify(images).insert(any(AssetImage.class));
+        verify(images).insertOriginal(any(AssetImage.class));
         verify(packages).finish(99L, PackageStatus.READY, null);
     }
 

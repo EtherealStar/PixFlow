@@ -38,6 +38,8 @@ public class AssetImage {
 
   private Long byteSize;
 
+  private String contentHash;
+
   private Long sourceTaskId;
 
   private Long sourceResultId;
@@ -73,6 +75,8 @@ public class AssetImage {
   private String deletionStatus;
 
   private Instant createdAt;
+
+  private Instant updatedAt;
 
   public Long getId() {
     return id;
@@ -192,6 +196,14 @@ public class AssetImage {
 
   public void setByteSize(Long byteSize) {
     this.byteSize = byteSize;
+  }
+
+  public String getContentHash() {
+    return contentHash;
+  }
+
+  public void setContentHash(String contentHash) {
+    this.contentHash = contentHash;
   }
 
   public Long getSourceTaskId() {
@@ -336,5 +348,13 @@ public class AssetImage {
 
   public void setCreatedAt(Instant createdAt) {
     this.createdAt = createdAt;
+  }
+
+  public Instant getUpdatedAt() {
+    return updatedAt;
+  }
+
+  public void setUpdatedAt(Instant updatedAt) {
+    this.updatedAt = updatedAt;
   }
 }

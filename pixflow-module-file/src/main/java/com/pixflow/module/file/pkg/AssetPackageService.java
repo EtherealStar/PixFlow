@@ -6,17 +6,23 @@ import com.pixflow.common.sanitize.Sanitizer;
 import com.pixflow.module.file.error.FileErrorCode;
 import java.time.Clock;
 import java.time.Instant;
+import com.pixflow.module.file.visual.AssetVisualInputOutboxWriter;
+import org.springframework.transaction.annotation.Transactional;
 
 public class AssetPackageService {
     private final AssetPackageMapper packageMapper;
 
     private final Clock clock;
 
+    private final AssetVisualInputOutboxWriter visualOutbox;
+
     public AssetPackageService(
             AssetPackageMapper packageMapper,
-            Clock clock) {
+            Clock clock,
+            AssetVisualInputOutboxWriter visualOutbox) {
         this.packageMapper = packageMapper;
         this.clock = clock;
+        this.visualOutbox = visualOutbox;
     }
 
     public AssetPackage createUploadingPackage(String name) {
@@ -72,6 +78,7 @@ public class AssetPackageService {
         packageMapper.updateById(update);
     }
 
+    @Transactional
     public void finish(long packageId, PackageStatus status, String errorSummary) {
         int updated = packageMapper.finishExtraction(packageId, status.name(),
                 errorSummary == null ? null : Sanitizer.sanitizeMessage(errorSummary), clock.instant());
@@ -79,6 +86,10 @@ public class AssetPackageService {
             require(packageId);
             throw new PixFlowException(FileErrorCode.PACKAGE_ALREADY_REFERENCED,
                     "extraction terminal state already decided");
+        }
+        if (status == PackageStatus.READY || status == PackageStatus.PARTIAL) {
+            // 终态与 outbox 同事务提交，进程崩溃后仍能恢复视觉分析触发。
+            visualOutbox.packageReady(packageId, clock.instant());
         }
     }
 

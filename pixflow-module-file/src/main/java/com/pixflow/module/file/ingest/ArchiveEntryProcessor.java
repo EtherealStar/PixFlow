@@ -1,7 +1,6 @@
 package com.pixflow.module.file.ingest;
 
 import com.pixflow.common.error.PixFlowException;
-import com.pixflow.common.progress.ProgressNotifier;
 import com.pixflow.infra.storage.ObjectLocation;
 import com.pixflow.infra.storage.ObjectStorage;
 import com.pixflow.infra.storage.StorageKeys;
@@ -16,21 +15,24 @@ import com.pixflow.module.file.copydoc.CsvCopyDocParser;
 import com.pixflow.module.file.copydoc.ExcelCopyDocParser;
 import com.pixflow.module.file.copydoc.ParsedCopyRow;
 import com.pixflow.module.file.image.AssetImage;
-import com.pixflow.module.file.image.AssetImageMapper;
 import com.pixflow.module.file.naming.FileNameParser;
 import com.pixflow.module.file.naming.ParsedName;
 import com.pixflow.module.file.pkg.AssetPackageService;
 import com.pixflow.module.file.pkg.PackageStatus;
+import com.pixflow.module.file.visual.AssetImageVisualWriter;
 import java.io.ByteArrayInputStream;
 import java.time.Clock;
 import java.io.IOException;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
 
 public final class ArchiveEntryProcessor {
     private final ObjectStorage objectStorage;
 
     private final AssetPackageService packageService;
 
-    private final AssetImageMapper imageMapper;
+    private final AssetImageVisualWriter imageWriter;
 
     private final AssetIngestErrorMapper errorMapper;
 
@@ -39,8 +41,6 @@ public final class ArchiveEntryProcessor {
     private final ImageAdmission imageAdmission;
 
     private final ArchiveSafetyPolicy safetyPolicy;
-
-    private final ProgressNotifier progressNotifier;
 
     private final Clock clock;
 
@@ -53,38 +53,22 @@ public final class ArchiveEntryProcessor {
     public ArchiveEntryProcessor(
             ObjectStorage objectStorage,
             AssetPackageService packageService,
-            AssetImageMapper imageMapper,
+            AssetImageVisualWriter imageWriter,
             AssetIngestErrorMapper errorMapper,
             FileNameParser fileNameParser,
             ImageAdmission imageAdmission,
             ArchiveSafetyPolicy safetyPolicy,
-            ProgressNotifier progressNotifier,
-            Clock clock) {
-        this(objectStorage, packageService, imageMapper, errorMapper, fileNameParser,
-                imageAdmission, safetyPolicy, progressNotifier, clock, null, null, null);
-    }
-
-    public ArchiveEntryProcessor(
-            ObjectStorage objectStorage,
-            AssetPackageService packageService,
-            AssetImageMapper imageMapper,
-            AssetIngestErrorMapper errorMapper,
-            FileNameParser fileNameParser,
-            ImageAdmission imageAdmission,
-            ArchiveSafetyPolicy safetyPolicy,
-            ProgressNotifier progressNotifier,
             Clock clock,
             AssetCopyMapper copyMapper,
             CsvCopyDocParser csvParser,
             ExcelCopyDocParser excelParser) {
         this.objectStorage = objectStorage;
         this.packageService = packageService;
-        this.imageMapper = imageMapper;
+        this.imageWriter = imageWriter;
         this.errorMapper = errorMapper;
         this.fileNameParser = fileNameParser;
         this.imageAdmission = imageAdmission;
         this.safetyPolicy = safetyPolicy;
-        this.progressNotifier = progressNotifier;
         this.clock = clock;
         this.copyMapper = copyMapper;
         this.csvParser = csvParser;
@@ -138,7 +122,6 @@ public final class ArchiveEntryProcessor {
                 storeImage(relativePath, bytes, admission.contentType());
                 extracted++;
                 packageService.updateProgress(packageId, entries, extracted);
-                publishProgress(PackageStatus.EXTRACTING);
             } catch (RuntimeException ex) {
                 failures++;
                 recordError(relativePath, IngestStage.STORAGE_UPLOAD,
@@ -152,7 +135,6 @@ public final class ArchiveEntryProcessor {
                     : failures == 0 ? PackageStatus.READY : PackageStatus.PARTIAL;
             packageService.finish(packageId, status,
                     failures == 0 ? null : "ingest failures: " + failures);
-            publishProgress(status);
             if (extracted == 0) {
                 throw new PixFlowException(FileErrorCode.NO_VALID_IMAGE, "package contains no valid image");
             }
@@ -167,8 +149,9 @@ public final class ArchiveEntryProcessor {
                 objectStorage.delete(location);
                 throw cancelled;
             }
-            ParsedName parsed = fileNameParser.parse(relativePath);
-            AssetImage image = new AssetImage();
+            try {
+                ParsedName parsed = fileNameParser.parse(relativePath);
+                AssetImage image = new AssetImage();
             image.setPackageId(packageId);
             image.setSkuId(parsed.skuId());
             image.setGroupKey(parsed.groupKey());
@@ -180,9 +163,23 @@ public final class ArchiveEntryProcessor {
             image.setStableBucket("PACKAGES");
             image.setContentType(contentType);
             image.setByteSize((long) bytes.length);
+            image.setContentHash(sha256(bytes));
             image.setCreatedAt(clock.instant());
+            image.setUpdatedAt(image.getCreatedAt());
             // 唯一约束是归档消息重放时的最后一道幂等防线。
-            imageMapper.insert(image);
+                imageWriter.insertOriginal(image);
+            } catch (RuntimeException failure) {
+                objectStorage.delete(location);
+                throw failure;
+            }
+        }
+
+        private String sha256(byte[] bytes) {
+            try {
+                return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes));
+            } catch (NoSuchAlgorithmException impossible) {
+                throw new IllegalStateException("SHA-256 is unavailable", impossible);
+            }
         }
 
         private void recordError(String path, IngestStage stage, String code, String message) {
@@ -218,10 +215,6 @@ public final class ArchiveEntryProcessor {
             }
         }
 
-        private void publishProgress(PackageStatus status) {
-            progressNotifier.publish("packages/" + packageId + "/progress",
-                    new ExtractionProgress(packageId, extracted, entries, status, null));
-        }
     }
 
     private CopyDocParser copyDocParser(String path) {

@@ -1,3 +1,4 @@
+-- Asset Library 目标基线；开发库直接按当前模型创建，不执行旧增量兼容。
 CREATE TABLE IF NOT EXISTS asset_package (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     name VARCHAR(255) NOT NULL,
@@ -31,6 +32,7 @@ CREATE TABLE IF NOT EXISTS asset_image (
     stable_bucket VARCHAR(32),
     content_type VARCHAR(128),
     byte_size BIGINT,
+    content_hash CHAR(64),
     source_task_id BIGINT,
     source_result_id BIGINT,
     source_unit_key VARCHAR(512),
@@ -49,6 +51,7 @@ CREATE TABLE IF NOT EXISTS asset_image (
     cleanup_last_error VARCHAR(1000),
     deletion_status VARCHAR(32),
     created_at TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP,
     CONSTRAINT uk_asset_image_package_path UNIQUE (package_id, original_path),
     CONSTRAINT uq_asset_image_source_result UNIQUE (source_task_id, source_result_id)
 );
@@ -57,6 +60,21 @@ CREATE INDEX idx_asset_image_publication_recovery
     ON asset_image (publication_status, publication_updated_at);
 CREATE INDEX idx_asset_image_cleanup_recovery
     ON asset_image (cleanup_status, publication_updated_at);
+
+CREATE TABLE IF NOT EXISTS asset_visual_input_outbox (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    event_id VARCHAR(64) NOT NULL,
+    event_kind VARCHAR(32) NOT NULL,
+    package_id BIGINT NOT NULL,
+    sku_id VARCHAR(128),
+    attempt_count INT NOT NULL DEFAULT 0,
+    next_attempt_at TIMESTAMP NOT NULL,
+    last_error VARCHAR(1000),
+    created_at TIMESTAMP NOT NULL,
+    CONSTRAINT uq_asset_visual_input_event UNIQUE (event_id)
+);
+CREATE INDEX idx_asset_visual_input_due
+    ON asset_visual_input_outbox (next_attempt_at, id);
 
 CREATE TABLE IF NOT EXISTS asset_reference_tombstone (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,

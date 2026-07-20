@@ -17,6 +17,12 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.security.DigestInputStream;
+import java.io.InputStream;
+import java.io.IOException;
+import java.util.HexFormat;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -112,6 +118,7 @@ public final class DefaultGeneratedImagePublisher implements GeneratedImagePubli
     image.setCleanupAttemptCount(0);
     Instant now = clock.instant();
     image.setCreatedAt(now);
+    image.setUpdatedAt(now);
     image.setPublicationUpdatedAt(now);
     imageMapper.insert(image);
     insertLineage(image.getId(), command, now);
@@ -144,12 +151,26 @@ public final class DefaultGeneratedImagePublisher implements GeneratedImagePubli
     Integer finalized =
         transactions.execute(
             status ->
-                imageMapper.finalizeReady(reservation.getId(), stable.key(), clock.instant()));
+                imageMapper.finalizeReady(
+                    reservation.getId(), stable.key(), contentHash(stable), clock.instant()));
     if (finalized == null || finalized != 1) {
       AssetImage current = imageMapper.selectById(reservation.getId());
       if (current == null || !"READY".equals(current.getPublicationStatus())) {
         throw new IllegalStateException("Generated Image READY finalize was fenced");
       }
+    }
+  }
+
+  private String contentHash(ObjectLocation location) {
+    try {
+      MessageDigest digest = MessageDigest.getInstance("SHA-256");
+      try (InputStream source = objectStorage.getStream(location);
+          DigestInputStream input = new DigestInputStream(source, digest)) {
+        input.transferTo(java.io.OutputStream.nullOutputStream());
+      }
+      return HexFormat.of().formatHex(digest.digest());
+    } catch (IOException | NoSuchAlgorithmException failure) {
+      throw new IllegalStateException("unable to hash generated image", failure);
     }
   }
 

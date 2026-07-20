@@ -25,6 +25,7 @@ import com.pixflow.module.file.image.AssetImageMapper;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.io.ByteArrayInputStream;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
@@ -51,7 +52,7 @@ class DefaultGeneratedImagePublisherTest {
               row.set(image);
               return 1;
             });
-    when(images.finalizeReady(anyLong(), any(String.class), any(Instant.class)))
+    when(images.finalizeReady(anyLong(), any(String.class), any(String.class), any(Instant.class)))
         .thenAnswer(
             invocation -> {
               row.get().setPublicationStatus("READY");
@@ -99,7 +100,9 @@ class DefaultGeneratedImagePublisherTest {
     when(storage.exists(stable)).thenReturn(false);
     when(storage.exists(candidate())).thenReturn(true);
     when(storage.stat(any())).thenReturn(new StoredObjectMetadata(8L, "image/png", "etag", NOW));
-    when(images.finalizeReady(91L, stable.key(), NOW)).thenReturn(0);
+    when(images.finalizeReady(org.mockito.ArgumentMatchers.eq(91L),
+        org.mockito.ArgumentMatchers.eq(stable.key()), any(String.class),
+        org.mockito.ArgumentMatchers.eq(NOW))).thenReturn(0);
 
     assertThatThrownBy(() -> publisher(images, lineage, storage).publish(command(candidate())))
         .isInstanceOf(IllegalStateException.class)
@@ -149,7 +152,7 @@ class DefaultGeneratedImagePublisherTest {
 
     verify(images).recordPublicationError(91L, "object metadata conflict", NOW);
     verify(storage, never()).copy(any(), any());
-    verify(images, never()).finalizeReady(anyLong(), any(), any());
+    verify(images, never()).finalizeReady(anyLong(), any(), any(), any());
   }
 
   @Test
@@ -170,7 +173,7 @@ class DefaultGeneratedImagePublisherTest {
         .hasMessageContaining("metadata");
 
     verify(images).recordPublicationError(91L, "object metadata conflict", NOW);
-    verify(images, never()).finalizeReady(anyLong(), any(), any());
+    verify(images, never()).finalizeReady(anyLong(), any(), any(), any());
   }
 
   @Test
@@ -205,6 +208,7 @@ class DefaultGeneratedImagePublisherTest {
 
   private static DefaultGeneratedImagePublisher publisher(
       AssetImageMapper images, AssetImageLineageSourceMapper lineage, ObjectStorage storage) {
+    when(storage.getStream(any())).thenReturn(new ByteArrayInputStream(new byte[] {1, 2, 3}));
     return new DefaultGeneratedImagePublisher(
         images,
         lineage,

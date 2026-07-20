@@ -5,11 +5,6 @@ import com.pixflow.infra.storage.BucketType;
 import com.pixflow.infra.storage.ObjectLocation;
 import com.pixflow.infra.storage.ObjectStorage;
 import com.pixflow.module.file.error.FileErrorCode;
-import com.pixflow.module.file.error.AssetIngestErrorMapper;
-import com.pixflow.module.file.image.AssetImageMapper;
-import com.pixflow.module.file.naming.FileNameParser;
-import com.pixflow.module.file.config.FileProperties;
-import com.pixflow.common.progress.ProgressNotifier;
 import com.pixflow.module.file.pkg.AssetPackage;
 import com.pixflow.module.file.pkg.AssetPackageService;
 import com.pixflow.module.file.pkg.PackageStatus;
@@ -17,7 +12,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
-import java.time.Clock;
 import java.util.function.LongFunction;
 
 public final class ZipExtractor implements ArchiveExtractor {
@@ -39,23 +33,6 @@ public final class ZipExtractor implements ArchiveExtractor {
             AssetPackage assetPackage = packageService.require(packageId);
             return ObjectLocation.of(BucketType.PACKAGES, assetPackage.getMinioZipKey());
         };
-    }
-
-    public ZipExtractor(
-            ObjectStorage objectStorage,
-            AssetPackageService packageService,
-            AssetImageMapper imageMapper,
-            AssetIngestErrorMapper errorMapper,
-            FileNameParser fileNameParser,
-            ImageAdmission imageAdmission,
-            FileProperties properties,
-            ProgressNotifier progressNotifier,
-            Clock clock) {
-        this.objectStorage = objectStorage;
-        this.packageService = packageService;
-        this.processor = new ArchiveEntryProcessor(objectStorage, packageService, imageMapper, errorMapper,
-                fileNameParser, imageAdmission, new ArchiveSafetyPolicy(properties), progressNotifier, clock);
-        this.sourceLocation = packageId -> com.pixflow.infra.storage.StorageKeys.packageSource(packageId, "zip");
     }
 
     @Override

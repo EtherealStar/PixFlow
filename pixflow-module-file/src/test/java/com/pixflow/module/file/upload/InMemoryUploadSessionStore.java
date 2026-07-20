@@ -1,5 +1,7 @@
 package com.pixflow.module.file.upload;
 
+import com.pixflow.module.file.api.activity.UploadActivitySnapshot;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
@@ -18,6 +20,15 @@ final class InMemoryUploadSessionStore implements UploadSessionStore {
     public Optional<UploadSnapshot> findByUploadId(String uploadId) {
         return Optional.ofNullable(sessions.get(uploadId))
                 .map(session -> new UploadSnapshot(session, chunks.getOrDefault(uploadId, Map.of())));
+    }
+
+    @Override
+    public List<UploadActivitySnapshot> listActivitySnapshots() {
+        return sessions.keySet().stream()
+                .sorted()
+                .map(this::findActivity)
+                .flatMap(Optional::stream)
+                .toList();
     }
 
     @Override

@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.spy;
 
 import com.baomidou.mybatisplus.autoconfigure.MybatisPlusAutoConfiguration;
@@ -68,7 +69,7 @@ import org.testcontainers.utility.DockerImageName;
     classes = GeneratedImagePublicationIntegrationTest.TestApp.class,
     properties = {
       "spring.sql.init.mode=always",
-      "spring.sql.init.schema-locations=classpath:schema.sql"
+      "spring.sql.init.schema-locations=classpath:db/file/V1__create_asset_library.sql"
     })
 class GeneratedImagePublicationIntegrationTest {
   private static final String ACCESS_KEY = "minioadmin";
@@ -208,7 +209,7 @@ class GeneratedImagePublicationIntegrationTest {
     var command = command(9L, 10L, List.of(new SourceImageRef("31")));
     putCandidate(command);
     AssetImageMapper failingMapper = spy(images);
-    doReturn(0).when(failingMapper).finalizeReady(anyLong(), any(), any());
+    doReturn(0).when(failingMapper).finalizeReady(anyLong(), any(), any(), any());
 
     assertThatThrownBy(() -> publisher(failingMapper, storage).publish(command))
         .hasMessageContaining("fenced");
@@ -313,7 +314,8 @@ class GeneratedImagePublicationIntegrationTest {
   private DefaultAssetDeletionService deletionService() {
     return new DefaultAssetDeletionService(
         packages, images, copies, errors, tombstones, cleanupIntents, storage,
-        new TransactionTemplate(transactionManager), CLOCK);
+        new TransactionTemplate(transactionManager), CLOCK,
+        mock(com.pixflow.module.file.visual.AssetVisualInputOutboxWriter.class));
   }
 
   private static AssetImage generatedImage(long packageId, String key) {

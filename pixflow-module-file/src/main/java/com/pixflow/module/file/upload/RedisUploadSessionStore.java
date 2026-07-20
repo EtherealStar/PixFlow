@@ -11,6 +11,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.List;
+import com.pixflow.module.file.api.activity.UploadActivitySnapshot;
 
 public final class RedisUploadSessionStore implements UploadSessionStore {
     private final ExpiringStateStore stateStore;
@@ -60,6 +61,15 @@ public final class RedisUploadSessionStore implements UploadSessionStore {
         hashStore.entries(chunksKey(uploadId), ChunkMetadata.class)
                 .forEach((index, metadata) -> chunks.put(Integer.parseInt(index), metadata));
         return Optional.of(new UploadSnapshot(session, chunks));
+    }
+
+    @Override
+    public List<UploadActivitySnapshot> listActivitySnapshots() {
+        return hashStore.entries(indexKey(), String.class).keySet().stream()
+                .sorted()
+                .map(this::findActivity)
+                .flatMap(Optional::stream)
+                .toList();
     }
 
     @Override

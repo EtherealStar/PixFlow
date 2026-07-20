@@ -63,12 +63,13 @@ public interface AssetImageMapper extends BaseMapper<AssetImage> {
 
     @Update("""
             update asset_image
-            set publication_status = 'READY', minio_key = #{stableKey},
+            set publication_status = 'READY', minio_key = #{stableKey}, content_hash = #{contentHash},
                 publication_error = null, publication_updated_at = #{now},
-                ready_at = #{now}, cleanup_status = 'CLEANUP_PENDING'
+                ready_at = #{now}, cleanup_status = 'CLEANUP_PENDING', updated_at = #{now}
             where id = #{imageId} and publication_status = 'PUBLISHING'
             """)
     int finalizeReady(@Param("imageId") long imageId, @Param("stableKey") String stableKey,
+                      @Param("contentHash") String contentHash,
                       @Param("now") Instant now);
 
     @Update("""
