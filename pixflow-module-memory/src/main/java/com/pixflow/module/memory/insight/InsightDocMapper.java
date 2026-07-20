@@ -3,6 +3,7 @@ package com.pixflow.module.memory.insight;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.pixflow.module.memory.recall.InsightFilter;
 import java.util.List;
+import java.time.Instant;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
@@ -14,7 +15,7 @@ public interface InsightDocMapper extends BaseMapper<AnalysisInsight> {
             SELECT *
             FROM analysis_insight
             WHERE status = 'ACTIVE'
-              AND (expires_at IS NULL OR expires_at > NOW())
+              AND (expires_at IS NULL OR expires_at > #{asOf})
               AND MATCH(text) AGAINST(#{query} IN NATURAL LANGUAGE MODE)
               <if test="filter.categories != null and filter.categories.size > 0">
               AND category IN
@@ -31,12 +32,13 @@ public interface InsightDocMapper extends BaseMapper<AnalysisInsight> {
               <if test="filter.minConfidence > 0">
               AND confidence &gt;= #{filter.minConfidence}
               </if>
-            ORDER BY MATCH(text) AGAINST(#{query} IN NATURAL LANGUAGE MODE) DESC, updated_at DESC
+            ORDER BY MATCH(text) AGAINST(#{query} IN NATURAL LANGUAGE MODE) DESC, updated_at DESC, id ASC
             LIMIT #{limit}
             </script>
             """)
     List<AnalysisInsight> fulltextSearch(
             @Param("query") String query,
             @Param("filter") InsightFilter filter,
-            @Param("limit") int limit);
+            @Param("limit") int limit,
+            @Param("asOf") Instant asOf);
 }

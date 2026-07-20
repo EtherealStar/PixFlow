@@ -17,8 +17,14 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.time.Clock;
+import java.time.Instant;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class MemoryContextBuilder {
+    private static final Logger LOGGER = LoggerFactory.getLogger(MemoryContextBuilder.class);
+
     public static final String USER_PREFERENCES = "user_preferences";
 
     public static final String SKU_HISTORY = "sku_history";
@@ -37,19 +43,23 @@ public class MemoryContextBuilder {
 
     private final InsightRecallService insightRecallService;
 
+    private final Clock clock;
+
     public MemoryContextBuilder(
             RecallSignalExtractor signalExtractor,
             RecallPlanner planner,
             RecallReferenceResolver referenceResolver,
             PreferenceService preferenceService,
             SkuHistoryService skuHistoryService,
-            InsightRecallService insightRecallService) {
+            InsightRecallService insightRecallService,
+            Clock clock) {
         this.signalExtractor = Objects.requireNonNull(signalExtractor, "signalExtractor");
         this.planner = Objects.requireNonNull(planner, "planner");
         this.referenceResolver = Objects.requireNonNull(referenceResolver, "referenceResolver");
         this.preferenceService = Objects.requireNonNull(preferenceService, "preferenceService");
         this.skuHistoryService = Objects.requireNonNull(skuHistoryService, "skuHistoryService");
         this.insightRecallService = Objects.requireNonNull(insightRecallService, "insightRecallService");
+        this.clock = Objects.requireNonNull(clock, "clock");
     }
 
     public MemoryContext build(MemoryContextRequest request) {
@@ -59,17 +69,22 @@ public class MemoryContextBuilder {
                 merge(extractedSignals.categories(), resolvedReferences.categoryHints()),
                 extractedSignals.intents(), extractedSignals.metricTerms());
         RecallPlan plan = planner.plan(request, signals);
+        Instant asOf = clock.instant();
         List<MemorySection> sections = new ArrayList<>();
-        boolean degraded = !resolvedReferences.trace().isEmpty()
-                && resolvedReferences.trace().stream().anyMatch(item -> "unresolved".equals(item.get("status")));
+        boolean degraded = resolvedReferences.trace().stream()
+                .anyMatch(item -> !"resolved".equals(item.get("status")));
 
         List<MemoryItem> preferences = List.of();
         Map<String, Object> preferenceTrace = new LinkedHashMap<>();
         try {
-            preferences = plan.recallPreference() ? preferenceService.recallPreferences(plan.preferenceMaxItems()) : List.of();
+            preferences = plan.recallPreference()
+                    ? preferenceService.recallPreferences(plan.preferenceMaxItems())
+                    : List.of();
             preferenceTrace.put("dependency_status", "available");
-        } catch (RuntimeException ignored) {
+        } catch (RuntimeException failure) {
+            LOGGER.warn("Memory preference recall degraded: type={}", failure.getClass().getSimpleName());
             preferenceTrace.put("dependency_status", "unavailable");
+            preferenceTrace.put("degraded_reasons", List.of("preference_unavailable"));
             degraded = true;
         }
         sections.add(section(USER_PREFERENCES, preferences, "偏好", preferenceTrace));
@@ -81,8 +96,10 @@ public class MemoryContextBuilder {
             skuHistory = plan.recallSkuHistory()
                     ? skuHistoryService.recallBySkuIds(plan.skuIds(), plan.skuHistoryMaxItemsPerSku()) : List.of();
             skuTrace.put("dependency_status", "available");
-        } catch (RuntimeException ignored) {
+        } catch (RuntimeException failure) {
+            LOGGER.warn("Memory SKU history recall degraded: type={}", failure.getClass().getSimpleName());
             skuTrace.put("dependency_status", "unavailable");
+            skuTrace.put("degraded_reasons", List.of("sku_history_unavailable"));
             degraded = true;
         }
         sections.add(section(SKU_HISTORY, skuHistory, "SKU历史", skuTrace));
@@ -90,10 +107,17 @@ public class MemoryContextBuilder {
         InsightRecallResult insightResult;
         try {
             insightResult = plan.recallInsight()
-                    ? insightRecallService.recall(plan.insightQuery(), plan.insightFilter(), plan.insightTopN())
+                    ? insightRecallService.recall(
+                            plan.insightQuery(), plan.insightFilter(), plan.insightTopN(), asOf)
                     : InsightRecallResult.empty();
-        } catch (RuntimeException ignored) {
-            insightResult = InsightRecallResult.empty();
+        } catch (RuntimeException failure) {
+            LOGGER.warn("Memory insight recall degraded: type={}", failure.getClass().getSimpleName());
+            insightResult = new InsightRecallResult(
+                    List.of(),
+                    true,
+                    Map.of(
+                            "dependency_status", "unavailable",
+                            "degraded_reasons", List.of("insight_unavailable")));
             degraded = true;
         }
         degraded = degraded || insightResult.degraded();
@@ -111,6 +135,7 @@ public class MemoryContextBuilder {
         trace.put("degraded", degraded);
         List<MemorySection> budgeted = applyBudget(sections, request.tokenBudget());
         trace.put("token_budget", request.tokenBudget());
+        trace.put("as_of", asOf.toString());
         trace.put("used_tokens", budgeted.stream().mapToInt(MemorySection::tokenEstimate).sum());
         return new MemoryContext(request.conversationId(), request.turnNo(), budgeted, trace, degraded);
     }

@@ -1,6 +1,5 @@
 package com.pixflow.module.memory.skuhistory;
 
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.pixflow.module.memory.recall.MemoryItem;
 import com.pixflow.module.memory.recall.MemoryType;
 import java.util.List;
@@ -19,11 +18,8 @@ public class MybatisSkuHistoryService implements SkuHistoryService {
         if (skuIds == null || skuIds.isEmpty()) {
             return List.of();
         }
-        int limit = Math.max(1, maxItemsPerSku) * skuIds.size();
-        return mapper.selectList(new LambdaQueryWrapper<SkuHistory>()
-                        .in(SkuHistory::getSkuId, skuIds)
-                        .orderByDesc(SkuHistory::getCreatedAt)
-                        .last("LIMIT " + limit))
+        // 上限按 SKU 分区计算，避免某个高频 SKU 挤占其他 SKU 的召回配额。
+        return mapper.selectRecentPerSku(skuIds, Math.max(1, maxItemsPerSku))
                 .stream()
                 .map(history -> new MemoryItem(
                         "sku_history:" + history.getId(),

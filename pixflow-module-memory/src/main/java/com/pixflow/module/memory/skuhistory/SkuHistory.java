@@ -3,7 +3,6 @@ package com.pixflow.module.memory.skuhistory;
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
-import java.math.BigDecimal;
 import java.time.Instant;
 
 @TableName("sku_history")
@@ -20,8 +19,6 @@ public class SkuHistory {
     private String metricsBefore;
 
     private String metricsAfter;
-
-    private BigDecimal rubricsScore;
 
     private Instant createdAt;
 
@@ -71,14 +68,6 @@ public class SkuHistory {
 
     public void setMetricsAfter(String metricsAfter) {
         this.metricsAfter = metricsAfter;
-    }
-
-    public BigDecimal getRubricsScore() {
-        return rubricsScore;
-    }
-
-    public void setRubricsScore(BigDecimal rubricsScore) {
-        this.rubricsScore = rubricsScore;
     }
 
     public Instant getCreatedAt() {

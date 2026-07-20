@@ -3,6 +3,7 @@ package com.pixflow.harness.loop.trace;
 import com.pixflow.harness.eval.api.TurnTrace;
 import com.pixflow.harness.eval.model.TraceError;
 import com.pixflow.harness.eval.model.TracePruneEntry;
+import com.pixflow.harness.eval.model.TraceRecall;
 import com.pixflow.harness.eval.model.TraceToolCall;
 import com.pixflow.harness.hooks.HookEvent;
 import com.pixflow.harness.hooks.HookResult;
@@ -26,6 +27,8 @@ public final class TraceFanout {
 
     private final TurnTrace turnTrace;
 
+    private boolean recallRecorded;
+
     public TraceFanout(TurnTrace turnTrace) {
         this.turnTrace = Objects.requireNonNull(turnTrace, "turnTrace");
     }
@@ -41,6 +44,22 @@ public final class TraceFanout {
         for (TracePruneEntry entry : entries) {
             turnTrace.recordPrune(entry);
         }
+    }
+
+    /** 把 Agent 预先脱敏和限界的 Memory 召回快照按回合转投一次。 */
+    public void fanoutRecall(Map<String, Object> snapshot) {
+        if (recallRecorded || snapshot == null || snapshot.isEmpty()) {
+            return;
+        }
+        recallRecorded = true;
+        Map<String, Object> metadata = MetadataValues.immutableCopy(snapshot);
+        turnTrace.recordRecall(new TraceRecall(
+                Instant.now(),
+                "memory",
+                "context",
+                0.0d,
+                "",
+                metadata));
     }
 
     /**

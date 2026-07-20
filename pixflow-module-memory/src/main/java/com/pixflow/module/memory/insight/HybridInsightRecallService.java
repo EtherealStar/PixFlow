@@ -8,6 +8,7 @@ import com.pixflow.module.memory.recall.MemoryItem;
 import com.pixflow.module.memory.recall.MemoryRanker;
 import com.pixflow.module.memory.recall.RrfFuser;
 import java.util.ArrayList;
+import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -46,7 +47,7 @@ public class HybridInsightRecallService implements InsightRecallService {
     }
 
     @Override
-    public InsightRecallResult recall(String query, InsightFilter filter, int topN) {
+    public InsightRecallResult recall(String query, InsightFilter filter, int topN, Instant asOf) {
         if (query == null || query.isBlank()) {
             return InsightRecallResult.empty();
         }
@@ -78,13 +79,14 @@ public class HybridInsightRecallService implements InsightRecallService {
         }
 
         try {
-            keywordItems = keywordSearch.search(query, filter, recall.getTopnEach());
+            keywordItems = keywordSearch.search(query, filter, recall.getTopnEach(), asOf);
         } catch (RuntimeException ex) {
             degradedReasons.add("keyword_failed:" + ex.getClass().getSimpleName());
         }
 
         List<MemoryItem> fused = rrfFuser.fuse(List.of(vectorItems, keywordItems), recall.getRrfK());
-        List<MemoryItem> ranked = ranker.rank(fused, Math.min(Math.max(1, topN), recall.getTopn()));
+        List<MemoryItem> ranked = ranker.rank(
+                fused, Math.min(Math.max(1, topN), recall.getTopn()), asOf);
         trace.put("query", query);
         trace.put("vector_candidates", vectorItems.size());
         trace.put("keyword_candidates", keywordItems.size());

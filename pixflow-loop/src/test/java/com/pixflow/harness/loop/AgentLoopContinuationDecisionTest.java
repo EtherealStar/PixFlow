@@ -34,8 +34,9 @@ class AgentLoopContinuationDecisionTest {
         RecordingAgentEventSink sink = new RecordingAgentEventSink();
         FakeChatModelClient client = new FakeChatModelClient()
                 .enqueueText("hello back");
+        RuntimeState state = stateWithRecall();
 
-        AgentLoop loop = newHarness(new RuntimeState(), client, new FakeToolExecutor(),
+        AgentLoop loop = newHarness(state, client, new FakeToolExecutor(),
                 new FakeHookRegistry(), new InMemoryTraceRecorder(), new RecordingErrorRecorder());
         String result = loop.stream("hi", List.of(), sink, "system-prompt", List.of(), CancellationToken.NONE);
 
@@ -46,6 +47,7 @@ class AgentLoopContinuationDecisionTest {
         assertThat(rec.traces()).hasSize(1);
         assertThat(rec.traces().get(0).committed()).isTrue();
         assertThat(rec.traces().get(0).aborted()).isFalse();
+        assertThat(rec.traces().get(0).recalls()).hasSize(1);
         RecordingErrorRecorder errs = (RecordingErrorRecorder) field(loop, "errorRecorder");
         assertThat(errs.count()).isZero();
     }
@@ -214,5 +216,17 @@ class AgentLoopContinuationDecisionTest {
         } catch (Exception ex) {
             throw new RuntimeException(ex);
         }
+    }
+
+    private static RuntimeState stateWithRecall() {
+        RuntimeState state = new RuntimeState();
+        state.putMetadata("memoryRecall", java.util.Map.of(
+                "degraded", false,
+                "sections", List.of(java.util.Map.of(
+                        "name", "preferences",
+                        "candidate_count", 1,
+                        "selected_count", 1,
+                        "degraded_reasons", List.of()))));
+        return state;
     }
 }

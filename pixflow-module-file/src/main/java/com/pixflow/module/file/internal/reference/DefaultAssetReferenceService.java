@@ -30,6 +30,8 @@ import java.util.Map;
 /** File 是唯一读取资产当前事实并执行 reference expansion 的边界。 */
 public final class DefaultAssetReferenceService
         implements AssetReferenceResolver, AssetReferenceInspector, AssetReferenceExpander {
+    private static final int INSPECTION_MAX_IMAGES = 1000;
+
     private final CanonicalAssetReferenceCodec codec;
 
     private final AssetPackageService packageService;
@@ -68,7 +70,7 @@ public final class DefaultAssetReferenceService
         }
         if (key instanceof SkuAssetReferenceKey skuKey) {
             AssetPackage assetPackage = requireUsablePackage(key.packageId(), use);
-            List<AssetImage> images = selectImages(key.packageId(), skuKey.skuId());
+            List<AssetImage> images = selectImages(key.packageId(), skuKey.skuId(), 1);
             requireProcessable(images, use, referenceKey);
             return new ResolvedAssetReference(
                     codec.serialize(skuKey), AssetReferenceKind.SKU, null,
@@ -98,28 +100,39 @@ public final class DefaultAssetReferenceService
     public AssetInspection inspect(String referenceKey) {
         ResolvedAssetReference reference = resolve(referenceKey, AssetUse.INSPECT);
         List<ResolvedAssetReference> children = switch (reference.kind()) {
-            case PACKAGE, SKU -> expand(List.of(referenceKey), AssetUse.INSPECT).images();
+            case PACKAGE, SKU -> expand(
+                    List.of(referenceKey), AssetUse.INSPECT, INSPECTION_MAX_IMAGES).images();
             case IMAGE -> List.of(reference);
         };
         return new AssetInspection(reference, children);
     }
 
     @Override
-    public ExpandedAssetSet expand(List<String> referenceKeys, AssetUse use) {
+    public ExpandedAssetSet expand(List<String> referenceKeys, AssetUse use, int maxImages) {
+        if (maxImages <= 0) {
+            throw new IllegalArgumentException("maxImages must be positive");
+        }
         if (referenceKeys == null || referenceKeys.isEmpty()) {
             return new ExpandedAssetSet(List.of());
         }
         Map<String, ResolvedAssetReference> unique = new LinkedHashMap<>();
         for (String referenceKey : referenceKeys) {
+            if (unique.size() == maxImages) {
+                break;
+            }
             ResolvedAssetReference reference = resolve(referenceKey, use);
             if (reference.kind() == AssetReferenceKind.IMAGE) {
                 unique.putIfAbsent(reference.referenceKey(), reference);
                 continue;
             }
+            int remaining = maxImages - unique.size();
             List<AssetImage> images = reference.kind() == AssetReferenceKind.SKU
-                    ? selectImages(reference.packageId(), reference.skuId())
-                    : selectImages(reference.packageId(), null);
+                    ? selectImages(reference.packageId(), reference.skuId(), remaining)
+                    : selectImages(reference.packageId(), null, remaining);
             for (AssetImage image : images) {
+                if (unique.size() == maxImages) {
+                    break;
+                }
                 if (image.getDeletionStatus() == null
                         && "READY".equals(image.getPublicationStatus())
                         && image.getMinioKey() != null
@@ -160,12 +173,19 @@ public final class DefaultAssetReferenceService
         return assetPackage;
     }
 
-    private List<AssetImage> selectImages(long packageId, String skuId) {
+    private List<AssetImage> selectImages(long packageId, String skuId, int limit) {
+        if (limit <= 0) {
+            return List.of();
+        }
         LambdaQueryWrapper<AssetImage> query = new LambdaQueryWrapper<AssetImage>()
                 .eq(AssetImage::getPackageId, packageId)
                 .eq(AssetImage::getPublicationStatus, "READY")
                 .isNull(AssetImage::getDeletionStatus)
-                .orderByAsc(AssetImage::getId);
+                // 在 owner 查询层排除不可处理图片，避免无效行提前耗尽 LIMIT。
+                .isNotNull(AssetImage::getMinioKey)
+                .apply("TRIM(minio_key) <> ''")
+                .orderByAsc(AssetImage::getId)
+                .last("LIMIT " + limit);
         if (skuId != null) {
             query.eq(AssetImage::getSkuId, skuId);
         }

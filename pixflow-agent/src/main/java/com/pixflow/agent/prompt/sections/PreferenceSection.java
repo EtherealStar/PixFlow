@@ -41,10 +41,7 @@ public final class PreferenceSection implements SectionRenderer {
         if (section == null || section.renderedText().isBlank()) {
             return new PromptSection(key(), title(), "", "empty", true);
         }
-        String fingerprint = sha256(section.name()
-                + ":" + section.tokenEstimate()
-                + ":" + section.renderedText()
-                + ":" + section.trace());
+        String fingerprint = sha256(section.name() + ":" + section.renderedText());
         return new PromptSection(key(), title(), section.renderedText().strip(), fingerprint, true);
     }
 

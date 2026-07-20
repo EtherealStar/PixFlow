@@ -69,7 +69,15 @@ class AgentLoopErrorRecoveryTest {
         };
         InMemoryTraceRecorder rec = new InMemoryTraceRecorder();
         RecordingErrorRecorder errs = new RecordingErrorRecorder();
-        AgentLoop loop = newHarness(new RuntimeState(), client, new FakeToolExecutor(),
+        RuntimeState state = new RuntimeState();
+        state.putMetadata("memoryRecall", java.util.Map.of(
+                "degraded", true,
+                "sections", List.of(java.util.Map.of(
+                        "name", "analysis_insights",
+                        "candidate_count", 0,
+                        "selected_count", 0,
+                        "degraded_reasons", List.of("vector_unavailable")))));
+        AgentLoop loop = newHarness(state, client, new FakeToolExecutor(),
                 new FakeHookRegistry(), rec, errs, new com.pixflow.harness.context.store.MessageStore());
 
         assertThatThrownBy(() -> loop.stream("q", List.of(), sink, "sys", List.of(), CancellationToken.NONE))
@@ -80,6 +88,7 @@ class AgentLoopErrorRecoveryTest {
         InMemoryTraceRecorder.InMemoryTurnTrace trace = rec.traces().get(0);
         assertThat(trace.aborted()).isTrue();
         assertThat(trace.committed()).isFalse();
+        assertThat(trace.recalls()).hasSize(1);
         // 不 emit error 事件
         boolean hasErrorEvent = sink.events().stream()
                 .anyMatch(e -> e.type().name().equals("ERROR"));

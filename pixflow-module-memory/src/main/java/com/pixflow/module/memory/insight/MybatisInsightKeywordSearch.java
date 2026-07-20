@@ -5,6 +5,7 @@ import com.pixflow.module.memory.recall.MemoryItem;
 import com.pixflow.module.memory.recall.MemoryType;
 import java.util.List;
 import java.util.Map;
+import java.time.Instant;
 import java.util.Objects;
 
 public class MybatisInsightKeywordSearch implements InsightKeywordSearch {
@@ -15,14 +16,15 @@ public class MybatisInsightKeywordSearch implements InsightKeywordSearch {
     }
 
     @Override
-    public List<MemoryItem> search(String query, InsightFilter filter, int topK) {
+    public List<MemoryItem> search(String query, InsightFilter filter, int topK, Instant asOf) {
         if (query == null || query.isBlank()) {
             return List.of();
         }
         return mapper.fulltextSearch(
                         query.trim(),
                         filter == null ? InsightFilter.empty() : filter,
-                        Math.max(1, topK))
+                        Math.max(1, topK),
+                        asOf == null ? Instant.EPOCH : asOf)
                 .stream()
                 .map(MybatisInsightKeywordSearch::toItem)
                 .toList();

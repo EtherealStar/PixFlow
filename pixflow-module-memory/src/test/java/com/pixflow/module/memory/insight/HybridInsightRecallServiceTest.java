@@ -27,9 +27,10 @@ class HybridInsightRecallServiceTest {
         HybridInsightRecallService service = service(
                 texts -> new EmbeddingResult(List.of(new EmbeddingVector(0, new float[] {1.0f, 0.0f})), new TokenUsage(0, 0, 0)),
                 new StubVectorRepo(List.of(item("vector-only", "向量命中：连衣裙主图点击率更高"))),
-                (query, filter, topK) -> List.of(item("keyword-only", "关键词命中：白底图适合连衣裙")));
+                (query, filter, topK, asOf) -> List.of(item("keyword-only", "关键词命中：白底图适合连衣裙")));
 
-        InsightRecallResult result = service.recall("连衣裙 主图 点击率", InsightFilter.empty(), 10);
+        InsightRecallResult result = service.recall(
+                "连衣裙 主图 点击率", InsightFilter.empty(), 10, Instant.parse("2026-06-28T00:00:00Z"));
 
         assertThat(result.degraded()).isFalse();
         assertThat(result.items()).extracting(MemoryItem::id).containsExactly("keyword-only", "vector-only");
@@ -43,9 +44,10 @@ class HybridInsightRecallServiceTest {
                     throw new IllegalStateException("embedding down");
                 },
                 new StubVectorRepo(List.of()),
-                (query, filter, topK) -> List.of(item("keyword", "关键词仍可召回")));
+                (query, filter, topK, asOf) -> List.of(item("keyword", "关键词仍可召回")));
 
-        InsightRecallResult result = service.recall("连衣裙 点击率", InsightFilter.empty(), 10);
+        InsightRecallResult result = service.recall(
+                "连衣裙 点击率", InsightFilter.empty(), 10, Instant.parse("2026-06-28T00:00:00Z"));
 
         assertThat(result.degraded()).isTrue();
         assertThat(result.items()).extracting(MemoryItem::id).containsExactly("keyword");
@@ -57,11 +59,12 @@ class HybridInsightRecallServiceTest {
         HybridInsightRecallService service = service(
                 texts -> new EmbeddingResult(List.of(new EmbeddingVector(0, new float[] {1.0f})), new TokenUsage(0, 0, 0)),
                 new StubVectorRepo(List.of(item("vector", "向量仍可召回"))),
-                (query, filter, topK) -> {
+                (query, filter, topK, asOf) -> {
                     throw new IllegalStateException("mysql down");
                 });
 
-        InsightRecallResult result = service.recall("连衣裙 点击率", InsightFilter.empty(), 10);
+        InsightRecallResult result = service.recall(
+                "连衣裙 点击率", InsightFilter.empty(), 10, Instant.parse("2026-06-28T00:00:00Z"));
 
         assertThat(result.degraded()).isTrue();
         assertThat(result.items()).extracting(MemoryItem::id).containsExactly("vector");
@@ -79,12 +82,13 @@ class HybridInsightRecallServiceTest {
                 },
                 new StubVectorRepo(List.of()),
                 new VectorRecallReadiness(VectorRecallReadiness.Status.NOT_CONFIGURED, "vector_not_configured"),
-                (query, filter, topK) -> List.of(item("keyword", "只使用 FULLTEXT")),
+                (query, filter, topK, asOf) -> List.of(item("keyword", "只使用 FULLTEXT")),
                 new RrfFuser(),
                 ranker(properties),
                 properties);
 
-        InsightRecallResult result = service.recall("连衣裙 点击率", InsightFilter.empty(), 10);
+        InsightRecallResult result = service.recall(
+                "连衣裙 点击率", InsightFilter.empty(), 10, Instant.parse("2026-06-28T00:00:00Z"));
 
         assertThat(embedded).isFalse();
         assertThat(result.items()).extracting(MemoryItem::id).containsExactly("keyword");
@@ -98,12 +102,13 @@ class HybridInsightRecallServiceTest {
                 null,
                 new StubVectorRepo(List.of()),
                 new VectorRecallReadiness(VectorRecallReadiness.Status.READY, ""),
-                (query, filter, topK) -> List.of(),
+                (query, filter, topK, asOf) -> List.of(),
                 new RrfFuser(),
                 ranker(properties),
                 properties);
 
-        InsightRecallResult result = service.recall("连衣裙 点击率", InsightFilter.empty(), 10);
+        InsightRecallResult result = service.recall(
+                "连衣裙 点击率", InsightFilter.empty(), 10, Instant.parse("2026-06-28T00:00:00Z"));
 
         assertThat(result.trace().get("degraded_reasons")).isEqualTo(List.of("vector_not_configured"));
     }
@@ -115,11 +120,12 @@ class HybridInsightRecallServiceTest {
                     throw new IllegalStateException("embedding down");
                 },
                 new StubVectorRepo(List.of()),
-                (query, filter, topK) -> {
+                (query, filter, topK, asOf) -> {
                     throw new IllegalStateException("mysql down");
                 });
 
-        InsightRecallResult result = service.recall("连衣裙 点击率", InsightFilter.empty(), 10);
+        InsightRecallResult result = service.recall(
+                "连衣裙 点击率", InsightFilter.empty(), 10, Instant.parse("2026-06-28T00:00:00Z"));
 
         assertThat(result.items()).isEmpty();
         assertThat(result.degraded()).isTrue();
@@ -147,9 +153,7 @@ class HybridInsightRecallServiceTest {
     }
 
     private static MemoryRanker ranker(MemoryProperties properties) {
-        return new MemoryRanker(
-                properties,
-                Clock.fixed(Instant.parse("2026-06-28T00:00:00Z"), ZoneOffset.UTC));
+        return new MemoryRanker(properties);
     }
 
     private static MemoryItem item(String id, String text) {

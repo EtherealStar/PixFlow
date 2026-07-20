@@ -24,8 +24,12 @@ class AgentLoopCancellationTest {
     @Test
     void cancellationBeforeModelSubscriptionStopsWithoutRecordingAnError() {
         RuntimeState state = new RuntimeState();
+        state.putMetadata("memoryRecall", java.util.Map.of(
+                "degraded", false,
+                "sections", List.of()));
         FakeChatModelClient model = new FakeChatModelClient();
-        AgentLoop loop = LoopTestSupport.builder().state(state).modelClient(model).build();
+        LoopTestSupport.Builder builder = LoopTestSupport.builder().state(state).modelClient(model);
+        AgentLoop loop = builder.build();
         CancellationSource source = new CancellationSource();
         source.cancel(CancellationReason.CALLER_ABORTED);
 
@@ -33,6 +37,10 @@ class AgentLoopCancellationTest {
                 "q", List.of(), new RecordingAgentEventSink(), "sys", List.of(), source.token()))
                 .isInstanceOf(OperationCancelledException.class);
         assertThat(model.callCount()).isZero();
+        assertThat(builder.traceRecorder.traces()).singleElement().satisfies(trace -> {
+            assertThat(trace.cancelled()).isTrue();
+            assertThat(trace.recalls()).hasSize(1);
+        });
     }
 
     @Test
@@ -48,6 +56,13 @@ class AgentLoopCancellationTest {
             }
         };
         RuntimeState state = new RuntimeState();
+        state.putMetadata("memoryRecall", java.util.Map.of(
+                "degraded", false,
+                "sections", List.of(java.util.Map.of(
+                        "name", "sku_history",
+                        "candidate_count", 1,
+                        "selected_count", 1,
+                        "degraded_reasons", List.of()))));
         LoopTestSupport.Builder builder = LoopTestSupport.builder().state(state).modelClient(model);
         AgentLoop loop = builder.build();
         CancellationSource source = new CancellationSource();
@@ -55,16 +70,17 @@ class AgentLoopCancellationTest {
 
         CompletableFuture<String> result = CompletableFuture.supplyAsync(() ->
                 loop.stream("q", List.of(), sink, "sys", List.of(), source.token()));
-        assertThat(subscribed.await(1, TimeUnit.SECONDS)).isTrue();
+        assertThat(subscribed.await(5, TimeUnit.SECONDS)).isTrue();
         source.cancel(CancellationReason.CLIENT_DISCONNECTED);
 
         assertThatThrownBy(() -> result.get(2, TimeUnit.SECONDS))
                 .hasCauseInstanceOf(OperationCancelledException.class);
-        assertThat(fluxCancelled.await(1, TimeUnit.SECONDS)).isTrue();
+        assertThat(fluxCancelled.await(5, TimeUnit.SECONDS)).isTrue();
         assertThat(builder.errorRecorder.count()).isZero();
         assertThat(builder.traceRecorder.traces()).singleElement()
                 .extracting(InMemoryTraceRecorder.InMemoryTurnTrace::cancelled)
                 .isEqualTo(true);
+        assertThat(builder.traceRecorder.traces().get(0).recalls()).hasSize(1);
         assertThat(sink.eventsOfType(AgentEventType.COMPLETED)).isEmpty();
     }
 

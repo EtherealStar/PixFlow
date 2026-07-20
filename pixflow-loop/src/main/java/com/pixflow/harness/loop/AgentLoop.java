@@ -194,6 +194,11 @@ public final class AgentLoop {
         Objects.requireNonNull(prompt, "prompt");
         Objects.requireNonNull(sink, "sink");
         Objects.requireNonNull(cancellation, "cancellation");
+        if (cancellation.isCancellationRequested()) {
+            state.setTraceId(UUID.randomUUID().toString());
+            state.setTurnNo(state.turnNo() + 1);
+            recordCancelledBeforeStart();
+        }
         cancellation.throwIfCancellationRequested();
         state.setTraceId(UUID.randomUUID().toString());
         state.setTurnNo(state.turnNo() + 1);
@@ -220,6 +225,13 @@ public final class AgentLoop {
                                  CancellationToken cancellation) {
         Objects.requireNonNull(sink, "sink");
         Objects.requireNonNull(cancellation, "cancellation");
+        if (cancellation.isCancellationRequested()) {
+            if (state.traceId() == null || state.traceId().isBlank()) {
+                state.setTraceId(UUID.randomUUID().toString());
+            }
+            state.setTurnNo(state.turnNo() + 1);
+            recordCancelledBeforeStart();
+        }
         cancellation.throwIfCancellationRequested();
         if (state.traceId() == null || state.traceId().isBlank()) {
             state.setTraceId(UUID.randomUUID().toString());
@@ -241,6 +253,7 @@ public final class AgentLoop {
                 state.traceId(),
                 RuntimeScopeTranslator.toEval(state.runtimeScope()))) {
             TraceFanout traceFanout = new TraceFanout(turnTrace);
+            traceFanout.fanoutRecall(state.metadataOrDefault("memoryRecall", Map.of()));
             String finalText = "";
             try {
                 while (true) {
@@ -385,6 +398,23 @@ public final class AgentLoop {
             }
         } catch (RuntimeException re) {
             throw re;
+        }
+    }
+
+    private void recordCancelledBeforeStart() {
+        if (state.conversationId() == null || state.conversationId().isBlank()) {
+            return;
+        }
+        try (TurnTrace turnTrace = traceRecorder.begin(
+                state.conversationId(),
+                state.turnNo(),
+                state.traceId(),
+                RuntimeScopeTranslator.toEval(state.runtimeScope()))) {
+            new TraceFanout(turnTrace).fanoutRecall(
+                    state.metadataOrDefault("memoryRecall", Map.of()));
+            turnTrace.cancel();
+        } catch (RuntimeException ignored) {
+            // Eval 是旁路观测；取消主路径不能被 trace sink 的二次失败覆盖。
         }
     }
 

@@ -7,6 +7,7 @@ import com.pixflow.agent.config.AgentProperties;
 import com.pixflow.agent.error.AgentErrorCode;
 import com.pixflow.agent.memory.MemoryRecallPlanner;
 import com.pixflow.agent.memory.MemoryRecallSignal;
+import com.pixflow.agent.memory.MemoryRecallTraceSnapshot;
 import com.pixflow.agent.planmode.PlanModeController;
 import com.pixflow.agent.planmode.PlanModeState;
 import com.pixflow.agent.prompt.DynamicPromptAssembler;
@@ -216,7 +217,9 @@ public class AgentOrchestrator {
                 metadata,
                 agentProperties.getMemory().getRecall().getMaxTokens()
         );
-        return memoryRecallPlanner.plan(signal);
+        MemoryContext context = memoryRecallPlanner.plan(signal);
+        state.putMetadata("memoryRecall", MemoryRecallTraceSnapshot.from(context));
+        return context;
     }
 
     /**
@@ -380,10 +383,11 @@ public class AgentOrchestrator {
             } catch (RuntimeException recallFailure) {
                 // Memory 门面异常时仍允许对话继续，避免只读召回成为可用性单点。
                 memoryContext = new MemoryContext(conversationId, targetTurnNo, List.of(),
-                        Map.of("degraded_reason", "memory_unavailable"), true);
+                        Map.of("degraded_reason", "agent_memory_recall_failed"), true);
+                state.putMetadata("memoryRecall", MemoryRecallTraceSnapshot.failed(
+                        "agent_memory_recall_failed",
+                        agentProperties.getMemory().getRecall().getMaxTokens()));
             }
-            cancellation.throwIfCancellationRequested();
-
             // 2. 加载 session memory
             SessionMemoryContent sessionMemory = sessionMemoryService
                     .load(conversationId).orElse(null);
@@ -395,8 +399,6 @@ public class AgentOrchestrator {
                     List.of(), prompt == null ? "" : prompt,
                     memoryContext, sessionMemory, visibleTools);
             String systemPrompt = renderSystemPrompt(ctx);
-            cancellation.throwIfCancellationRequested();
-
             // 4. 投影 toolSchemas
             List<ToolSchemaView> toolSchemas = toToolSchemaViews(visibleTools);
 

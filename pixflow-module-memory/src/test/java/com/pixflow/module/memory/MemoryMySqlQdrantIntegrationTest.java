@@ -3,6 +3,11 @@ package com.pixflow.module.memory;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.pixflow.infra.ai.config.AiAutoConfiguration;
+import com.pixflow.harness.permission.config.PermissionAutoConfiguration;
+import com.pixflow.module.file.config.FileAutoConfiguration;
+import com.pixflow.module.file.api.AssetReferenceExpander;
+import com.pixflow.module.file.api.AssetReferenceResolver;
+import com.pixflow.module.file.api.ExpandedAssetSet;
 import com.pixflow.infra.ai.embedding.EmbeddingClient;
 import com.pixflow.infra.ai.embedding.EmbeddingResult;
 import com.pixflow.infra.ai.embedding.EmbeddingVector;
@@ -19,6 +24,7 @@ import com.pixflow.module.memory.insight.AnalysisInsight;
 import com.pixflow.module.memory.insight.AnalysisInsightStatus;
 import com.pixflow.module.memory.insight.InsightDocMapper;
 import com.pixflow.module.memory.recall.MemoryItem;
+import com.pixflow.module.memory.skuhistory.SkuHistoryService;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.qdrant.client.PointIdFactory;
@@ -30,6 +36,7 @@ import io.qdrant.client.grpc.Collections;
 import io.qdrant.client.grpc.Points;
 import java.time.Duration;
 import java.time.Instant;
+import java.sql.Timestamp;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -42,6 +49,7 @@ import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.GenericContainer;
@@ -80,6 +88,12 @@ class MemoryMySqlQdrantIntegrationTest {
 
     @Autowired
     private InsightDocMapper insightMapper;
+
+    @Autowired
+    private SkuHistoryService skuHistoryService;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     @DynamicPropertySource
     static void datasourceProperties(DynamicPropertyRegistry registry) {
@@ -127,6 +141,36 @@ class MemoryMySqlQdrantIntegrationTest {
         assertThat(adminClient.countAsync(COLLECTION, Duration.ofSeconds(10)).get(10, TimeUnit.SECONDS))
                 .isEqualTo(countBefore);
         assertThat(retrieve(firstPointId)).isEqualTo(pointBefore);
+    }
+
+    @Test
+    void limitsSkuHistoryIndependentlyForEachSkuWithStableTieBreaker() {
+        Instant createdAt = Instant.parse("2026-07-01T00:00:00Z");
+        seedSkuHistory("SKU-PER-A", "task-a1", createdAt);
+        seedSkuHistory("SKU-PER-A", "task-a2", createdAt);
+        seedSkuHistory("SKU-PER-A", "task-a3", createdAt);
+        seedSkuHistory("SKU-PER-B", "task-b1", createdAt);
+        seedSkuHistory("SKU-PER-B", "task-b2", createdAt);
+        seedSkuHistory("SKU-PER-B", "task-b3", createdAt);
+
+        List<MemoryItem> recalled = skuHistoryService.recallBySkuIds(
+                List.of("SKU-PER-A", "SKU-PER-B"), 2);
+
+        assertThat(recalled).hasSize(4);
+        assertThat(recalled).filteredOn(item -> item.relatedSku().equals("SKU-PER-A"))
+                .extracting(item -> item.attributes().get("task_id"))
+                .containsExactly("task-a1", "task-a2");
+        assertThat(recalled).filteredOn(item -> item.relatedSku().equals("SKU-PER-B"))
+                .extracting(item -> item.attributes().get("task_id"))
+                .containsExactly("task-b1", "task-b2");
+    }
+
+    private void seedSkuHistory(String skuId, String taskId, Instant createdAt) {
+        jdbcTemplate.update("""
+                INSERT INTO sku_history (
+                    sku_id, task_id, params_json, metrics_before, metrics_after, created_at
+                ) VALUES (?, ?, '{}', '{}', '{}', ?)
+                """, skuId, taskId, Timestamp.from(createdAt));
     }
 
     private AnalysisInsight seedInsight(String text, String source) {
@@ -188,7 +232,11 @@ class MemoryMySqlQdrantIntegrationTest {
     }
 
     @SpringBootConfiguration
-    @EnableAutoConfiguration(exclude = AiAutoConfiguration.class)
+    @EnableAutoConfiguration(exclude = {
+        AiAutoConfiguration.class,
+        FileAutoConfiguration.class,
+        PermissionAutoConfiguration.class
+    })
     @Import(MemoryAutoConfiguration.class)
     static class TestApp {
         @Bean
@@ -224,5 +272,18 @@ class MemoryMySqlQdrantIntegrationTest {
         MeterRegistry meterRegistry() {
             return new SimpleMeterRegistry();
         }
+
+        @Bean
+        AssetReferenceResolver assetReferenceResolver() {
+            return (referenceKey, use) -> {
+                throw new IllegalArgumentException("integration test does not resolve references");
+            };
+        }
+
+        @Bean
+        AssetReferenceExpander assetReferenceExpander() {
+            return (referenceKeys, use, maxImages) -> new ExpandedAssetSet(List.of());
+        }
+
     }
 }

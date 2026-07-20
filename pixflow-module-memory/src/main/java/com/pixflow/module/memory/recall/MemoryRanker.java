@@ -1,7 +1,6 @@
 package com.pixflow.module.memory.recall;
 
 import com.pixflow.module.memory.config.MemoryProperties;
-import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Comparator;
@@ -10,19 +9,16 @@ import java.util.List;
 public class MemoryRanker {
     private final MemoryProperties properties;
 
-    private final Clock clock;
-
-    public MemoryRanker(MemoryProperties properties, Clock clock) {
+    public MemoryRanker(MemoryProperties properties) {
         this.properties = properties;
-        this.clock = clock;
     }
 
-    public List<MemoryItem> rank(List<MemoryItem> candidates, int topN) {
+    public List<MemoryItem> rank(List<MemoryItem> candidates, int topN, Instant asOf) {
         if (candidates == null || candidates.isEmpty()) {
             return List.of();
         }
         MemoryProperties.Rank rank = properties.getInsight().getRank();
-        Instant now = clock.instant();
+        Instant now = asOf == null ? Instant.EPOCH : asOf;
         return candidates.stream()
                 .map(item -> {
                     double recency = recencyBoost(item, now);

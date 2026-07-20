@@ -50,7 +50,7 @@ public final class LongTermMemorySection implements SectionRenderer {
         if (text.isEmpty()) {
             return new PromptSection(key(), title(), "", "empty", true);
         }
-        String fingerprint = sha256(text + ":" + ctx.memoryContext().recallTrace());
+        String fingerprint = sha256(text);
         return new PromptSection(key(), title(), text, fingerprint, true);
     }
 

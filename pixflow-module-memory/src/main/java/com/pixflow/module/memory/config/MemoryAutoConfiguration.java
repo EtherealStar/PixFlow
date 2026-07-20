@@ -14,10 +14,8 @@ import com.pixflow.module.memory.insight.InsightKeywordSearch;
 import com.pixflow.module.memory.insight.InsightRecallService;
 import com.pixflow.module.memory.insight.InsightVectorSearch;
 import com.pixflow.module.memory.insight.MybatisInsightKeywordSearch;
-import com.pixflow.module.memory.insight.NoopInsightKeywordSearch;
 import com.pixflow.module.memory.insight.VectorRecallReadiness;
 import com.pixflow.module.memory.preference.MybatisPreferenceService;
-import com.pixflow.module.memory.preference.NoopPreferenceService;
 import com.pixflow.module.memory.preference.PreferenceService;
 import com.pixflow.module.memory.preference.UserPreferenceMapper;
 import com.pixflow.module.memory.recall.MemoryRanker;
@@ -25,10 +23,8 @@ import com.pixflow.module.memory.recall.RecallPlanner;
 import com.pixflow.module.memory.recall.RecallSignalExtractor;
 import com.pixflow.module.memory.recall.RecallReferenceResolver;
 import com.pixflow.module.memory.recall.FileRecallReferenceResolver;
-import com.pixflow.module.memory.recall.NoopRecallReferenceResolver;
 import com.pixflow.module.memory.recall.RrfFuser;
 import com.pixflow.module.memory.skuhistory.MybatisSkuHistoryService;
-import com.pixflow.module.memory.skuhistory.NoopSkuHistoryService;
 import com.pixflow.module.memory.skuhistory.SkuHistoryMapper;
 import com.pixflow.module.memory.skuhistory.SkuHistoryService;
 import java.time.Clock;
@@ -57,13 +53,13 @@ public class MemoryAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     public RecallReferenceResolver recallReferenceResolver(
-            ObjectProvider<AssetReferenceResolver> resolver,
-            ObjectProvider<AssetReferenceExpander> expander) {
-        AssetReferenceResolver referenceResolver = resolver.getIfAvailable();
-        AssetReferenceExpander referenceExpander = expander.getIfAvailable();
-        return referenceResolver == null || referenceExpander == null
-                ? new NoopRecallReferenceResolver()
-                : new FileRecallReferenceResolver(referenceResolver, referenceExpander);
+            AssetReferenceResolver resolver,
+            AssetReferenceExpander expander,
+            MemoryProperties properties) {
+        return new FileRecallReferenceResolver(
+                resolver,
+                expander,
+                properties.getReference().getMaxPackageImages());
     }
 
     @Bean
@@ -80,29 +76,26 @@ public class MemoryAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public MemoryRanker memoryRanker(MemoryProperties properties, Clock clock) {
-        return new MemoryRanker(properties, clock);
+    public MemoryRanker memoryRanker(MemoryProperties properties) {
+        return new MemoryRanker(properties);
     }
 
     @Bean
     @ConditionalOnMissingBean
-    public PreferenceService preferenceService(ObjectProvider<UserPreferenceMapper> mapper) {
-        UserPreferenceMapper resolved = mapper.getIfAvailable();
-        return resolved == null ? new NoopPreferenceService() : new MybatisPreferenceService(resolved);
+    public PreferenceService preferenceService(UserPreferenceMapper mapper) {
+        return new MybatisPreferenceService(mapper);
     }
 
     @Bean
     @ConditionalOnMissingBean
-    public SkuHistoryService skuHistoryService(ObjectProvider<SkuHistoryMapper> mapper) {
-        SkuHistoryMapper resolved = mapper.getIfAvailable();
-        return resolved == null ? new NoopSkuHistoryService() : new MybatisSkuHistoryService(resolved);
+    public SkuHistoryService skuHistoryService(SkuHistoryMapper mapper) {
+        return new MybatisSkuHistoryService(mapper);
     }
 
     @Bean
     @ConditionalOnMissingBean
-    public InsightKeywordSearch insightKeywordSearch(ObjectProvider<InsightDocMapper> mapper) {
-        InsightDocMapper resolved = mapper.getIfAvailable();
-        return resolved == null ? new NoopInsightKeywordSearch() : new MybatisInsightKeywordSearch(resolved);
+    public InsightKeywordSearch insightKeywordSearch(InsightDocMapper mapper) {
+        return new MybatisInsightKeywordSearch(mapper);
     }
 
     @Bean
@@ -149,14 +142,16 @@ public class MemoryAutoConfiguration {
             RecallReferenceResolver referenceResolver,
             PreferenceService preferenceService,
             SkuHistoryService skuHistoryService,
-            InsightRecallService insightRecallService) {
+            InsightRecallService insightRecallService,
+            Clock clock) {
         return new MemoryContextBuilder(
                 signalExtractor,
                 planner,
                 referenceResolver,
                 preferenceService,
                 skuHistoryService,
-                insightRecallService);
+                insightRecallService,
+                clock);
     }
 
     @Bean

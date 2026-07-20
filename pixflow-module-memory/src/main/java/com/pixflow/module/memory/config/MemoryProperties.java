@@ -8,12 +8,30 @@ public class MemoryProperties {
 
     private final Insight insight = new Insight();
 
+    private final Reference reference = new Reference();
+
     public Prompt getPrompt() {
         return prompt;
     }
 
     public Insight getInsight() {
         return insight;
+    }
+
+    public Reference getReference() {
+        return reference;
+    }
+
+    public static class Reference {
+        private int maxPackageImages = 200;
+
+        public int getMaxPackageImages() {
+            return maxPackageImages;
+        }
+
+        public void setMaxPackageImages(int maxPackageImages) {
+            this.maxPackageImages = positive(maxPackageImages, "reference.max-package-images");
+        }
     }
 
     public static class Prompt {

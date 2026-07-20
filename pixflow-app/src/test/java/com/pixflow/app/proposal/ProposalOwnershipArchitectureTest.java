@@ -24,11 +24,14 @@ class ProposalOwnershipArchitectureTest {
     }
 
     @Test
-    void resourceResolversRemainOwnedByFile() throws IOException {
-        productionSources().stream()
-                .filter(path -> path.getFileName().toString().endsWith("ReferenceResolver.java"))
-                // 当前完整 Asset Reference resolver 仍是 File 计划的后续工作；先守住 owner 边界。
-                .forEach(path -> assertTrue(
+    void assetReferenceResolverRemainsOwnedByFile() throws IOException {
+        List<Path> resolvers = productionSources().stream()
+                .filter(path -> path.getFileName().toString().equals("AssetReferenceResolver.java"))
+                .toList();
+
+        assertFalse(resolvers.isEmpty(), "canonical AssetReferenceResolver must exist");
+        // 只约束 canonical asset identity 的 owner；消费方可以保留本模块的 recall adapter。
+        resolvers.forEach(path -> assertTrue(
                         normalized(path).contains("/pixflow-module-file/src/main/java/"),
                         normalized(path)));
     }

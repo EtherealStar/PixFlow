@@ -18,6 +18,7 @@ public class MybatisPreferenceService implements PreferenceService {
     public List<MemoryItem> recallPreferences(int maxItems) {
         return mapper.selectList(new LambdaQueryWrapper<UserPreference>()
                         .orderByDesc(UserPreference::getUpdatedAt)
+                        .orderByAsc(UserPreference::getId)
                         .last("LIMIT " + Math.max(1, maxItems)))
                 .stream()
                 .map(preference -> new MemoryItem(

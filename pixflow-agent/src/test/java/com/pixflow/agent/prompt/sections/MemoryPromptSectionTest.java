@@ -81,6 +81,33 @@ class MemoryPromptSectionTest {
         assertEquals("empty", rendered.fingerprint());
     }
 
+    @Test
+    void promptFingerprintsIgnoreRecallDiagnosticsWhenSelectedTextIsUnchanged() {
+        MemorySection preference = new MemorySection(
+                MemoryContextBuilder.USER_PREFERENCES,
+                "偏好:\n- 喜欢白底图",
+                List.of(item("pref-1", MemoryType.PREFERENCE, "喜欢白底图")),
+                8,
+                Map.of("dependency_status", "available"));
+        MemorySection insight = new MemorySection(
+                MemoryContextBuilder.ANALYSIS_INSIGHTS,
+                "分析结论:\n- 白底主图更适合首图",
+                List.of(item("insight-1", MemoryType.INSIGHT, "白底主图更适合首图")),
+                12,
+                Map.of("vector_candidates", 1));
+        MemoryContext first = new MemoryContext("conv-1", 1, List.of(preference, insight),
+                Map.of("as_of", "2026-07-20T01:00:00Z"), false);
+        MemoryContext second = new MemoryContext("conv-1", 1, List.of(preference, insight),
+                Map.of("as_of", "2026-07-20T01:01:00Z", "degraded", true), true);
+
+        assertEquals(
+                new PreferenceSection().render(ctx(first)).fingerprint(),
+                new PreferenceSection().render(ctx(second)).fingerprint());
+        assertEquals(
+                new LongTermMemorySection().render(ctx(first)).fingerprint(),
+                new LongTermMemorySection().render(ctx(second)).fingerprint());
+    }
+
     private static SectionRenderer.PromptRuntimeContext ctx(MemoryContext memoryContext) {
         RuntimeState state = new RuntimeState();
         state.setConversationId("conv-1");
