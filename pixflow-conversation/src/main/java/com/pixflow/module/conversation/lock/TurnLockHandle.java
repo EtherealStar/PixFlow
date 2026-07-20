@@ -5,7 +5,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class TurnLockHandle implements AutoCloseable {
     private final RLock lock;
+
     private final long ownerThreadId;
+
     private final AtomicBoolean closed = new AtomicBoolean();
 
     TurnLockHandle(RLock lock) {

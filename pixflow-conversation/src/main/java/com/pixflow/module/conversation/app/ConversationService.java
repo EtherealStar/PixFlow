@@ -17,6 +17,7 @@ public class ConversationService {
     private static final int MAX_TITLE_LENGTH = 120;
 
     private final ConversationMapper conversationMapper;
+
     private final Clock clock;
 
     public ConversationService(ConversationMapper conversationMapper, Clock clock) {

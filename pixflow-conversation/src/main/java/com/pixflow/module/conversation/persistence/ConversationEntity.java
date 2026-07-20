@@ -9,10 +9,15 @@ import java.time.Instant;
 public class ConversationEntity {
     @TableId(type = IdType.INPUT)
     private String id;
+
     private Long ownerUserId;
+
     private String title;
+
     private Boolean archived;
+
     private Instant createdAt;
+
     private Instant updatedAt;
 
     public String getId() {

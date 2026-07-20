@@ -21,6 +21,7 @@ import org.redisson.api.RedissonClient;
  */
 public class ConversationLock {
     private final RedissonClient redissonClient;
+
     private final ConversationProperties properties;
 
     public ConversationLock(RedissonClient redissonClient, ConversationProperties properties) {

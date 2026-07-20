@@ -10,7 +10,9 @@ import java.util.Map;
 
 public class HistoryQueryService {
     private final ConversationService conversationService;
+
     private final TranscriptHistoryReader historyReader;
+
     private final ConversationProperties properties;
 
     public HistoryQueryService(
