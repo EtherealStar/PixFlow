@@ -26,7 +26,6 @@ import com.pixflow.module.commerce.source.FreshnessPolicy;
 import com.pixflow.module.commerce.source.PlatformApiClient;
 import com.pixflow.module.commerce.store.CommerceDataMapper;
 import com.pixflow.module.commerce.store.CommerceImportJobMapper;
-import com.pixflow.module.commerce.web.CommerceController;
 import java.time.Clock;
 import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
@@ -149,11 +148,6 @@ public class CommerceAutoConfiguration {
         return new DefaultCommerceService(importService, jobService, queryService);
     }
 
-    @Bean
-    @ConditionalOnMissingBean
-    public CommerceController commerceController(CommerceService commerceService) {
-        return new CommerceController(commerceService);
-    }
 
     @Bean
     @ConditionalOnMissingBean

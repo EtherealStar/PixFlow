@@ -4,17 +4,16 @@ import com.pixflow.harness.permission.PermissionPrincipal;
 import com.pixflow.harness.permission.TaskCommandType;
 import com.pixflow.harness.permission.proof.ProofResult;
 import com.pixflow.harness.permission.proof.TaskAuthorizationPort;
-import com.pixflow.module.task.domain.model.ProcessTask;
-import com.pixflow.module.task.domain.model.TaskStatus;
-import com.pixflow.module.task.infra.persistence.ProcessTaskMapper;
+import com.pixflow.module.task.api.authorization.TaskAuthorizationFacts;
+import com.pixflow.module.task.api.authorization.TaskAuthorizationFactsQuery;
 import java.util.Objects;
 
 /** Task 属主事实适配器；管理员资格和会话属主已由策略在此证明之前检查。 */
 public final class TaskPermissionProof implements TaskAuthorizationPort {
-    private final ProcessTaskMapper taskMapper;
+    private final TaskAuthorizationFactsQuery factsQuery;
 
-    public TaskPermissionProof(ProcessTaskMapper taskMapper) {
-        this.taskMapper = Objects.requireNonNull(taskMapper, "taskMapper");
+    public TaskPermissionProof(TaskAuthorizationFactsQuery factsQuery) {
+        this.factsQuery = Objects.requireNonNull(factsQuery, "factsQuery");
     }
 
     @Override
@@ -27,25 +26,22 @@ public final class TaskPermissionProof implements TaskAuthorizationPort {
             return ProofResult.DENIED;
         }
         try {
-            ProcessTask task = taskMapper.findByIdAndConversation(Long.parseLong(taskId), conversationId);
-            return task != null && commandAllowed(task.getStatus(), command)
-                    ? ProofResult.PROVED : ProofResult.DENIED;
-        } catch (NumberFormatException denied) {
-            return ProofResult.DENIED;
+            return factsQuery.find(taskId)
+                    .filter(facts -> conversationId.equals(facts.conversationId()))
+                    .filter(facts -> commandAllowed(facts, command))
+                    .map(ignored -> ProofResult.PROVED)
+                    .orElse(ProofResult.DENIED);
         } catch (RuntimeException unavailable) {
             return ProofResult.UNAVAILABLE;
         }
     }
 
-    private static boolean commandAllowed(TaskStatus status, TaskCommandType command) {
-        if (status == null) {
-            return false;
-        }
+    private static boolean commandAllowed(TaskAuthorizationFacts facts, TaskCommandType command) {
         return switch (command) {
-            case CANCEL -> !status.terminal();
-            case RETRY -> status == TaskStatus.FAILED || status == TaskStatus.PARTIAL;
-            case DELETE -> status.terminal();
-            case DOWNLOAD -> status == TaskStatus.COMPLETED || status == TaskStatus.PARTIAL;
+            case CANCEL -> facts.cancellable();
+            case RETRY -> facts.retryable();
+            case DELETE -> facts.deletable();
+            case DOWNLOAD -> facts.downloadable();
             case CONFIRM_REPLAY -> true;
         };
     }

@@ -8,7 +8,6 @@ import com.pixflow.harness.tools.ToolCallClassification;
 import com.pixflow.harness.tools.ToolDescriptor;
 import com.pixflow.harness.tools.ToolHandler;
 import com.pixflow.harness.tools.ToolHandlerOutput;
-import com.pixflow.harness.tools.ToolInputValidator;
 import com.pixflow.harness.tools.ToolInvocation;
 import com.pixflow.harness.tools.ToolResultPolicy;
 import com.pixflow.module.conversation.proposal.PendingProposalType;
@@ -22,11 +21,8 @@ import java.time.Clock;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import org.springframework.context.annotation.Bean;
-import org.springframework.stereotype.Component;
 
 /** App 对 submit_imagegen_plan 的单图跨 owner 编排适配器。 */
-@Component
 public final class SubmitImagegenPlanHandler {
 
     public static final String TOOL_NAME = "submit_imagegen_plan";
@@ -53,7 +49,6 @@ public final class SubmitImagegenPlanHandler {
         this.clock = clock;
     }
 
-    @Bean
     public ToolDescriptor submitImagegenPlanDescriptor() {
         Map<String, Object> inputSchema = Map.of(
                 "type", "object",
@@ -82,8 +77,17 @@ public final class SubmitImagegenPlanHandler {
                 handler,
                 (descriptor, arguments) -> new ToolCallClassification(
                         true, true, TOOL_NAME, Map.of(), ToolResultPolicy.defaults()),
-                ToolInputValidator.noop(),
+                (descriptor, arguments) -> validateInput(arguments),
                 ToolResultPolicy.defaults());
+    }
+
+    private static void validateInput(Map<String, Object> arguments) {
+        requiredText(arguments, "referenceKey");
+        requiredText(arguments, "prompt");
+        Object params = arguments.get("params");
+        if (params != null && !(params instanceof Map<?, ?>)) {
+            throw new IllegalArgumentException("params 必须是 object");
+        }
     }
 
     ToolHandlerOutput handle(ToolInvocation invocation) {

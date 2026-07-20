@@ -1,17 +1,13 @@
 package com.pixflow.app.task;
 
-import com.pixflow.module.file.runtime.AssetImageQuery;
 import com.pixflow.module.file.api.AssetContentReader;
 import com.pixflow.module.file.api.publication.GeneratedImagePublisher;
-import com.pixflow.module.conversation.progress.ConversationProgressBridge;
 import com.pixflow.module.imagegen.port.SourceImageReader;
+import com.pixflow.module.imagegen.port.SourceImageContent;
+import com.pixflow.module.dag.exec.PipelineUnitExecutor;
 import com.pixflow.module.task.api.port.TaskAssetReader;
 import com.pixflow.module.task.api.publication.GeneratedAssetPublicationPort;
 import com.pixflow.module.task.api.publication.PublishedAssetReader;
-import com.pixflow.infra.storage.ObjectStorage;
-import com.pixflow.contracts.asset.CanonicalAssetReferenceCodec;
-import com.pixflow.module.task.infra.persistence.ProcessTaskMapper;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -29,23 +25,45 @@ public class TaskAssetConfiguration {
     }
 
     @Bean
-    @ConditionalOnMissingBean(TaskAssetReader.class)
-    public TaskAssetReader taskAssetReader(AssetImageQuery images) {
-        return new FileTaskAssetReader(images);
+    public PipelineUnitExecutor.SourceReader dagSourceReader(AssetContentReader contents) {
+        return new PipelineUnitExecutor.SourceReader() {
+            @Override
+            public java.io.InputStream openStream(String referenceKey) {
+                return contents.open(referenceKey);
+            }
+
+            @Override
+            public long statSize(String referenceKey) {
+                return contents.require(referenceKey).size();
+            }
+        };
+    }
+
+    @Bean
+    public SourceImageContent sourceImageContent(AssetContentReader contents) {
+        return new SourceImageContent() {
+            @Override
+            public Metadata require(String referenceKey) {
+                var metadata = contents.require(referenceKey);
+                return new Metadata(metadata.contentType(), metadata.size());
+            }
+
+            @Override
+            public java.io.InputStream open(String referenceKey) {
+                return contents.open(referenceKey);
+            }
+        };
+    }
+
+    @Bean
+    public TaskAssetReader taskAssetReader(AssetContentReader contents) {
+        return new FileTaskAssetReader(contents);
     }
 
     @Bean
     public PublishedAssetReader publishedAssetReader(
-            AssetImageQuery images,
-            ObjectStorage storage,
-            CanonicalAssetReferenceCodec codec) {
-        return new FilePublishedAssetReader(images, storage, codec);
+            AssetContentReader contents) {
+        return new FilePublishedAssetReader(contents);
     }
 
-    @Bean
-    @ConditionalOnMissingBean(TaskProgressEventBridge.class)
-    public TaskProgressEventBridge taskProgressEventBridge(ProcessTaskMapper taskMapper,
-                                                           ConversationProgressBridge progressBridge) {
-        return new TaskProgressEventBridge(taskMapper, progressBridge);
-    }
 }

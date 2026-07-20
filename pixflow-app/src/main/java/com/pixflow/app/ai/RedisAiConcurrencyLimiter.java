@@ -9,6 +9,7 @@ import java.util.Objects;
 
 final class RedisAiConcurrencyLimiter implements GlobalConcurrencyLimiter {
     private final DistributedSemaphore semaphore;
+
     private final CacheNamespace namespace;
 
     RedisAiConcurrencyLimiter(DistributedSemaphore semaphore, CacheNamespace namespace) {

@@ -9,7 +9,6 @@ import com.pixflow.harness.tools.ToolCallClassification;
 import com.pixflow.harness.tools.ToolDescriptor;
 import com.pixflow.harness.tools.ToolHandler;
 import com.pixflow.harness.tools.ToolHandlerOutput;
-import com.pixflow.harness.tools.ToolInputValidator;
 import com.pixflow.harness.tools.ToolInvocation;
 import com.pixflow.harness.tools.ToolResultPolicy;
 import com.pixflow.module.conversation.proposal.PendingProposalType;
@@ -23,11 +22,8 @@ import java.time.Clock;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import org.springframework.context.annotation.Bean;
-import org.springframework.stereotype.Component;
 
 /** App 对 submit_image_plan 的跨 owner 编排适配器。 */
-@Component
 public final class SubmitImagePlanHandler {
 
     public static final String TOOL_NAME = "submit_image_plan";
@@ -54,7 +50,6 @@ public final class SubmitImagePlanHandler {
         this.clock = clock;
     }
 
-    @Bean
     public ToolDescriptor submitImagePlanDescriptor() {
         Map<String, Object> dagSchema = Map.of(
                 "type", "object",
@@ -90,8 +85,17 @@ public final class SubmitImagePlanHandler {
                 handler,
                 (descriptor, arguments) -> new ToolCallClassification(
                         false, true, TOOL_NAME, Map.of(), ToolResultPolicy.defaults()),
-                ToolInputValidator.noop(),
+                (descriptor, arguments) -> validateInput(arguments),
                 ToolResultPolicy.defaults());
+    }
+
+    private static void validateInput(Map<String, Object> arguments) {
+        Object dag = arguments == null ? null : arguments.get("dag");
+        if (!(dag instanceof Map<?, ?> dagMap)
+                || !dagMap.containsKey("nodes") || !dagMap.containsKey("edges")) {
+            throw new IllegalArgumentException("dag 必须包含 nodes/edges");
+        }
+        readReferenceKeys(arguments.get("referenceKeys"));
     }
 
     ToolHandlerOutput handle(ToolInvocation invocation) {

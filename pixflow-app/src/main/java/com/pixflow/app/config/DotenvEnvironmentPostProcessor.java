@@ -34,7 +34,8 @@ public final class DotenvEnvironmentPostProcessor implements EnvironmentPostProc
             if (properties.isEmpty()) {
                 continue;
             }
-            environment.getPropertySources().addLast(new MapPropertySource(PROPERTY_SOURCE_NAME + ":" + path, properties));
+            environment.getPropertySources()
+                    .addLast(new MapPropertySource(PROPERTY_SOURCE_NAME + ":" + path, properties));
             return;
         }
     }

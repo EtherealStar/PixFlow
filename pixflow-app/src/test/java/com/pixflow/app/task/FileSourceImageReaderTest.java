@@ -23,6 +23,7 @@ class FileSourceImageReaderTest {
             null,
             AssetSourceType.GENERATED,
             "image/png",
+            "a".repeat(64),
             10L);
     when(contents.require("package:7/image:31")).thenReturn(generated);
     var reader = new FileSourceImageReader(contents);

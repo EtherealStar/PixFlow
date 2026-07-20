@@ -9,9 +9,9 @@ import com.pixflow.harness.permission.TaskCommandType;
 import com.pixflow.harness.permission.proof.ProofResult;
 import com.pixflow.infra.auth.context.AuthPrincipal;
 import com.pixflow.infra.auth.identity.AdministratorEligibility;
-import com.pixflow.module.task.domain.model.ProcessTask;
-import com.pixflow.module.task.domain.model.TaskStatus;
-import com.pixflow.module.task.infra.persistence.ProcessTaskMapper;
+import com.pixflow.module.task.api.authorization.TaskAuthorizationFacts;
+import com.pixflow.module.task.api.authorization.TaskAuthorizationFactsQuery;
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
 class PermissionProofAdaptersTest {
@@ -41,10 +41,10 @@ class PermissionProofAdaptersTest {
 
     @Test
     void taskProofRequiresConversationOwnershipAndCommandCompatibleState() {
-        ProcessTaskMapper mapper = mock(ProcessTaskMapper.class);
-        ProcessTask failed = task(TaskStatus.FAILED);
-        when(mapper.findByIdAndConversation(11L, "conv-1")).thenReturn(failed);
-        TaskPermissionProof proof = new TaskPermissionProof(mapper);
+        TaskAuthorizationFactsQuery facts = mock(TaskAuthorizationFactsQuery.class);
+        when(facts.find("11")).thenReturn(Optional.of(new TaskAuthorizationFacts(
+                "11", "conv-1", false, true, true, true)));
+        TaskPermissionProof proof = new TaskPermissionProof(facts);
         PermissionPrincipal principal = new PermissionPrincipal("7", "admin");
 
         assertThat(proof.proveCommand(principal, "conv-1", "11", TaskCommandType.RETRY))
@@ -61,19 +61,13 @@ class PermissionProofAdaptersTest {
 
     @Test
     void taskDependencyFailureIsUnavailable() {
-        ProcessTaskMapper mapper = mock(ProcessTaskMapper.class);
-        when(mapper.findByIdAndConversation(11L, "conv-1"))
+        TaskAuthorizationFactsQuery facts = mock(TaskAuthorizationFactsQuery.class);
+        when(facts.find("11"))
                 .thenThrow(new IllegalStateException("db down"));
 
-        assertThat(new TaskPermissionProof(mapper).proveCommand(
+        assertThat(new TaskPermissionProof(facts).proveCommand(
                 new PermissionPrincipal("7", "admin"),
                 "conv-1", "11", TaskCommandType.DOWNLOAD))
                 .isEqualTo(ProofResult.UNAVAILABLE);
-    }
-
-    private static ProcessTask task(TaskStatus status) {
-        ProcessTask task = new ProcessTask();
-        task.setStatus(status);
-        return task;
     }
 }

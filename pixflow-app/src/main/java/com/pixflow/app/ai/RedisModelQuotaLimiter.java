@@ -11,7 +11,9 @@ import java.util.Objects;
 
 final class RedisModelQuotaLimiter implements ModelQuotaLimiter {
     private final DistributedTokenBucket tokenBucket;
+
     private final CacheNamespace namespace;
+
     private final AiProperties properties;
 
     RedisModelQuotaLimiter(

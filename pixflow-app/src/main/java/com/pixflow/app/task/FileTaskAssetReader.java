@@ -2,8 +2,8 @@ package com.pixflow.app.task;
 
 import com.pixflow.common.error.PixFlowException;
 import com.pixflow.module.dag.expand.ImageDescriptor;
-import com.pixflow.module.file.runtime.AssetImageDescriptor;
-import com.pixflow.module.file.runtime.AssetImageQuery;
+import com.pixflow.module.file.api.AssetContentMetadata;
+import com.pixflow.module.file.api.AssetContentReader;
 import com.pixflow.module.task.api.port.TaskAssetReader;
 import com.pixflow.module.task.domain.error.TaskErrorCode;
 import java.util.List;
@@ -12,16 +12,16 @@ import java.util.List;
  * 在应用装配层把 file 的素材事实投影为 task 的中立输入，避免 task 反向依赖 file。
  */
 public final class FileTaskAssetReader implements TaskAssetReader {
-    private final AssetImageQuery images;
+    private final AssetContentReader contents;
 
-    public FileTaskAssetReader(AssetImageQuery images) {
-        this.images = images;
+    public FileTaskAssetReader(AssetContentReader contents) {
+        this.contents = contents;
     }
 
     @Override
     public List<ImageDescriptor> listImages(long packageId) {
         try {
-            return images.listReady(packageId).stream()
+            return contents.listReady(packageId).stream()
                     .map(FileTaskAssetReader::descriptor)
                     .toList();
         } catch (RuntimeException failure) {
@@ -32,21 +32,22 @@ public final class FileTaskAssetReader implements TaskAssetReader {
     @Override
     public GenerativeSource sourceImage(long packageId, String sourceImageId) {
         long imageId = parseImageId(sourceImageId);
-        final AssetImageDescriptor image;
+        final AssetContentMetadata image;
         try {
-            image = images.require(packageId, imageId);
+            image = contents.require(packageId, imageId);
         } catch (RuntimeException failure) {
             throw assetReadFailure("读取生成式源图失败: packageId=" + packageId, failure);
         }
         if (image.skuId() == null || image.skuId().isBlank()) {
             throw assetReadFailure("生成式源图不存在或元数据不完整: imageId=" + sourceImageId, null);
         }
-        return new GenerativeSource(String.valueOf(image.imageId()), image.skuId(), image.location());
+        return new GenerativeSource(String.valueOf(image.imageId()), image.skuId(),
+                image.referenceKey(), image.size());
     }
 
-    private static ImageDescriptor descriptor(AssetImageDescriptor image) {
+    private static ImageDescriptor descriptor(AssetContentMetadata image) {
         return new ImageDescriptor(String.valueOf(image.imageId()), image.skuId(), image.groupKey(),
-                image.viewId(), image.location(), image.contentType());
+                image.viewId(), image.referenceKey(), image.contentType(), image.size());
     }
 
     private static long parseImageId(String sourceImageId) {
