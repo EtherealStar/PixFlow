@@ -50,6 +50,7 @@ public final class RedisLuaTokenBucket implements DistributedTokenBucket {
             """;
 
     private final RedissonClient redissonClient;
+
     private final CacheMetrics metrics;
 
     public RedisLuaTokenBucket(RedissonClient redissonClient, CacheMetrics metrics) {

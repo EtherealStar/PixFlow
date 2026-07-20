@@ -10,12 +10,19 @@ import java.time.Instant;
 public class SkuHistory {
     @TableId(type = IdType.AUTO)
     private Long id;
+
     private String skuId;
+
     private String taskId;
+
     private String paramsJson;
+
     private String metricsBefore;
+
     private String metricsAfter;
+
     private BigDecimal rubricsScore;
+
     private Instant createdAt;
 
     public Long getId() {

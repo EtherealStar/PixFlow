@@ -25,6 +25,7 @@ public final class DashScopeHttpClient {
     private static final String PROVIDER_DASHSCOPE = "dashscope";
 
     private final AiProperties properties;
+
     private final WebClient webClient;
 
     public DashScopeHttpClient(AiProperties properties, WebClient.Builder webClientBuilder) {

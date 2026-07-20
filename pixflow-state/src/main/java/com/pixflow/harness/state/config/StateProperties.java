@@ -5,7 +5,9 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties(prefix = "pixflow.state")
 public class StateProperties {
     private final Progress progress = new Progress();
+
     private final Recovery recovery = new Recovery();
+
     private final Snapshot snapshot = new Snapshot();
 
     public Progress getProgress() {
@@ -22,6 +24,7 @@ public class StateProperties {
 
     public static class Progress {
         private boolean preferRedis = true;
+
         private long driftWarnThreshold = 5;
 
         public boolean isPreferRedis() {

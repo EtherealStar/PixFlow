@@ -38,7 +38,8 @@ public class RedissonAtomicCounter implements AtomicCounter {
                     Long.toString(effectiveTtl.toMillis()));
             return value.longValue();
         } catch (RuntimeException ex) {
-            throw new CacheException(CacheErrorCode.CACHE_COUNTER_FAILED, "increment", key.namespace(), "Redis 计数器自增失败", ex);
+            throw new CacheException(CacheErrorCode.CACHE_COUNTER_FAILED, "increment", key.namespace(),
+                    "Redis 计数器自增失败", ex);
         }
     }
 
@@ -56,7 +57,8 @@ public class RedissonAtomicCounter implements AtomicCounter {
         try {
             redissonClient.getAtomicLong(key.value()).delete();
         } catch (RuntimeException ex) {
-            throw new CacheException(CacheErrorCode.CACHE_COUNTER_FAILED, "reset", key.namespace(), "Redis 计数器重置失败", ex);
+            throw new CacheException(CacheErrorCode.CACHE_COUNTER_FAILED, "reset", key.namespace(),
+                    "Redis 计数器重置失败", ex);
         }
     }
 

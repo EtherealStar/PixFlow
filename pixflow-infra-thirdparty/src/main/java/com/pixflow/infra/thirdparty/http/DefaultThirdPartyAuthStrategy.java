@@ -24,13 +24,19 @@ public final class DefaultThirdPartyAuthStrategy implements ThirdPartyAuthStrate
         if ("bearer".equals(type)) {
             String token = firstNonBlank(properties.get("token"), properties.get("api-key"), properties.get("apiKey"));
             if (StringUtils.hasText(token)) {
-                request.headers().set(firstNonBlank(properties.get("header"), HttpHeaders.AUTHORIZATION), "Bearer " + token);
+                request.headers().set(
+                        firstNonBlank(properties.get("header"), HttpHeaders.AUTHORIZATION),
+                        "Bearer " + token);
             }
             return;
         }
         if ("api-key".equals(type) || "api-key-header".equals(type)) {
             String header = firstNonBlank(properties.get("header"), properties.get("headerName"), "X-Api-Key");
-            String value = firstNonBlank(properties.get("value"), properties.get("api-key"), properties.get("apiKey"), properties.get("key"));
+            String value = firstNonBlank(
+                    properties.get("value"),
+                    properties.get("api-key"),
+                    properties.get("apiKey"),
+                    properties.get("key"));
             if (StringUtils.hasText(header) && StringUtils.hasText(value)) {
                 request.headers().set(header, value);
             }
@@ -41,7 +47,9 @@ public final class DefaultThirdPartyAuthStrategy implements ThirdPartyAuthStrate
             String password = firstNonBlank(properties.get("password"), "");
             if (StringUtils.hasText(username)) {
                 String raw = username + ":" + password;
-                request.headers().set(HttpHeaders.AUTHORIZATION, "Basic " + Base64.getEncoder().encodeToString(raw.getBytes(StandardCharsets.UTF_8)));
+                request.headers().set(
+                        HttpHeaders.AUTHORIZATION,
+                        "Basic " + Base64.getEncoder().encodeToString(raw.getBytes(StandardCharsets.UTF_8)));
             }
             return;
         }

@@ -13,7 +13,7 @@ import java.util.Set;
  *
  * <p>对应 {@code agent.md §8.4}：
  * <ul>
- *   <li>VISION / EXPLORE：core 7 工具，禁用 submit_image_plan / submit_imagegen_plan / plan</li>
+ *   <li>EXPLORE：只保留只读调研工具</li>
  *   <li>SUMMARIZATION / SESSION_MEMORY_EXTRACTION：全部禁用 7 核心工具</li>
  * </ul>
  */
@@ -36,7 +36,7 @@ public class ChildToolFilter {
         }
         List<ToolDescriptor> parentVisible = parentRegistry.visibleDescriptors(parentVisibilityCtx);
         return switch (type) {
-            case VISION, EXPLORE -> parentVisible.stream()
+            case EXPLORE -> parentVisible.stream()
                     .filter(d -> !CORE_WRITE_TOOLS.contains(d.name()))
                     .filter(d -> !PLAN_TOOLS.contains(d.name()))
                     .toList();

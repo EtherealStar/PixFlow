@@ -26,7 +26,7 @@ class ModelContractTest {
     @Test
     void requestCopiesCollections() {
         List<ChatMessage> messages = new ArrayList<>(List.of(new ChatMessage(ChatMessage.Role.USER, List.of(new ChatMessage.TextPart("hi")))));
-        ChatRequest request = new ChatRequest(ModelRole.PRIMARY_CHAT, messages, List.of(new ToolSchema("tool", "desc", "{}")), ToolChoice.AUTO, new ChatOptions(0.2d, 128, Duration.ofSeconds(2)));
+        ChatRequest request = new ChatRequest(ModelRole.PRIMARY_CHAT, messages, List.of(new ToolSchema("tool", "desc", "{}")), ToolChoice.AUTO, new ChatOptions(0.2d, 128, Duration.ofSeconds(2)), null);
         messages.add(new ChatMessage(ChatMessage.Role.ASSISTANT, List.of(new ChatMessage.TextPart("later"))));
 
         assertThat(request.messages()).hasSize(1);

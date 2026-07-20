@@ -125,6 +125,7 @@ class AiAutoConfigurationTest {
                     List.of(new ChatMessage(ChatMessage.Role.USER, List.of(new ChatMessage.TextPart("hello")))),
                     null,
                     null,
+                    null,
                     null);
 
             assertThatThrownBy(() -> client.call(request))
@@ -142,7 +143,8 @@ class AiAutoConfigurationTest {
             ImageGenClient imageGen = context.getBean(ImageGenClient.class);
             RerankClient rerank = context.getBean(RerankClient.class);
 
-            assertThatThrownBy(() -> vision.call(new VisionRequest(ModelRole.VISION, List.of(userText("look")), null)))
+            assertThatThrownBy(() -> vision.call(new VisionRequest(
+                            ModelRole.VISION, List.of(userText("look")), List.of(), null, null, null)))
                     .isInstanceOf(PixFlowException.class)
                     .extracting(error -> ((PixFlowException) error).code())
                     .isEqualTo(AiErrorCode.MODEL_CONFIGURATION_ERROR);

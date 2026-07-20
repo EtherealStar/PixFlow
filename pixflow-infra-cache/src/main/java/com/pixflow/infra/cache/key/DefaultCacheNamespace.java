@@ -11,6 +11,7 @@ public final class DefaultCacheNamespace implements CacheNamespace {
     private static final String PREFIX = "pixflow";
 
     private final String envPrefix;
+
     private final Duration defaultTtl;
 
     public DefaultCacheNamespace(String envPrefix, Duration defaultTtl) {

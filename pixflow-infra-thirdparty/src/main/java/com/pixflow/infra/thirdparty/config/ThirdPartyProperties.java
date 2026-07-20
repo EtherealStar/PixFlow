@@ -18,7 +18,9 @@ public record ThirdPartyProperties(
         bgRemoval = bgRemoval == null ? new BgRemoval("removebg") : bgRemoval;
         providers = immutableCopy(providers);
         http = http == null ? new Http(Duration.ofSeconds(30), Duration.ofSeconds(10)) : http;
-        resilience = resilience == null ? new Resilience(3, Duration.ofMillis(500), Duration.ofSeconds(8), Duration.ofSeconds(30), 16) : resilience;
+        resilience = resilience == null
+                ? new Resilience(3, Duration.ofMillis(500), Duration.ofSeconds(8), Duration.ofSeconds(30), 16)
+                : resilience;
         outboundQuota = immutableNestedCopy(outboundQuota);
     }
 
@@ -32,7 +34,12 @@ public record ThirdPartyProperties(
     public record Http(Duration connectTimeout, Duration readTimeout) {
     }
 
-    public record Resilience(int maxAttempts, Duration baseDelay, Duration maxDelay, Duration timeout, int bulkheadMaxConcurrent) {
+    public record Resilience(
+            int maxAttempts,
+            Duration baseDelay,
+            Duration maxDelay,
+            Duration timeout,
+            int bulkheadMaxConcurrent) {
     }
 
     public record OutboundQuota(

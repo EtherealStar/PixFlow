@@ -9,7 +9,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -32,20 +31,5 @@ class SubagentRunnerTest {
         } catch (InterruptedException | ExecutionException | TimeoutException e) {
             throw new AssertionError("Future did not complete: " + e.getMessage(), e);
         }
-    }
-
-    @Test
-    void runAsync_for_vision_includes_type_in_result() {
-        SubagentRunner runner = new SubagentRunner(
-                Executors.newFixedThreadPool(2));
-        SubagentRequest req = SubagentRequest.vision(
-                "conv-1", "tc-1",
-                java.util.List.of("img-1", "img-2"),
-                "describe this image"
-        );
-        SubagentResult result = runner.runAsync(req).join();
-        assertTrue(result.isError());
-        assertEquals("subagent_runtime_unavailable", result.errorMessage());
-        assertEquals(0, result.toolResultCount());
     }
 }

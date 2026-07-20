@@ -9,7 +9,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public class DefaultRunStateRefStore implements RunStateRefStore {
-    private static final Logger log = LoggerFactory.getLogger(DefaultRunStateRefStore.class);
+    private static final Logger LOGGER = LoggerFactory.getLogger(DefaultRunStateRefStore.class);
+
     private final CacheStore cacheStore;
 
     public DefaultRunStateRefStore(CacheStore cacheStore) {
@@ -22,7 +23,7 @@ public class DefaultRunStateRefStore implements RunStateRefStore {
             cacheStore.put(toCacheKey(key), ref, ttl);
         } catch (RuntimeException ex) {
             // 引用写失败只损失下一次避算机会，不能阻断工作单元主流程。
-            log.warn("failed to put state artifact ref, degrade to recompute on next read: {}", key.namespace(), ex);
+            LOGGER.warn("failed to put state artifact ref, degrade to recompute on next read: {}", key.namespace(), ex);
         }
     }
 
@@ -40,7 +41,7 @@ public class DefaultRunStateRefStore implements RunStateRefStore {
             }
             return ref;
         } catch (RuntimeException ex) {
-            log.warn("failed to read state artifact ref, treat as cache miss: {}", key.namespace(), ex);
+            LOGGER.warn("failed to read state artifact ref, treat as cache miss: {}", key.namespace(), ex);
             return Optional.empty();
         }
     }
@@ -50,7 +51,7 @@ public class DefaultRunStateRefStore implements RunStateRefStore {
         try {
             cacheStore.delete(toCacheKey(key));
         } catch (RuntimeException ex) {
-            log.warn("failed to delete state artifact ref, ttl will clean it up: {}", key.namespace(), ex);
+            LOGGER.warn("failed to delete state artifact ref, ttl will clean it up: {}", key.namespace(), ex);
         }
     }
 

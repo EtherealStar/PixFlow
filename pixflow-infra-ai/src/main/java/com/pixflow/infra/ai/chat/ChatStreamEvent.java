@@ -7,7 +7,8 @@ import java.util.List;
 /**
  * chat 流式事件。
  */
-public sealed interface ChatStreamEvent permits ChatStreamEvent.TextDelta, ChatStreamEvent.AttemptReset, ChatStreamEvent.Completed {
+public sealed interface ChatStreamEvent
+        permits ChatStreamEvent.TextDelta, ChatStreamEvent.AttemptReset, ChatStreamEvent.Completed {
     record TextDelta(String text, int blockIndex) implements ChatStreamEvent {
     }
 

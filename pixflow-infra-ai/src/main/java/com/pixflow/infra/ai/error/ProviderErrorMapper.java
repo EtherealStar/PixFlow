@@ -16,7 +16,8 @@ public final class ProviderErrorMapper {
     public ProviderErrorMapper() {
     }
 
-    public static PixFlowException fromHttpStatus(HttpStatusCode status, Throwable cause, HttpHeaders headers, String message) {
+    public static PixFlowException fromHttpStatus(HttpStatusCode status, Throwable cause, HttpHeaders headers,
+            String message) {
         int code = status.value();
         if (code == 429) {
             return exception(AiErrorCode.MODEL_RATE_LIMITED, message, cause, RecoveryHint.RETRY, retryAfter(headers));
@@ -64,7 +65,8 @@ public final class ProviderErrorMapper {
             return false;
         }
         String lower = message.toLowerCase(Locale.ROOT);
-        return lower.contains("context limit") || lower.contains("context_length_exceeded") || lower.contains("token limit");
+        return lower.contains("context limit") || lower.contains("context_length_exceeded")
+                || lower.contains("token limit");
     }
 
     private static boolean containsRateLimit(String message) {

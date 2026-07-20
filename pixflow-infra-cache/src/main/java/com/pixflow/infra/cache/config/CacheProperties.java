@@ -8,16 +8,27 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties(prefix = "pixflow.cache")
 public class CacheProperties {
     private Mode mode = Mode.SINGLE;
+
     private String address = "redis://127.0.0.1:6379";
+
     private String password;
+
     private String envPrefix = "dev";
+
     private Duration defaultTtl = Duration.ofHours(1);
+
     private Duration connectTimeout = Duration.ofSeconds(3);
+
     private Duration timeout = Duration.ofSeconds(3);
+
     private int retryAttempts = 3;
+
     private Duration retryInterval = Duration.ofMillis(1500);
+
     private Pool pool = new Pool();
+
     private Lock lock = new Lock();
+
     private Semaphore semaphore = new Semaphore();
 
     public enum Mode {
@@ -124,6 +135,7 @@ public class CacheProperties {
 
     public static class Pool {
         private int size = 16;
+
         private int minIdle = 4;
 
         public int getSize() {
@@ -157,7 +169,9 @@ public class CacheProperties {
 
     public static class Semaphore {
         private int defaultPermits = 1;
+
         private Duration defaultLeaseTime = Duration.ofMinutes(5);
+
         private Map<String, SemaphoreApi> apis = new LinkedHashMap<>();
 
         public int getDefaultPermits() {
@@ -199,6 +213,7 @@ public class CacheProperties {
 
     public static class SemaphoreApi {
         private int permits;
+
         private Duration leaseTime;
 
         public int getPermits() {

@@ -13,6 +13,7 @@ import java.util.Objects;
 
 public final class RoutingBackgroundRemovalClient implements BackgroundRemovalClient {
     private final ThirdPartyProperties properties;
+
     private final Map<String, BackgroundRemovalProvider> providers;
 
     public RoutingBackgroundRemovalClient(ThirdPartyProperties properties, List<BackgroundRemovalProvider> providers) {

@@ -41,6 +41,7 @@ public class RrfFuser {
 
     private static class Accumulator {
         private final MemoryItem item;
+
         private double score;
 
         private Accumulator(MemoryItem item) {

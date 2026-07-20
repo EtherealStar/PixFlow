@@ -14,7 +14,7 @@ import java.util.concurrent.ExecutorService;
  *
  * <p>对应 {@code agent.md §八}：
  * <ol>
- *   <li>{@code agent} 工具（VISION / EXPLORE）</li>
+ *   <li>{@code agent(type=explore)} 工具</li>
  *   <li>{@code SummarizationPort}（destructive compaction 摘要）</li>
  *   <li>{@code SessionMemoryExtractionService}（Session Memory 累积提取）</li>
  * </ol>

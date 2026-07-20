@@ -23,36 +23,80 @@ public final class ThirdPartyErrorMapper {
             return pixFlowException;
         }
         if (error instanceof RestClientResponseException responseException) {
-            return fromStatus(responseException.getStatusCode(), responseException.getResponseHeaders(), responseException.getResponseBodyAsString(), responseException);
+            return fromStatus(
+                    responseException.getStatusCode(),
+                    responseException.getResponseHeaders(),
+                    responseException.getResponseBodyAsString(),
+                    responseException);
         }
         if (error instanceof CallNotPermittedException) {
-            return exception(ThirdPartyErrorCode.THIRDPARTY_CIRCUIT_OPEN, "circuit open", error, RecoveryHint.SKIP, null);
+            return exception(
+                    ThirdPartyErrorCode.THIRDPARTY_CIRCUIT_OPEN,
+                    "circuit open",
+                    error,
+                    RecoveryHint.SKIP,
+                    null);
         }
         if (error instanceof BulkheadFullException) {
-            return exception(ThirdPartyErrorCode.THIRDPARTY_PROVIDER_ERROR, "bulkhead full", error, RecoveryHint.RETRY, null);
+            return exception(
+                    ThirdPartyErrorCode.THIRDPARTY_PROVIDER_ERROR,
+                    "bulkhead full",
+                    error,
+                    RecoveryHint.RETRY,
+                    null);
         }
         if (error instanceof SocketTimeoutException) {
-            return exception(ThirdPartyErrorCode.THIRDPARTY_PROVIDER_TIMEOUT, "socket timeout", error, RecoveryHint.RETRY, null);
+            return exception(
+                    ThirdPartyErrorCode.THIRDPARTY_PROVIDER_TIMEOUT,
+                    "socket timeout",
+                    error,
+                    RecoveryHint.RETRY,
+                    null);
         }
         if (error instanceof java.util.concurrent.TimeoutException) {
-            return exception(ThirdPartyErrorCode.THIRDPARTY_PROVIDER_TIMEOUT, "timeout", error, RecoveryHint.RETRY, null);
+            return exception(
+                    ThirdPartyErrorCode.THIRDPARTY_PROVIDER_TIMEOUT,
+                    "timeout",
+                    error,
+                    RecoveryHint.RETRY,
+                    null);
         }
         if (error instanceof RestClientException) {
-            return exception(ThirdPartyErrorCode.THIRDPARTY_NETWORK_ERROR, "http client error", error, RecoveryHint.RETRY, null);
+            return exception(
+                    ThirdPartyErrorCode.THIRDPARTY_NETWORK_ERROR,
+                    "http client error",
+                    error,
+                    RecoveryHint.RETRY,
+                    null);
         }
-        return exception(ThirdPartyErrorCode.THIRDPARTY_PROVIDER_ERROR, "thirdparty failure", error, RecoveryHint.RETRY, null);
+        return exception(
+                ThirdPartyErrorCode.THIRDPARTY_PROVIDER_ERROR,
+                "thirdparty failure",
+                error,
+                RecoveryHint.RETRY,
+                null);
     }
 
     public PixFlowException fromStatus(HttpStatusCode status, HttpHeaders headers, String message, Throwable cause) {
         int code = status.value();
         if (code == 429) {
-            return exception(ThirdPartyErrorCode.THIRDPARTY_RATE_LIMITED, message, cause, RecoveryHint.RETRY, retryAfter(headers));
+            return exception(
+                    ThirdPartyErrorCode.THIRDPARTY_RATE_LIMITED,
+                    message,
+                    cause,
+                    RecoveryHint.RETRY,
+                    retryAfter(headers));
         }
         if (code == 401 || code == 403) {
             return exception(ThirdPartyErrorCode.THIRDPARTY_AUTH_ERROR, message, cause, RecoveryHint.TERMINATE, null);
         }
         if (code == 501 || code == 505) {
-            return exception(ThirdPartyErrorCode.THIRDPARTY_PROVIDER_ERROR, message, cause, RecoveryHint.TERMINATE, null);
+            return exception(
+                    ThirdPartyErrorCode.THIRDPARTY_PROVIDER_ERROR,
+                    message,
+                    cause,
+                    RecoveryHint.TERMINATE,
+                    null);
         }
         if (code >= 500) {
             return exception(ThirdPartyErrorCode.THIRDPARTY_PROVIDER_ERROR, message, cause, RecoveryHint.RETRY, null);

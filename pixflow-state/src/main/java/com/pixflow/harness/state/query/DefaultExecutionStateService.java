@@ -13,9 +13,13 @@ import java.time.Instant;
 
 public class DefaultExecutionStateService implements ExecutionStateService {
     private final CheckpointReadPort checkpointReadPort;
+
     private final ProgressReader progressReader;
+
     private final CancellationReader cancellationReader;
+
     private final StateMetrics metrics;
+
     private final Clock clock;
 
     public DefaultExecutionStateService(
@@ -36,7 +40,9 @@ public class DefaultExecutionStateService implements ExecutionStateService {
         long started = System.nanoTime();
         try {
             var status = checkpointReadPort.loadTaskStatus(taskId)
-                    .orElseThrow(() -> new PixFlowException(StateErrorCode.STATE_TASK_NOT_FOUND, "Task not found: " + taskId));
+                    .orElseThrow(() -> new PixFlowException(
+                            StateErrorCode.STATE_TASK_NOT_FOUND,
+                            "Task not found: " + taskId));
             ProgressView progress = progressReader.read(taskId);
             boolean cancelRequested = cancellationReader.isCancelRequested(taskId);
             ExecutionStateSnapshot snapshot = new ExecutionStateSnapshot(

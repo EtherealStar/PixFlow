@@ -21,6 +21,7 @@ import org.springframework.web.client.RestClientException;
 
 public final class ThirdPartyResilienceRegistry {
     private final ThirdPartyProperties properties;
+
     private final ConcurrentMap<String, ResilienceSet> cache = new ConcurrentHashMap<>();
 
     public ThirdPartyResilienceRegistry(ThirdPartyProperties properties) {
@@ -35,7 +36,9 @@ public final class ThirdPartyResilienceRegistry {
         ThirdPartyProperties.Provider provider = properties.providers().get(providerId);
         ThirdPartyProperties.Resilience base = properties.resilience();
         ThirdPartyProperties.ResilienceOverride override = provider == null ? null : provider.resilienceOverride();
-        int maxAttempts = override != null && override.maxAttempts() != null ? override.maxAttempts() : base.maxAttempts();
+        int maxAttempts = override != null && override.maxAttempts() != null
+                ? override.maxAttempts()
+                : base.maxAttempts();
         Duration baseDelay = override != null && override.baseDelay() != null ? override.baseDelay() : base.baseDelay();
 
         RetryConfig retryConfig = RetryConfig.custom()
@@ -79,8 +82,10 @@ public final class ThirdPartyResilienceRegistry {
         }
         if (throwable instanceof PixFlowException exception) {
             return exception.code() == com.pixflow.infra.thirdparty.error.ThirdPartyErrorCode.THIRDPARTY_RATE_LIMITED
-                    || exception.code() == com.pixflow.infra.thirdparty.error.ThirdPartyErrorCode.THIRDPARTY_LOCAL_RATE_LIMITED
-                    || exception.code() == com.pixflow.infra.thirdparty.error.ThirdPartyErrorCode.THIRDPARTY_QUOTA_UNAVAILABLE;
+                    || exception.code() == com.pixflow.infra.thirdparty.error.ThirdPartyErrorCode
+                            .THIRDPARTY_LOCAL_RATE_LIMITED
+                    || exception.code() == com.pixflow.infra.thirdparty.error.ThirdPartyErrorCode
+                            .THIRDPARTY_QUOTA_UNAVAILABLE;
         }
         return false;
     }

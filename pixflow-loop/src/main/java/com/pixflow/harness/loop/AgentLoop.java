@@ -609,7 +609,7 @@ public final class AgentLoop {
         }
         Integer maxTokens = maxOutputTokensOverride();
         ChatOptions options = new ChatOptions(null, maxTokens, Duration.ofSeconds(60));
-        return new ChatRequest(ModelRole.PRIMARY_CHAT, messages, schemas, null, options);
+        return new ChatRequest(ModelRole.PRIMARY_CHAT, messages, schemas, null, options, null);
     }
 
     private ChatMessage toChatMessage(Message msg) {

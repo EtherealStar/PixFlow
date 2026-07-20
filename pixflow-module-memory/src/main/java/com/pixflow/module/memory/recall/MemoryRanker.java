@@ -9,6 +9,7 @@ import java.util.List;
 
 public class MemoryRanker {
     private final MemoryProperties properties;
+
     private final Clock clock;
 
     public MemoryRanker(MemoryProperties properties, Clock clock) {

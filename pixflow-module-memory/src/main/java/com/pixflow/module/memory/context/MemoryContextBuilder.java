@@ -18,13 +18,19 @@ import java.util.Objects;
 
 public class MemoryContextBuilder {
     public static final String USER_PREFERENCES = "user_preferences";
+
     public static final String SKU_HISTORY = "sku_history";
+
     public static final String ANALYSIS_INSIGHTS = "analysis_insights";
 
     private final RecallSignalExtractor signalExtractor;
+
     private final RecallPlanner planner;
+
     private final PreferenceService preferenceService;
+
     private final SkuHistoryService skuHistoryService;
+
     private final InsightRecallService insightRecallService;
 
     public MemoryContextBuilder(

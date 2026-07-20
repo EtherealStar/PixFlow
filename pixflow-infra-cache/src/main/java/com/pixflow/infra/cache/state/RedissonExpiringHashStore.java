@@ -16,6 +16,7 @@ import org.redisson.client.codec.StringCodec;
 
 public final class RedissonExpiringHashStore implements ExpiringHashStore {
     private final RedissonClient redissonClient;
+
     private final ObjectMapper objectMapper;
 
     public RedissonExpiringHashStore(RedissonClient redissonClient, ObjectMapper objectMapper) {
@@ -106,15 +107,29 @@ public final class RedissonExpiringHashStore implements ExpiringHashStore {
     }
 
     private static void requireTtl(Duration ttl) {
-        if (ttl == null || ttl.isZero() || ttl.isNegative()) throw new IllegalArgumentException("ttl 必须为正数");
+        if (ttl == null || ttl.isZero() || ttl.isNegative()) {
+            throw new IllegalArgumentException("ttl 必须为正数");
+        }
     }
 
     private static CacheException serialization(String operation, CacheKey key, Exception ex) {
-        return new CacheException(CacheErrorCode.CACHE_SERIALIZATION_FAILED, operation, key.namespace(), "Hash 状态序列化失败", ex);
+        return new CacheException(
+                CacheErrorCode.CACHE_SERIALIZATION_FAILED,
+                operation,
+                key.namespace(),
+                "Hash 状态序列化失败",
+                ex);
     }
 
     private static CacheException unavailable(String operation, CacheKey key, RuntimeException ex) {
-        if (ex instanceof CacheException cacheException) return cacheException;
-        return new CacheException(CacheErrorCode.CACHE_REDIS_UNAVAILABLE, operation, key.namespace(), "Redis Hash 状态操作失败", ex);
+        if (ex instanceof CacheException cacheException) {
+            return cacheException;
+        }
+        return new CacheException(
+                CacheErrorCode.CACHE_REDIS_UNAVAILABLE,
+                operation,
+                key.namespace(),
+                "Redis Hash 状态操作失败",
+                ex);
     }
 }

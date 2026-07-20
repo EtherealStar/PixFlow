@@ -23,6 +23,7 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -95,6 +96,7 @@ class DefaultChatModelClientTest {
                         "submit plan",
                         "{\"type\":\"object\",\"properties\":{\"a\":{\"type\":\"number\"}}}")),
                 null,
+                null,
                 null);
 
         StepVerifier.create(client.stream(request))
@@ -109,6 +111,29 @@ class DefaultChatModelClientTest {
         assertThat(requestBody.path("tools").get(0).path("function").path("name").asText())
                 .isEqualTo("submit_image_plan");
         assertThat(requestBody.path("tool_choice").asText()).isEqualTo("auto");
+    }
+
+    @Test
+    void reservesRequestBudgetImmediatelyBeforeTheProviderAttempt() throws Exception {
+        String stream = """
+                data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}
+
+                """;
+        DefaultChatModelClient client = clientRespondingWith(stream);
+        AtomicInteger reservations = new AtomicInteger();
+        ChatRequest request = new ChatRequest(
+                null,
+                List.of(new ChatMessage(ChatMessage.Role.USER, List.of(new ChatMessage.TextPart("hello")))),
+                null,
+                null,
+                null,
+                reservations::incrementAndGet);
+
+        StepVerifier.create(client.stream(request))
+                .expectNextMatches(ChatStreamEvent.Completed.class::isInstance)
+                .verifyComplete();
+
+        assertThat(reservations).hasValue(1);
     }
 
     @Test
@@ -127,6 +152,7 @@ class DefaultChatModelClientTest {
                         new ChatMessage(ChatMessage.Role.TOOL, List.of(
                                 new ChatMessage.ToolResultPart("tc1", "result")))),
                 List.of(new ToolSchema("search", "search", "{\"type\":\"object\"}")),
+                null,
                 null,
                 null);
 
@@ -228,6 +254,7 @@ class DefaultChatModelClientTest {
         return new ChatRequest(
                 null,
                 List.of(new ChatMessage(ChatMessage.Role.USER, List.of(new ChatMessage.TextPart("hello")))),
+                null,
                 null,
                 null,
                 null);

@@ -23,6 +23,7 @@ import java.util.Objects;
 public final class ReactiveCompactionGate {
 
     private final ContextCompactionService compactionService;
+
     private final LoopProperties properties;
 
     public ReactiveCompactionGate(ContextCompactionService compactionService,

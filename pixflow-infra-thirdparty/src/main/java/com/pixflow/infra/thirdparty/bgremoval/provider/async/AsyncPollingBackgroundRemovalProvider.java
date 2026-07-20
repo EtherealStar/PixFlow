@@ -32,13 +32,21 @@ import org.springframework.web.util.UriUtils;
 
 public final class AsyncPollingBackgroundRemovalProvider implements BackgroundRemovalProvider {
     private static final String API = "bg-removal";
+
     private final String providerId;
+
     private final ThirdPartyProperties.Provider properties;
+
     private final ThirdPartyCallTemplate callTemplate;
+
     private final RestClientThirdPartyHttpInvoker httpInvoker;
+
     private final ThirdPartyAuthStrategy authStrategy;
+
     private final ThirdPartyErrorMapper errorMapper;
+
     private final ThirdPartyMetrics metrics;
+
     private final ObjectMapper objectMapper;
 
     public AsyncPollingBackgroundRemovalProvider(
@@ -122,7 +130,11 @@ public final class AsyncPollingBackgroundRemovalProvider implements BackgroundRe
         ThirdPartyHttpRequest httpRequest = mutableRequest.toImmutable();
         ThirdPartyHttpResponse response = httpInvoker.exchange(httpRequest);
         if (response.statusCode() >= 400) {
-            throw errorMapper.fromStatus(org.springframework.http.HttpStatusCode.valueOf(response.statusCode()), response.headers(), new String(response.body(), StandardCharsets.UTF_8), null);
+            throw errorMapper.fromStatus(
+                    org.springframework.http.HttpStatusCode.valueOf(response.statusCode()),
+                    response.headers(),
+                    new String(response.body(), StandardCharsets.UTF_8),
+                    null);
         }
         try {
             JsonNode root = objectMapper.readTree(response.body());
@@ -142,7 +154,11 @@ public final class AsyncPollingBackgroundRemovalProvider implements BackgroundRe
         ThirdPartyHttpRequest httpRequest = mutableRequest.toImmutable();
         ThirdPartyHttpResponse response = httpInvoker.exchange(httpRequest);
         if (response.statusCode() >= 400) {
-            throw errorMapper.fromStatus(org.springframework.http.HttpStatusCode.valueOf(response.statusCode()), response.headers(), new String(response.body(), StandardCharsets.UTF_8), null);
+            throw errorMapper.fromStatus(
+                    org.springframework.http.HttpStatusCode.valueOf(response.statusCode()),
+                    response.headers(),
+                    new String(response.body(), StandardCharsets.UTF_8),
+                    null);
         }
         try {
             JsonNode root = objectMapper.readTree(response.body());
@@ -152,7 +168,11 @@ public final class AsyncPollingBackgroundRemovalProvider implements BackgroundRe
                 String base64 = field == null ? null : root.path(field).asText(null);
                 if (base64 == null && polling.resultUrlField() != null) {
                     String resultUrl = root.path(polling.resultUrlField()).asText(null);
-                    return new BackgroundRemovalResult(resultUrl == null ? new byte[0] : resultUrl.getBytes(StandardCharsets.UTF_8), "text/plain", new ThirdPartyUsage(null, Map.of("resultUrl", resultUrl)), Map.of());
+                    return new BackgroundRemovalResult(
+                            resultUrl == null ? new byte[0] : resultUrl.getBytes(StandardCharsets.UTF_8),
+                            "text/plain",
+                            new ThirdPartyUsage(null, Map.of("resultUrl", resultUrl)),
+                            Map.of());
                 }
                 byte[] image = Base64.getDecoder().decode(base64);
                 return new BackgroundRemovalResult(image, "image/png", new ThirdPartyUsage(null, Map.of()), Map.of());

@@ -15,10 +15,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public class RedissonDistributedSemaphore implements DistributedSemaphore {
-    private static final Logger log = LoggerFactory.getLogger(RedissonDistributedSemaphore.class);
+    private static final Logger LOGGER = LoggerFactory.getLogger(RedissonDistributedSemaphore.class);
 
     private final RedissonClient redissonClient;
+
     private final CacheProperties.Semaphore semaphoreProperties;
+
     private final CacheMetrics metrics;
 
     public RedissonDistributedSemaphore(
@@ -48,18 +50,32 @@ public class RedissonDistributedSemaphore implements DistributedSemaphore {
             if (permitIds == null || permitIds.size() != permits) {
                 releasePartial(semaphore, permitIds, api);
                 metrics.recordSemaphore(api, "timeout");
-                throw new CacheException(CacheErrorCode.CACHE_SEMAPHORE_TIMEOUT, "acquire", key.namespace(), "获取 Redis 信号量超时");
+                throw new CacheException(
+                        CacheErrorCode.CACHE_SEMAPHORE_TIMEOUT,
+                        "acquire",
+                        key.namespace(),
+                        "获取 Redis 信号量超时");
             }
             metrics.recordSemaphore(api, "acquired");
             return new RedissonPermit(semaphore, permitIds, api, metrics);
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
-            throw new CacheException(CacheErrorCode.CACHE_SEMAPHORE_FAILED, "acquire", key.namespace(), "获取 Redis 信号量被中断", ex);
+            throw new CacheException(
+                    CacheErrorCode.CACHE_SEMAPHORE_FAILED,
+                    "acquire",
+                    key.namespace(),
+                    "获取 Redis 信号量被中断",
+                    ex);
         } catch (CacheException ex) {
             throw ex;
         } catch (RuntimeException ex) {
             metrics.recordSemaphore(api, "error");
-            throw new CacheException(CacheErrorCode.CACHE_SEMAPHORE_FAILED, "acquire", key.namespace(), "获取 Redis 信号量失败", ex);
+            throw new CacheException(
+                    CacheErrorCode.CACHE_SEMAPHORE_FAILED,
+                    "acquire",
+                    key.namespace(),
+                    "获取 Redis 信号量失败",
+                    ex);
         }
     }
 
@@ -77,19 +93,27 @@ public class RedissonDistributedSemaphore implements DistributedSemaphore {
             semaphore.release(permitIds);
             metrics.recordSemaphore(api, "partial_released");
         } catch (RuntimeException ex) {
-            log.warn("redis semaphore partial release failed, api={}", api, ex);
+            LOGGER.warn("redis semaphore partial release failed, api={}", api, ex);
             metrics.recordSemaphore(api, "partial_release_error");
         }
     }
 
     private static final class RedissonPermit implements Permit {
         private final RPermitExpirableSemaphore semaphore;
+
         private final List<String> permitIds;
+
         private final String api;
+
         private final CacheMetrics metrics;
+
         private final AtomicBoolean closed = new AtomicBoolean(false);
 
-        private RedissonPermit(RPermitExpirableSemaphore semaphore, List<String> permitIds, String api, CacheMetrics metrics) {
+        private RedissonPermit(
+                RPermitExpirableSemaphore semaphore,
+                List<String> permitIds,
+                String api,
+                CacheMetrics metrics) {
             this.semaphore = semaphore;
             this.permitIds = List.copyOf(permitIds);
             this.api = api;
@@ -105,7 +129,7 @@ public class RedissonDistributedSemaphore implements DistributedSemaphore {
                 semaphore.release(permitIds);
                 metrics.recordSemaphore(api, "released");
             } catch (RuntimeException ex) {
-                log.warn("redis semaphore release failed, api={}", api, ex);
+                LOGGER.warn("redis semaphore release failed, api={}", api, ex);
                 metrics.recordSemaphore(api, "release_error");
             }
         }

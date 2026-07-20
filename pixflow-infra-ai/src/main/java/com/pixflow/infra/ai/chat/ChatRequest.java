@@ -2,6 +2,7 @@ package com.pixflow.infra.ai.chat;
 
 import com.pixflow.infra.ai.model.ChatOptions;
 import com.pixflow.infra.ai.model.ModelRole;
+import com.pixflow.infra.ai.resilience.AttemptBudget;
 import java.util.List;
 import java.util.Objects;
 
@@ -13,12 +14,14 @@ public record ChatRequest(
         List<ChatMessage> messages,
         List<ToolSchema> toolSchemas,
         ToolChoice toolChoice,
-        ChatOptions options) {
+        ChatOptions options,
+        AttemptBudget attemptBudget) {
 
     public ChatRequest {
         role = role == null ? ModelRole.PRIMARY_CHAT : role;
         messages = List.copyOf(Objects.requireNonNull(messages, "messages"));
         toolSchemas = toolSchemas == null ? List.of() : List.copyOf(toolSchemas);
         toolChoice = toolChoice == null ? ToolChoice.AUTO : toolChoice;
+        attemptBudget = attemptBudget == null ? AttemptBudget.unbounded() : attemptBudget;
     }
 }

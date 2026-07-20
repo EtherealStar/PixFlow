@@ -21,15 +21,23 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties(prefix = "pixflow.loop")
 public class LoopProperties {
     public static final int MAX_TOOL_CONCURRENCY_POOL_SIZE = 64;
+
     public static final int MAX_TOOL_QUEUE_CAPACITY = 10_000;
+
     public static final int MAX_ESCALATED_OUTPUT_TOKENS = 128_000;
 
     private int maxOutputRecoveryLimit = 3;
+
     private int escalatedMaxOutputTokens = 64_000;
+
     private boolean emitToolInputPreview = true;
+
     private int toolConcurrencyPoolSize = 8;
+
     private int toolQueueCapacity = 256;
+
     private int toolShutdownTimeoutSeconds = 30;
+
     private String compactionSource = "loop.reactive";
 
     public int maxOutputRecoveryLimit() {

@@ -27,10 +27,15 @@ import java.util.Objects;
  */
 public final class DefaultEmbeddingClient implements EmbeddingClient {
     private final ModelRouter modelRouter;
+
     private final ModelRetryRunner retryRunner;
+
     private final ConcurrencyGuard concurrencyGuard;
+
     private final ModelQuotaGuard quotaGuard;
+
     private final AiMetrics metrics;
+
     private final DashScopeHttpClient httpClient;
 
     public DefaultEmbeddingClient(
@@ -132,7 +137,9 @@ public final class DefaultEmbeddingClient implements EmbeddingClient {
 
     private static final class AiMetricsCall {
         private final AiMetrics metrics;
+
         private final ResolvedModel model;
+
         private final io.micrometer.core.instrument.Timer.Sample sample;
 
         private AiMetricsCall(AiMetrics metrics, ResolvedModel model) {

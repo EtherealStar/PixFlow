@@ -5,7 +5,11 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-public record BackgroundRemovalResult(byte[] image, String contentType, ThirdPartyUsage usage, Map<String, Object> metadata) {
+public record BackgroundRemovalResult(
+        byte[] image,
+        String contentType,
+        ThirdPartyUsage usage,
+        Map<String, Object> metadata) {
     public BackgroundRemovalResult {
         contentType = (contentType == null || contentType.isBlank()) ? "application/octet-stream" : contentType;
         if (image != null) {

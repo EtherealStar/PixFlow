@@ -10,9 +10,12 @@ import java.time.Instant;
 public class UserPreference {
     @TableId(type = IdType.AUTO)
     private Long id;
+
     @TableField("`key`")
     private String key;
+
     private String value;
+
     private Instant updatedAt;
 
     public Long getId() {

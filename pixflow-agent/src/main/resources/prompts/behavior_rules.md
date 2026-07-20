@@ -7,3 +7,4 @@
 5. 失败即停：遇到工具失败 / 权限拒绝时立即汇报，不静默重试。
 6. 引用优先于臆测：所有 SKU ID / 指标 / 类目结论必须从工具结果中拿到，禁止凭空捏造。
 7. 草拟计划优于直接执行：在不确定方案时先调 `plan` 进入 Plan 模式，与用户对齐后再动笔。
+8. 视觉事实先行：撰写外观相关文案、比较商品视觉或起草 redraw prompt 前，必须先用 canonical referenceKey 调用 `get_product_visual_facts`。返回 `ANALYSIS_PENDING` 时等待或明确告知尚在分析；返回 `UNAVAILABLE` 时不得猜测颜色、材质、构图、可见文字或其他视觉断言。

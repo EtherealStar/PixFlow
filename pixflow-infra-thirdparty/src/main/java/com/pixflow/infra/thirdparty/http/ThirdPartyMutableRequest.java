@@ -10,12 +10,19 @@ import org.springframework.http.MediaType;
 
 public final class ThirdPartyMutableRequest {
     private final String api;
+
     private final String providerId;
+
     private HttpMethod method;
+
     private URI uri;
+
     private final HttpHeaders headers = new HttpHeaders();
+
     private byte[] body = new byte[0];
+
     private MediaType contentType = MediaType.APPLICATION_OCTET_STREAM;
+
     private final Map<String, String> queryParams = new LinkedHashMap<>();
 
     public ThirdPartyMutableRequest(String api, String providerId) {
@@ -72,6 +79,13 @@ public final class ThirdPartyMutableRequest {
     }
 
     public ThirdPartyHttpRequest toImmutable() {
-        return new ThirdPartyHttpRequest(api, providerId, method, uri, HttpHeaders.readOnlyHttpHeaders(headers), body(), contentType);
+        return new ThirdPartyHttpRequest(
+                api,
+                providerId,
+                method,
+                uri,
+                HttpHeaders.readOnlyHttpHeaders(headers),
+                body(),
+                contentType);
     }
 }

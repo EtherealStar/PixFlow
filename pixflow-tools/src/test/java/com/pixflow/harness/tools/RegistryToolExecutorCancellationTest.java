@@ -68,7 +68,7 @@ class RegistryToolExecutorCancellationTest {
         when(hooks.dispatch(any(), any())).thenReturn(HookResult.noop());
         RegistryToolExecutor executor = new RegistryToolExecutor(
                 registry(Map.of(descriptor.name(), descriptor)), permission, hooks,
-                mock(ToolResultStorage.class), event -> { }, () -> false,
+                mock(ToolResultStorage.class), () -> false,
                 new ToolsProperties());
         PermissionContext permissionContext = new PermissionContext(
                 new PermissionPrincipal("42", "admin"), PermissionRuntimeScope.MAIN,
@@ -117,7 +117,6 @@ class RegistryToolExecutorCancellationTest {
                 permission,
                 hooks,
                 mock(ToolResultStorage.class),
-                event -> { },
                 () -> true,
                 new ToolsProperties());
         PermissionContext permissionContext = new PermissionContext(
@@ -176,7 +175,6 @@ class RegistryToolExecutorCancellationTest {
                 permission,
                 hooks,
                 mock(ToolResultStorage.class),
-                mock(ToolTraceSink.class),
                 null,
                 new ToolsProperties());
         CancellationSource cancellation = new CancellationSource();

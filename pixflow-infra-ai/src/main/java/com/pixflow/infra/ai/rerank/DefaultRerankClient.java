@@ -26,10 +26,15 @@ import java.util.Objects;
  */
 public final class DefaultRerankClient implements RerankClient {
     private final ModelRouter modelRouter;
+
     private final ModelRetryRunner retryRunner;
+
     private final ConcurrencyGuard concurrencyGuard;
+
     private final ModelQuotaGuard quotaGuard;
+
     private final AiMetrics metrics;
+
     private final DashScopeHttpClient httpClient;
 
     public DefaultRerankClient(
@@ -71,7 +76,8 @@ public final class DefaultRerankClient implements RerankClient {
                 payload.put("model", model.model());
                 payload.put("query", query);
                 payload.put("documents", candidates);
-                return httpClient.postApiJson(model, "/api/v1/services/rerank/text-rerank/text-rerank", payload, model.timeout())
+                return httpClient.postApiJson(model,
+                        "/api/v1/services/rerank/text-rerank/text-rerank", payload, model.timeout())
                         .map(this::parse)
                         .doOnSuccess(result -> call.record(true, result))
                         .doOnError(error -> call.record(false, null))
@@ -140,7 +146,9 @@ public final class DefaultRerankClient implements RerankClient {
 
     private static final class AiMetricsCall {
         private final AiMetrics metrics;
+
         private final ResolvedModel model;
+
         private final io.micrometer.core.instrument.Timer.Sample sample;
 
         private AiMetricsCall(AiMetrics metrics, ResolvedModel model) {

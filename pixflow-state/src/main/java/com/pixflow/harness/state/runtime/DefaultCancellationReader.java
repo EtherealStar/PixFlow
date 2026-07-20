@@ -7,6 +7,7 @@ import com.pixflow.infra.cache.store.CacheStore;
 
 public class DefaultCancellationReader implements CancellationReader {
     private final CacheStore cacheStore;
+
     private final TaskRuntimeKeyPort keyPort;
 
     public DefaultCancellationReader(CacheStore cacheStore, TaskRuntimeKeyPort keyPort) {

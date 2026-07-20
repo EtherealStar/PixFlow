@@ -9,20 +9,35 @@ import java.time.Instant;
 public class AnalysisInsight {
     @TableId(type = IdType.AUTO)
     private Long id;
+
     private String text;
+
     private String category;
+
     private String source;
+
     private Double confidence;
+
     private String relatedSku;
+
     private String contentHash;
+
     private Double importance;
+
     private AnalysisInsightStatus status;
+
     private Integer accessCount;
+
     private Instant lastRecalledAt;
+
     private Instant lastReinforcedAt;
+
     private Double decayScore;
+
     private Instant createdAt;
+
     private Instant updatedAt;
+
     private Instant expiresAt;
 
     public Long getId() {

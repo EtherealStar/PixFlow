@@ -142,6 +142,8 @@ public final class DefaultChatModelClient implements ChatModelClient {
             AtomicBoolean recorded = new AtomicBoolean(false);
             try {
                 quotaGuard.tryConsume(model);
+                // 额度准入成功后、出站请求前预留；重试会再次经过此处。
+                request.attemptBudget().reserve();
                 return webClient.post()
                         .uri(chatCompletionsUri(baseUrl))
                         .contentType(MediaType.APPLICATION_JSON)
@@ -260,7 +262,9 @@ public final class DefaultChatModelClient implements ChatModelClient {
             if (part instanceof ChatMessage.TextPart text) {
                 content.add(Map.of("type", "text", "text", text.text()));
             } else if (part instanceof ChatMessage.ImagePart image) {
-                content.add(Map.of("type", "image_url", "image_url", Map.of("url", ProviderPayloads.imageUrl(image.content()))));
+                content.add(Map.of(
+                        "type", "image_url",
+                        "image_url", Map.of("url", ProviderPayloads.imageUrl(image.content()))));
             }
         }
         value.put("content", content);
@@ -326,9 +330,13 @@ public final class DefaultChatModelClient implements ChatModelClient {
 
     private static final class StreamState {
         private final ObjectMapper objectMapper;
+
         private final StringBuilder finalText = new StringBuilder();
+
         private final ToolCallAccumulator toolCallAccumulator;
+
         private TokenUsage usage = new TokenUsage(0, 0, 0);
+
         private boolean completed;
 
         private StreamState(ObjectMapper objectMapper) {
@@ -436,7 +444,9 @@ public final class DefaultChatModelClient implements ChatModelClient {
 
     private static final class AiMetricsCall {
         private final AiMetrics metrics;
+
         private final ResolvedModel model;
+
         private final io.micrometer.core.instrument.Timer.Sample sample;
 
         private AiMetricsCall(AiMetrics metrics, ResolvedModel model) {

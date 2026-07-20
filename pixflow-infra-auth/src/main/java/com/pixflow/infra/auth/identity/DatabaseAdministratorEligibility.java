@@ -5,6 +5,7 @@ import com.pixflow.infra.auth.context.AuthPrincipal;
 import com.pixflow.infra.auth.persistence.UserAccountEntity;
 import com.pixflow.infra.auth.persistence.UserAccountMapper;
 import com.pixflow.infra.auth.persistence.UserAccountStatus;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 
 public final class DatabaseAdministratorEligibility implements AdministratorEligibility {
     private final UserAccountMapper userMapper;
@@ -14,6 +15,17 @@ public final class DatabaseAdministratorEligibility implements AdministratorElig
     public DatabaseAdministratorEligibility(UserAccountMapper userMapper, AuthProperties properties) {
         this.userMapper = userMapper;
         this.properties = properties;
+    }
+
+    @Override
+    public AuthPrincipal current() {
+        UserAccountEntity account = userMapper.selectOne(new LambdaQueryWrapper<UserAccountEntity>()
+                .eq(UserAccountEntity::getUsername, properties.getAdminUsername())
+                .last("limit 1"));
+        if (account == null) {
+            throw new AdministratorIneligibleException();
+        }
+        return requireEligible(account.getId());
     }
 
     @Override

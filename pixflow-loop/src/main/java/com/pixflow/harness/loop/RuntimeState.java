@@ -37,13 +37,21 @@ import java.util.Map;
  */
 public final class RuntimeState {
     private TokenUsage usage = tokenUsage(0, 0, 0);
+
     private int iterationCount;
+
     private boolean hasAttemptedReactiveCompact;
+
     private int maxOutputRecoveryCount;
+
     private boolean hasEscalatedMaxOutput;
+
     private TransitionReason lastTransition;
+
     private String conversationId;
+
     private RuntimeScope runtimeScope;
+
     private PermissionPrincipal permissionPrincipal;
 
     private PermissionPlanMode permissionPlanMode = PermissionPlanMode.OFF;

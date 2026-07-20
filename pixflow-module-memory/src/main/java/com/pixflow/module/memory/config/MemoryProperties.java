@@ -5,6 +5,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties(prefix = "pixflow.memory")
 public class MemoryProperties {
     private final Prompt prompt = new Prompt();
+
     private final Insight insight = new Insight();
 
     public Prompt getPrompt() {

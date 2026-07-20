@@ -29,12 +29,19 @@ import org.springframework.http.MediaType;
 
 public final class RemoveBgBackgroundRemovalProvider implements BackgroundRemovalProvider {
     private static final String API = "bg-removal";
+
     private final String providerId;
+
     private final ThirdPartyProperties.Provider properties;
+
     private final ThirdPartyCallTemplate callTemplate;
+
     private final RestClientThirdPartyHttpInvoker httpInvoker;
+
     private final ThirdPartyAuthStrategy authStrategy;
+
     private final ThirdPartyErrorMapper errorMapper;
+
     private final ThirdPartyMetrics metrics;
 
     public RemoveBgBackgroundRemovalProvider(
@@ -99,7 +106,11 @@ public final class RemoveBgBackgroundRemovalProvider implements BackgroundRemova
                         null);
             }
             metrics.recordResponseBytes(API, providerId, response.body().length);
-            return new BackgroundRemovalResult(response.body(), contentType(response), new ThirdPartyUsage(null, Map.of()), Map.of());
+            return new BackgroundRemovalResult(
+                    response.body(),
+                    contentType(response),
+                    new ThirdPartyUsage(null, Map.of()),
+                    Map.of());
         });
     }
 

@@ -19,6 +19,7 @@ public enum LoopErrorCode implements ErrorCode {
     LOOP_TURN_BOUNDARY_VIOLATION("LOOP_TURN_BOUNDARY_VIOLATION", ErrorCategory.INTERNAL);
 
     private final String code;
+
     private final ErrorCategory category;
 
     LoopErrorCode(String code, ErrorCategory category) {

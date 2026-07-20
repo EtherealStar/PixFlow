@@ -7,8 +7,6 @@ import com.pixflow.harness.tools.ToolExecutor;
 import com.pixflow.harness.tools.RegistryToolExecutor;
 import com.pixflow.harness.tools.ToolRegistry;
 import com.pixflow.harness.tools.plan.PlanModeView;
-import com.pixflow.harness.tools.result.NoopToolTraceSink;
-import com.pixflow.harness.tools.result.ToolTraceSink;
 import com.pixflow.infra.storage.toolresult.ToolResultStorage;
 import java.util.List;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
@@ -30,12 +28,6 @@ public class ToolsAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public ToolTraceSink toolTraceSink() {
-        return new NoopToolTraceSink();
-    }
-
-    @Bean
-    @ConditionalOnMissingBean
     public PlanModeView planModeView() {
         return () -> false;
     }
@@ -47,7 +39,6 @@ public class ToolsAutoConfiguration {
             com.pixflow.harness.permission.PermissionPolicy permissionPolicy,
             HookRegistry hookRegistry,
             ToolResultStorage resultStorage,
-            ToolTraceSink traceSink,
             PlanModeView planModeView,
             ToolsProperties properties) {
         return new RegistryToolExecutor(
@@ -55,7 +46,6 @@ public class ToolsAutoConfiguration {
                 permissionPolicy,
                 hookRegistry,
                 resultStorage,
-                traceSink,
                 planModeView,
                 properties);
     }

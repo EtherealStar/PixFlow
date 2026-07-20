@@ -61,7 +61,9 @@ public class ThirdPartyAutoConfiguration {
     @ConditionalOnMissingBean
     public ThirdPartyMetrics thirdPartyMetrics(ObjectProvider<MeterRegistry> meterRegistryProvider) {
         MeterRegistry registry = meterRegistryProvider.getIfAvailable();
-        return registry == null ? new ThirdPartyMetrics(new io.micrometer.core.instrument.simple.SimpleMeterRegistry()) : new ThirdPartyMetrics(registry);
+        return registry == null
+                ? new ThirdPartyMetrics(new io.micrometer.core.instrument.simple.SimpleMeterRegistry())
+                : new ThirdPartyMetrics(registry);
     }
 
     @Bean
@@ -127,11 +129,34 @@ public class ThirdPartyAutoConfiguration {
             }
             String type = provider.type() == null ? "" : provider.type().trim().toLowerCase();
             if ("removebg".equals(type)) {
-                providers.add(new RemoveBgBackgroundRemovalProvider(providerId, provider, callTemplate, httpInvoker, authStrategy, errorMapper, metrics));
+                providers.add(new RemoveBgBackgroundRemovalProvider(
+                        providerId,
+                        provider,
+                        callTemplate,
+                        httpInvoker,
+                        authStrategy,
+                        errorMapper,
+                        metrics));
             } else if ("aliyun-market-bgrem".equals(type) || "aliyun-market".equals(type)) {
-                providers.add(new AliyunMarketBackgroundRemovalProvider(providerId, provider, callTemplate, httpInvoker, authStrategy, errorMapper, metrics, objectMapper));
+                providers.add(new AliyunMarketBackgroundRemovalProvider(
+                        providerId,
+                        provider,
+                        callTemplate,
+                        httpInvoker,
+                        authStrategy,
+                        errorMapper,
+                        metrics,
+                        objectMapper));
             } else if ("configurable-http".equals(type)) {
-                providers.add(new ConfigurableHttpBackgroundRemovalProvider(providerId, provider, callTemplate, httpInvoker, authStrategy, errorMapper, metrics, objectMapper));
+                providers.add(new ConfigurableHttpBackgroundRemovalProvider(
+                        providerId,
+                        provider,
+                        callTemplate,
+                        httpInvoker,
+                        authStrategy,
+                        errorMapper,
+                        metrics,
+                        objectMapper));
             } else if ("async".equals(type) || "async-polling".equals(type)) {
                 providers.add(new AsyncPollingBackgroundRemovalProvider(
                         providerId,

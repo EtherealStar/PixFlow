@@ -9,9 +9,13 @@ import java.util.Map;
  */
 public class CacheException extends RuntimeException {
     private final CacheErrorCode code;
+
     private final String operation;
+
     private final String keyNamespace;
+
     private final boolean retryable;
+
     private final Map<String, Object> details;
 
     public CacheException(CacheErrorCode code, String operation, String keyNamespace, String message) {

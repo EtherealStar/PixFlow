@@ -80,7 +80,8 @@ public final class ModelRetryRunner {
                                     return Flux.error(normalized);
                                 }
                                 Duration delay = retryPolicy.delayForAttempt(attempt, normalized.retryAfter());
-                                Flux<ChatStreamEvent> nextAttempt = Flux.defer(() -> tryAttempt(role, attemptSupplier, attempt + 1, false))
+                                Flux<ChatStreamEvent> nextAttempt = Flux.defer(() -> tryAttempt(role, attemptSupplier,
+                                        attempt + 1, false))
                                         .delaySubscription(delay, Schedulers.boundedElastic());
                                 if (sawText.get()) {
                                     return Flux.<ChatStreamEvent>just(new ChatStreamEvent.AttemptReset(

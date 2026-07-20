@@ -10,8 +10,12 @@ import java.util.regex.Pattern;
 
 public class RecallSignalExtractor {
     private static final Pattern SKU_PATTERN = Pattern.compile("(?i)(?<![A-Z0-9])SKU[-_ ]?[A-Z0-9]{2,}");
+
     private static final List<String> CATEGORY_WORDS = List.of("连衣裙", "家居", "鞋", "包", "美妆", "主图", "详情图", "场景图");
-    private static final List<String> INTENT_WORDS = List.of("抠图", "去背景", "换底", "白底", "压缩", "水印", "生图", "重绘", "提升", "优化");
+
+    private static final List<String> INTENT_WORDS = List.of("抠图", "去背景", "换底", "白底", "压缩",
+            "水印", "生图", "重绘", "提升", "优化");
+
     private static final List<String> METRIC_WORDS = List.of("点击率", "转化率", "加购率", "曝光", "购买率", "停留时长", "CTR");
 
     public RecallSignals extract(MemoryContextRequest request) {

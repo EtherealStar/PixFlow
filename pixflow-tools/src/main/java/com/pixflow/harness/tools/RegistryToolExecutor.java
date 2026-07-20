@@ -37,8 +37,6 @@ public class RegistryToolExecutor implements ToolExecutor {
 
     private final ToolResultStorage resultStorage;
 
-    private final ToolTraceSink traceSink;
-
     private final PlanModeView planModeView;
 
     private final int maxConcurrency;
@@ -48,14 +46,12 @@ public class RegistryToolExecutor implements ToolExecutor {
             com.pixflow.harness.permission.PermissionPolicy permissionPolicy,
             HookRegistry hookRegistry,
             ToolResultStorage resultStorage,
-            ToolTraceSink traceSink,
             PlanModeView planModeView,
             com.pixflow.harness.tools.config.ToolsProperties properties) {
         this.toolRegistry = Objects.requireNonNull(toolRegistry, "toolRegistry");
         this.permissionPolicy = Objects.requireNonNull(permissionPolicy, "permissionPolicy");
         this.hookRegistry = Objects.requireNonNull(hookRegistry, "hookRegistry");
         this.resultStorage = Objects.requireNonNull(resultStorage, "resultStorage");
-        this.traceSink = Objects.requireNonNull(traceSink, "traceSink");
         this.planModeView = planModeView;
         this.maxConcurrency = Math.max(1, properties.getMaxConcurrency());
     }
@@ -143,7 +139,7 @@ public class RegistryToolExecutor implements ToolExecutor {
                         ToolErrorFactory.permission(
                                 decision.reason(),
                                 Map.of("decision", decision.action().name())));
-                trace(call, startedAt, result, rewritten, true, decision.source().name());
+                trace(context, call, startedAt, result, rewritten, true, decision.source().name());
                 return result;
             }
             HookResult pre = hookRegistry.dispatch(
@@ -164,7 +160,7 @@ public class RegistryToolExecutor implements ToolExecutor {
                         call,
                         pre.blockingReason(),
                         ToolErrorFactory.validation(pre.blockingReason(), pre.metadata()));
-                trace(call, startedAt, result, rewritten, false, "HOOK");
+                trace(context, call, startedAt, result, rewritten, false, "HOOK");
                 return result;
             }
             if (pre.inputRewritten()) {
@@ -181,24 +177,24 @@ public class RegistryToolExecutor implements ToolExecutor {
                             ToolErrorFactory.permission(
                                     decision.reason(),
                                     Map.of("decision", decision.action().name())));
-                    trace(call, startedAt, result, rewritten, true, decision.source().name());
+                    trace(context, call, startedAt, result, rewritten, true, decision.source().name());
                     return result;
                 }
             }
             ToolExecutionResult result = invokeHandler(call, descriptor, args, classification, context);
             context.cancellation().throwIfCancellationRequested();
-            trace(call, startedAt, result, rewritten, false, null);
+            trace(context, call, startedAt, result, rewritten, false, null);
             return result;
         } catch (OperationCancelledException cancelled) {
             throw cancelled;
         } catch (PixFlowException ex) {
             ToolExecutionResult result = error(call, ex.getMessage(), ex);
-            trace(call, startedAt, result, rewritten, true, ex.category().name());
+            trace(context, call, startedAt, result, rewritten, true, ex.category().name());
             return result;
         } catch (RuntimeException ex) {
             PixFlowException error = ToolErrorFactory.internal("工具执行失败", Map.of("toolName", call.toolName()));
             ToolExecutionResult result = error(call, error.getMessage(), error);
-            trace(call, startedAt, result, rewritten, true, error.category().name());
+            trace(context, call, startedAt, result, rewritten, true, error.category().name());
             return result;
         }
     }
@@ -356,13 +352,15 @@ public class RegistryToolExecutor implements ToolExecutor {
     }
 
     private void trace(
+            ToolExecutionContext context,
             ToolCall call,
             long startedAt,
             ToolExecutionResult result,
             boolean rewritten,
             boolean resultExternalized,
             String errorCategory) {
-        traceSink.record(new ToolTraceSink.ToolTraceEvent(
+        // 每个 turn 注入自己的真实 trace，避免全局 Noop 吞掉 Eval 证据。
+        context.traceSink().record(new ToolTraceSink.ToolTraceEvent(
                 call.toolName(),
                 call.toolCallId(),
                 startedAt,

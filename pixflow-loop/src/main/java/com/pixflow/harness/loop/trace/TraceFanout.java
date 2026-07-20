@@ -57,8 +57,12 @@ public final class TraceFanout {
         }
         Map<String, Object> input = new LinkedHashMap<>();
         input.put("event", event.name());
-        if (toolName != null) input.put("toolName", toolName);
-        if (toolCallId != null) input.put("toolCallId", toolCallId);
+        if (toolName != null) {
+            input.put("toolName", toolName);
+        }
+        if (toolCallId != null) {
+            input.put("toolCallId", toolCallId);
+        }
         Object resultSummary;
         TraceError error = null;
         Instant spanStartedAt = Instant.now();

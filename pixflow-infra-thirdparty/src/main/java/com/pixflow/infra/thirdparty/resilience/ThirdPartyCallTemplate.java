@@ -23,9 +23,13 @@ import java.util.function.Supplier;
 
 public final class ThirdPartyCallTemplate {
     private final DistributedSemaphore distributedSemaphore;
+
     private final DistributedTokenBucket distributedTokenBucket;
+
     private final CacheNamespace cacheNamespace;
+
     private final ThirdPartyResilienceRegistry resilienceRegistry;
+
     private final ThirdPartyErrorMapper errorMapper;
 
     private final ThirdPartyProperties properties;

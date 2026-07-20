@@ -106,7 +106,9 @@ public final class ModelStreamConsumer {
                         }
                     }
                 })
-                .doOnError(error -> { throw rethrow(error); })
+                .doOnError(error -> {
+                    throw rethrow(error);
+                })
                 .blockLast(SUBSCRIBE_TIMEOUT);
         } catch (RuntimeException error) {
             cancellation.throwIfCancellationRequested();

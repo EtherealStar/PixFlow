@@ -10,7 +10,9 @@ import java.util.Objects;
 /** Work Unit 持久化身份与对象路径摘要的唯一编码入口。 */
 public final class UnitKeyCodec {
     private static final String VERSION = "v1";
+
     private static final Base64.Encoder ENCODER = Base64.getUrlEncoder().withoutPadding();
+
     private static final Base64.Decoder DECODER = Base64.getUrlDecoder();
 
     private UnitKeyCodec() {

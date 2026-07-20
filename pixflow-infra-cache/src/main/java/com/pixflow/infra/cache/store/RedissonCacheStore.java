@@ -13,10 +13,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public class RedissonCacheStore implements CacheStore {
-    private static final Logger log = LoggerFactory.getLogger(RedissonCacheStore.class);
+    private static final Logger LOGGER = LoggerFactory.getLogger(RedissonCacheStore.class);
 
     private final RedissonClient redissonClient;
+
     private final JsonCacheSerializer serializer;
+
     private final CacheMetrics metrics;
 
     public RedissonCacheStore(RedissonClient redissonClient, ObjectMapper objectMapper, CacheMetrics metrics) {
@@ -37,7 +39,7 @@ public class RedissonCacheStore implements CacheStore {
             metrics.recordCacheOperation("get", key.namespace(), "hit");
             return Optional.of(converted);
         } catch (RuntimeException ex) {
-            log.warn("cache get degraded to miss, namespace={}, key={}, error={}",
+            LOGGER.warn("cache get degraded to miss, namespace={}, key={}, error={}",
             key.namespace(), key.value(), ex.toString(), ex);
             metrics.recordCacheOperation("get", key.namespace(), "error");
             return Optional.empty();
@@ -56,7 +58,7 @@ public class RedissonCacheStore implements CacheStore {
             metrics.recordCacheOperation("consume", key.namespace(), "hit");
             return Optional.of(converted);
         } catch (RuntimeException ex) {
-            log.warn("cache consume degraded to miss, namespace={}, key={}, error={}",
+            LOGGER.warn("cache consume degraded to miss, namespace={}, key={}, error={}",
                     key.namespace(), key.value(), ex.toString(), ex);
             metrics.recordCacheOperation("consume", key.namespace(), "error");
             return Optional.empty();
@@ -72,7 +74,7 @@ public class RedissonCacheStore implements CacheStore {
                     .set(json, effectiveTtl.toMillis(), TimeUnit.MILLISECONDS);
             metrics.recordCacheOperation("put", key.namespace(), "ok");
         } catch (RuntimeException ex) {
-            log.warn("cache put degraded, namespace={}, error={}", key.namespace(), ex.getClass().getSimpleName());
+            LOGGER.warn("cache put degraded, namespace={}, error={}", key.namespace(), ex.getClass().getSimpleName());
             metrics.recordCacheOperation("put", key.namespace(), "error");
         }
     }
@@ -87,7 +89,8 @@ public class RedissonCacheStore implements CacheStore {
             metrics.recordCacheOperation("put_if_absent", key.namespace(), stored ? "stored" : "exists");
             return stored;
         } catch (RuntimeException ex) {
-            log.warn("cache putIfAbsent degraded, namespace={}, error={}", key.namespace(), ex.getClass().getSimpleName());
+            LOGGER.warn("cache putIfAbsent degraded, namespace={}, error={}",
+                    key.namespace(), ex.getClass().getSimpleName());
             metrics.recordCacheOperation("put_if_absent", key.namespace(), "error");
             return false;
         }
@@ -100,7 +103,8 @@ public class RedissonCacheStore implements CacheStore {
             metrics.recordCacheOperation("exists", key.namespace(), exists ? "hit" : "miss");
             return exists;
         } catch (RuntimeException ex) {
-            log.warn("cache exists degraded to false, namespace={}, error={}", key.namespace(), ex.getClass().getSimpleName());
+            LOGGER.warn("cache exists degraded to false, namespace={}, error={}",
+                    key.namespace(), ex.getClass().getSimpleName());
             metrics.recordCacheOperation("exists", key.namespace(), "error");
             return false;
         }
@@ -112,7 +116,8 @@ public class RedissonCacheStore implements CacheStore {
             redissonClient.getBucket(key.value(), StringCodec.INSTANCE).delete();
             metrics.recordCacheOperation("delete", key.namespace(), "ok");
         } catch (RuntimeException ex) {
-            log.warn("cache delete degraded, namespace={}, error={}", key.namespace(), ex.getClass().getSimpleName());
+            LOGGER.warn("cache delete degraded, namespace={}, error={}",
+                    key.namespace(), ex.getClass().getSimpleName());
             metrics.recordCacheOperation("delete", key.namespace(), "error");
         }
     }

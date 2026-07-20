@@ -13,6 +13,7 @@ import org.redisson.api.RedissonClient;
 
 public class RedissonLockTemplate implements LockTemplate {
     private final RedissonClient redissonClient;
+
     private final CacheMetrics metrics;
 
     public RedissonLockTemplate(RedissonClient redissonClient, CacheMetrics metrics) {
@@ -30,14 +31,28 @@ public class RedissonLockTemplate implements LockTemplate {
             acquired = lock.tryLock(waitTime.toMillis(), java.util.concurrent.TimeUnit.MILLISECONDS);
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
-            throw new CacheException(CacheErrorCode.CACHE_REDIS_UNAVAILABLE, "lock", key.namespace(), "获取 Redis 锁被中断", ex);
+            throw new CacheException(
+                    CacheErrorCode.CACHE_REDIS_UNAVAILABLE,
+                    "lock",
+                    key.namespace(),
+                    "获取 Redis 锁被中断",
+                    ex);
         } catch (RuntimeException ex) {
             metrics.recordLock(key.namespace(), "error", Duration.between(start, Instant.now()));
-            throw new CacheException(CacheErrorCode.CACHE_REDIS_UNAVAILABLE, "lock", key.namespace(), "获取 Redis 锁失败", ex);
+            throw new CacheException(
+                    CacheErrorCode.CACHE_REDIS_UNAVAILABLE,
+                    "lock",
+                    key.namespace(),
+                    "获取 Redis 锁失败",
+                    ex);
         }
         if (!acquired) {
             metrics.recordLock(key.namespace(), "timeout", Duration.between(start, Instant.now()));
-            throw new CacheException(CacheErrorCode.CACHE_LOCK_ACQUIRE_TIMEOUT, "lock", key.namespace(), "获取 Redis 锁超时");
+            throw new CacheException(
+                    CacheErrorCode.CACHE_LOCK_ACQUIRE_TIMEOUT,
+                    "lock",
+                    key.namespace(),
+                    "获取 Redis 锁超时");
         }
         metrics.recordLock(key.namespace(), "acquired", Duration.between(start, Instant.now()));
         Throwable actionFailure = null;
@@ -68,10 +83,20 @@ public class RedissonLockTemplate implements LockTemplate {
             acquired = lock.tryLock(waitTime.toMillis(), java.util.concurrent.TimeUnit.MILLISECONDS);
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
-            throw new CacheException(CacheErrorCode.CACHE_REDIS_UNAVAILABLE, "try_lock", key.namespace(), "获取 Redis 锁被中断", ex);
+            throw new CacheException(
+                    CacheErrorCode.CACHE_REDIS_UNAVAILABLE,
+                    "try_lock",
+                    key.namespace(),
+                    "获取 Redis 锁被中断",
+                    ex);
         } catch (RuntimeException ex) {
             metrics.recordLock(key.namespace(), "error", Duration.between(start, Instant.now()));
-            throw new CacheException(CacheErrorCode.CACHE_REDIS_UNAVAILABLE, "try_lock", key.namespace(), "获取 Redis 锁失败", ex);
+            throw new CacheException(
+                    CacheErrorCode.CACHE_REDIS_UNAVAILABLE,
+                    "try_lock",
+                    key.namespace(),
+                    "获取 Redis 锁失败",
+                    ex);
         }
         if (!acquired) {
             metrics.recordLock(key.namespace(), "skipped", Duration.between(start, Instant.now()));
