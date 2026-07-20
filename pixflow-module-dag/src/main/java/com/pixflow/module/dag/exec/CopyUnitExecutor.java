@@ -53,6 +53,7 @@ public class CopyUnitExecutor implements UnitExecutor {
                     List.of(new ChatMessage.TextPart(prompt)))),
                 List.of(),
                 com.pixflow.infra.ai.chat.ToolChoice.AUTO,
+                null,
                 null
             );
             ChatResult result = chatModelClient.call(req);

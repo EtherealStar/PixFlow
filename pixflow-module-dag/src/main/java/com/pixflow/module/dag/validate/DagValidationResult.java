@@ -35,6 +35,7 @@ public record DagValidationResult(boolean ok, List<String> errors, Map<String, O
     /** 流式构造器:链式 push 错误后 build。 */
     public static final class Builder {
         private final List<String> errors = new ArrayList<>();
+
         private final java.util.LinkedHashMap<String, Object> details = new java.util.LinkedHashMap<>();
 
         public Builder add(String code, String message) {

@@ -15,6 +15,7 @@ import java.util.List;
 public class ParamsRule {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
+
     private final ParamSchemaRegistry registry;
 
     public ParamsRule(ParamSchemaRegistry registry) {

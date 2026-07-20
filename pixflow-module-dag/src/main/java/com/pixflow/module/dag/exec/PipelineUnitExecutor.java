@@ -7,9 +7,7 @@ import com.pixflow.common.sanitize.Sanitizer;
 import com.pixflow.harness.state.model.UnitKind;
 import com.pixflow.infra.image.ImageFormat;
 import com.pixflow.infra.image.ReopenableImageSource;
-import com.pixflow.infra.image.op.ConvertFormatSpec;
 import com.pixflow.infra.image.op.ImageOp;
-import com.pixflow.infra.storage.ObjectLocation;
 import com.pixflow.module.dag.config.DagProperties;
 import com.pixflow.module.dag.error.DagErrorCode;
 import com.pixflow.module.dag.expand.ExecutableBranch;
@@ -40,9 +38,9 @@ public class PipelineUnitExecutor implements UnitExecutor {
 
     /** storage 抽象(里程碑 3 注入真实 ObjectStorage)。 */
     public interface SourceReader {
-        InputStream openStream(ObjectLocation location);
+        InputStream openStream(String referenceKey);
 
-        long statSize(ObjectLocation location);
+        long statSize(String referenceKey);
     }
 
     /** 第三方抠图抽象;返抠图后字节(带 alpha PNG)。 */
@@ -117,7 +115,8 @@ public class PipelineUnitExecutor implements UnitExecutor {
 
     private UnitOutcome doExecute(ExecutableBranch branch, ImageDescriptor image, String outputKey) {
         // 大图防护
-        long size = sourceReader.statSize(image.location());
+        long size = image.sizeBytes() > 0 ? image.sizeBytes()
+                : sourceReader.statSize(image.referenceKey());
         if (size > properties.getExecution().getSourceBytesLimit()) {
             return UnitOutcome.failed(branch.kind(), branch.branchId(), branch.memberId(),
                 new UnitOutcome.DagErrorView(DagErrorCode.DAG_SOURCE_BYTES_TOO_LARGE,
@@ -126,7 +125,7 @@ public class PipelineUnitExecutor implements UnitExecutor {
         }
         // 缝合 I/O
         try {
-            ReopenableImageSource source = () -> sourceReader.openStream(image.location());
+            ReopenableImageSource source = () -> sourceReader.openStream(image.referenceKey());
             byte[] bytes = applyOps(branch.perMemberOps(), source);
             resultWriter.write(outputKey, bytes);
             return UnitOutcome.succeeded(branch.kind(), branch.branchId(), branch.memberId(),

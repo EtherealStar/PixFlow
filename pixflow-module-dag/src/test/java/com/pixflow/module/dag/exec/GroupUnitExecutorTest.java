@@ -82,10 +82,10 @@ class GroupUnitExecutorTest {
     @Test
     void execute_returnsSucceeded_onHappyPath() {
         var reader = new GroupUnitExecutor.SourceReader() {
-            @Override public InputStream openStream(ObjectLocation location) {
+            @Override public InputStream openStream(String referenceKey) {
                 return new ByteArrayInputStream(new byte[]{1, 2, 3});
             }
-            @Override public long statSize(ObjectLocation location) { return 10L; }
+            @Override public long statSize(String referenceKey) { return 10L; }
         };
         var bg = (GroupUnitExecutor.BackgroundRemovalPort) (b, o) -> b;
         AtomicInteger pipelineCalled = new AtomicInteger();
@@ -115,13 +115,13 @@ class GroupUnitExecutorTest {
     @Test
     void execute_returnsFAILED_onMissingMember() {
         var reader = new GroupUnitExecutor.SourceReader() {
-            @Override public InputStream openStream(ObjectLocation location) {
-                if (location.key().equals("k1")) {
+            @Override public InputStream openStream(String referenceKey) {
+                if (referenceKey.equals("asset:image:k1")) {
                     return new ByteArrayInputStream(new byte[]{1});
                 }
                 throw new RuntimeException("storage failure for k2");
             }
-            @Override public long statSize(ObjectLocation location) { return 10L; }
+            @Override public long statSize(String referenceKey) { return 10L; }
         };
         var ex = executor(reader, (b, o) -> b, (m, p, c, po, e) -> new byte[]{}, (k, d) -> k);
         UnitOutcome outcome = ex.execute(composeBranch(), UnitInput.images(
@@ -139,8 +139,8 @@ class GroupUnitExecutorTest {
     void execute_returnsFAILED_onEmptyImages() {
         var ex = executor(
             (GroupUnitExecutor.SourceReader) new GroupUnitExecutor.SourceReader() {
-                @Override public InputStream openStream(ObjectLocation location) { return new ByteArrayInputStream(new byte[]{}); }
-                @Override public long statSize(ObjectLocation location) { return 0L; }
+                @Override public InputStream openStream(String referenceKey) { return new ByteArrayInputStream(new byte[]{}); }
+                @Override public long statSize(String referenceKey) { return 0L; }
             },
             (b, o) -> b,
             (m, p, c, po, e) -> new byte[]{},
@@ -153,10 +153,10 @@ class GroupUnitExecutorTest {
     @Test
     void execute_returnsFAILED_onTooLargeSource() {
         var reader = new GroupUnitExecutor.SourceReader() {
-            @Override public InputStream openStream(ObjectLocation location) {
+            @Override public InputStream openStream(String referenceKey) {
                 throw new AssertionError("不应调用 openStream");
             }
-            @Override public long statSize(ObjectLocation location) {
+            @Override public long statSize(String referenceKey) {
                 return properties.getExecution().getSourceBytesLimit() + 1L;
             }
         };
@@ -170,10 +170,10 @@ class GroupUnitExecutorTest {
     @Test
     void execute_neverThrows_businessException() {
         var reader = new GroupUnitExecutor.SourceReader() {
-            @Override public InputStream openStream(ObjectLocation location) {
+            @Override public InputStream openStream(String referenceKey) {
                 throw new RuntimeException("catastrophic");
             }
-            @Override public long statSize(ObjectLocation location) { return 10L; }
+            @Override public long statSize(String referenceKey) { return 10L; }
         };
         var pipeline = (GroupUnitExecutor.PixelPipeline) (members, perMember, compose, post, enc) -> {
             throw new RuntimeException("pipeline boom");
@@ -184,7 +184,7 @@ class GroupUnitExecutorTest {
             List.of(ImageDescriptor.grouped("img1", "g1", "v1", location("k1")))));
         assertThat(outcome.status()).isEqualTo(UnitOutcome.Status.FAILED);
     }
-    private static ObjectLocation location(String key) {
-        return ObjectLocation.of(BucketType.PACKAGES, key);
+    private static String location(String key) {
+        return "asset:image:" + key;
     }
 }

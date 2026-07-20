@@ -1,9 +1,6 @@
 package com.pixflow.module.dag.exec;
 
-import com.pixflow.infra.image.op.CompressSpec;
-import com.pixflow.infra.image.op.ConvertFormatSpec;
 import com.pixflow.infra.image.op.ImageOp;
-import com.pixflow.infra.image.op.ResizeSpec;
 import com.pixflow.infra.image.op.SetBackgroundSpec;
 import com.pixflow.infra.image.op.impl.CompressOp;
 import com.pixflow.infra.image.op.impl.ConvertFormatOp;
@@ -16,11 +13,13 @@ public final class TypedImageOpFactory {
     public interface WatermarkResolver {
         ImageOp resolve(WatermarkBindingSpec spec);
     }
+
     public interface BackgroundResolver {
         ImageOp resolve(SetBackgroundBindingSpec spec);
     }
 
     private final WatermarkResolver watermarkResolver;
+
     private final BackgroundResolver backgroundResolver;
 
     public TypedImageOpFactory(WatermarkResolver watermarkResolver, BackgroundResolver backgroundResolver) {

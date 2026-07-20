@@ -1,7 +1,6 @@
 package com.pixflow.module.dag.validate;
 
 import com.pixflow.module.dag.ir.DagDocument;
-import com.pixflow.module.dag.ir.DagSchemaVersion;
 import com.pixflow.module.dag.validate.rule.AcyclicRule;
 import com.pixflow.module.dag.validate.rule.EdgeRule;
 import com.pixflow.module.dag.validate.rule.GroupBranchRule;
@@ -34,14 +33,23 @@ import org.springframework.stereotype.Component;
 public class DagValidator {
 
     private final ParamSchemaRegistry schemaRegistry;
+
     private final StructureRule structureRule;
+
     private final NodeLimitRule nodeLimitRule;
+
     private final WhitelistRule whitelistRule;
+
     private final ParamsRule paramsRule;
+
     private final EdgeRule edgeRule;
+
     private final AcyclicRule acyclicRule;
+
     private final GroupBranchRule groupBranchRule;
+
     private final OpOrderRule opOrderRule;
+
     private final int maxNodes;
 
     public DagValidator(ParamSchemaRegistry schemaRegistry,

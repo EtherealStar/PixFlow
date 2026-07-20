@@ -12,6 +12,7 @@ import java.util.Map;
 public class NodeLimitRule {
 
     private final int maxNodes;
+
     private final int minNodes;
 
     public NodeLimitRule(int maxNodes, int minNodes) {

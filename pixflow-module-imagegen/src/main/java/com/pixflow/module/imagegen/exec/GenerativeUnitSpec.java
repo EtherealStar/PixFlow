@@ -1,6 +1,5 @@
 package com.pixflow.module.imagegen.exec;
 
-import com.pixflow.infra.storage.ObjectLocation;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -17,7 +16,7 @@ import java.util.Objects;
  *   <li>{@code taskId}:所属 process_task ID(用于落桶 key 与日志关联)</li>
  *   <li>{@code skuId}:所属 SKU ID(源图所属 SKU)</li>
  *   <li>{@code sourceImageId}:源图 ID</li>
- *   <li>{@code sourceLocation}:源图在 PACKAGES 桶的位置(task 从 asset_image 取得后传入)</li>
+ *   <li>{@code sourceReferenceKey}:源图 canonical reference，不携带存储位置</li>
  *   <li>{@code prompt}:本提案的生图提示词(全单元共享)</li>
  *   <li>{@code params}:本提案的生图参数(全单元共享)</li>
  *   <li>{@code outputExt}:输出格式扩展名(默认 png,来自配置)</li>
@@ -29,7 +28,7 @@ public record GenerativeUnitSpec(
         long runEpoch,
         String skuId,
         String sourceImageId,
-        ObjectLocation sourceLocation,
+        String sourceReferenceKey,
         String prompt,
         Map<String, Object> params,
         String outputExt) {
@@ -37,12 +36,19 @@ public record GenerativeUnitSpec(
     public GenerativeUnitSpec {
         Objects.requireNonNull(taskId, "taskId");
         Objects.requireNonNull(unitKeyHash, "unitKeyHash");
-        if (runEpoch <= 0) throw new IllegalArgumentException("runEpoch must be positive");
+        if (runEpoch <= 0) {
+            throw new IllegalArgumentException("runEpoch must be positive");
+        }
         Objects.requireNonNull(skuId, "skuId");
         Objects.requireNonNull(sourceImageId, "sourceImageId");
-        Objects.requireNonNull(sourceLocation, "sourceLocation");
+        Objects.requireNonNull(sourceReferenceKey, "sourceReferenceKey");
+        if (sourceReferenceKey.isBlank()) {
+            throw new IllegalArgumentException("sourceReferenceKey must not be blank");
+        }
         Objects.requireNonNull(prompt, "prompt");
         Objects.requireNonNull(outputExt, "outputExt");
-        params = params == null || params.isEmpty() ? Map.of() : Collections.unmodifiableMap(new LinkedHashMap<>(params));
+        params = params == null || params.isEmpty()
+                ? Map.of()
+                : Collections.unmodifiableMap(new LinkedHashMap<>(params));
     }
 }

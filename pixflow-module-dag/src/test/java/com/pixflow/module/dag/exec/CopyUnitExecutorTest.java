@@ -44,7 +44,7 @@ class CopyUnitExecutorTest {
         var dag = TestPlans.compile(json);
         var branches = new com.pixflow.module.dag.expand.BranchExpander()
             .expand(dag, List.of(com.pixflow.module.dag.expand.ImageDescriptor.single(
-                    "i1", "sku1", ObjectLocation.of(BucketType.PACKAGES, "k"))));
+                    "i1", "sku1", "asset:image:k")));
         return branches.get(0);
     }
 

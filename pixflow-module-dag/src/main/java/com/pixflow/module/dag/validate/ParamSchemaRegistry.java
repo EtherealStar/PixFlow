@@ -135,5 +135,6 @@ public class ParamSchemaRegistry {
         return node.asText();
     }
 
-    private record Entry(JsonSchema schema, String version, String toolName) {}
+    private record Entry(JsonSchema schema, String version, String toolName) {
+    }
 }

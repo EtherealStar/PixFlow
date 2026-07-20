@@ -22,12 +22,11 @@ import com.pixflow.infra.storage.ObjectLocation;
 import com.pixflow.infra.storage.ObjectRef;
 import com.pixflow.infra.storage.ObjectStorage;
 import com.pixflow.infra.storage.StorageException;
-import com.pixflow.infra.storage.StoredObjectMetadata;
 import com.pixflow.module.imagegen.config.ImagegenProperties;
 import com.pixflow.module.imagegen.error.ImagegenErrorCode;
+import com.pixflow.module.imagegen.port.SourceImageContent;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
-import java.time.Instant;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -51,34 +50,35 @@ class DefaultImageGenExecutorTest {
 
     private ImageGenClient imageGenClient;
     private ObjectStorage objectStorage;
+    private SourceImageContent sourceImages;
     private ImagegenProperties properties;
     private DefaultImageGenExecutor executor;
 
     private static final String TASK_ID = "1";
     private static final String SKU_ID = "sku-1";
     private static final String IMAGE_ID = "123";
-    private static final ObjectLocation SOURCE_LOC =
-        new ObjectLocation(BucketType.PACKAGES, "pkg-1/images/" + IMAGE_ID + ".png");
+    private static final String SOURCE_REF = "asset:image:1:" + IMAGE_ID;
     private static final byte[] SOURCE_BYTES = new byte[]{1, 2, 3, 4, 5};
 
     @BeforeEach
     void setUp() {
         imageGenClient = mock(ImageGenClient.class);
         objectStorage = mock(ObjectStorage.class);
+        sourceImages = mock(SourceImageContent.class);
         properties = new ImagegenProperties();
-        executor = new DefaultImageGenExecutor(imageGenClient, objectStorage, properties);
+        executor = new DefaultImageGenExecutor(imageGenClient, objectStorage, sourceImages, properties);
 
         // 默认 stat 行为:正常大小、image/png
-        when(objectStorage.stat(SOURCE_LOC)).thenReturn(
-            new StoredObjectMetadata(SOURCE_BYTES.length, "image/png", "etag-1", Instant.now()));
+        when(sourceImages.require(SOURCE_REF)).thenReturn(
+            new SourceImageContent.Metadata("image/png", SOURCE_BYTES.length));
         // 每次调用返回新流(避免 readAllBytes 把同一流读完)
-        when(objectStorage.getStream(SOURCE_LOC)).thenAnswer(
+        when(sourceImages.open(SOURCE_REF)).thenAnswer(
             inv -> new ByteArrayInputStream(SOURCE_BYTES));
     }
 
     private GenerativeUnitSpec spec() {
         return new GenerativeUnitSpec(
-            TASK_ID, "unit-hash-1", 3, SKU_ID, IMAGE_ID, SOURCE_LOC,
+            TASK_ID, "unit-hash-1", 3, SKU_ID, IMAGE_ID, SOURCE_REF,
             "用 A 风格重绘", Map.of("style", "A"), "png");
     }
 
@@ -121,15 +121,15 @@ class DefaultImageGenExecutorTest {
     void redraw_sourceTooLarge_throws() {
         // 50 MiB + 1 byte
         long oversize = properties.getSource().getMaxReadBytes() + 1;
-        when(objectStorage.stat(SOURCE_LOC))
-            .thenReturn(new StoredObjectMetadata(oversize, "image/png", "etag-big", Instant.now()));
+        when(sourceImages.require(SOURCE_REF))
+            .thenReturn(new SourceImageContent.Metadata("image/png", oversize));
 
         assertThatThrownBy(() -> executor.redraw(spec()))
             .isInstanceOf(PixFlowException.class)
             .extracting(e -> ((PixFlowException) e).code())
             .isEqualTo(ImagegenErrorCode.IMAGEGEN_OUTPUT_BYTES_TOO_LARGE);
 
-        verify(objectStorage, never()).getStream(any(ObjectLocation.class));
+        verify(sourceImages, never()).open(anyString());
         verify(imageGenClient, never()).generate(any(ImageGenRequest.class));
     }
 
@@ -189,7 +189,7 @@ class DefaultImageGenExecutorTest {
     @Test
     @DisplayName("源图 stat 抛 StorageException → IMAGEGEN_STORAGE_WRITE_FAILED(归 storage 类)")
     void redraw_statFailure_throwsImagegenStorageWriteFailed() {
-        when(objectStorage.stat(SOURCE_LOC))
+        when(sourceImages.require(SOURCE_REF))
             .thenThrow(new StorageException("stat", BucketType.PACKAGES, "key", true, "not found", null));
 
         assertThatThrownBy(() -> executor.redraw(spec()))
@@ -201,7 +201,7 @@ class DefaultImageGenExecutorTest {
     @Test
     @DisplayName("源图 getStream 抛 StorageException → IMAGEGEN_STORAGE_WRITE_FAILED")
     void redraw_getStreamFailure_throwsImagegenStorageWriteFailed() {
-        when(objectStorage.getStream(SOURCE_LOC))
+        when(sourceImages.open(SOURCE_REF))
             .thenThrow(new StorageException("get", BucketType.PACKAGES, "key", true, "io", null));
 
         assertThatThrownBy(() -> executor.redraw(spec()))
@@ -214,7 +214,7 @@ class DefaultImageGenExecutorTest {
     @DisplayName("Work Unit hash 与 epoch 生成稳定对象 key")
     void redraw_nonNumericImageId_fallsBackToShaLong_andKeyIsStable() {
         GenerativeUnitSpec nonNumericSpec = new GenerativeUnitSpec(
-            TASK_ID, "unit-hash-2", 4, SKU_ID, "uuid-style-abc-xyz", SOURCE_LOC,
+            TASK_ID, "unit-hash-2", 4, SKU_ID, "uuid-style-abc-xyz", SOURCE_REF,
             "用 A 风格重绘", Map.of(), "png");
         byte[] generated = new byte[]{9, 9, 9};
         when(imageGenClient.generate(any(ImageGenRequest.class))).thenReturn(

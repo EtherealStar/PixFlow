@@ -21,7 +21,8 @@ public class GroupPreflight {
     public List<PreflightDifference> preflight(TypedExecutionPlan dag,
                                                Map<String, Integer> actualGroupCounts) {
         List<PreflightDifference> diffs = new ArrayList<>();
-        for (GroupStep node : dag.steps().stream().filter(GroupStep.class::isInstance).map(GroupStep.class::cast).toList()) {
+        for (GroupStep node : dag.steps().stream().filter(GroupStep.class::isInstance)
+                .map(GroupStep.class::cast).toList()) {
             if (node.expectedCount() <= 0) {
                 continue; // 无 expected_count 不产生差异
             }
@@ -52,5 +53,6 @@ public class GroupPreflight {
         int expectedCount,
         int actualCount,
         String message
-    ) {}
+    ) {
+    }
 }

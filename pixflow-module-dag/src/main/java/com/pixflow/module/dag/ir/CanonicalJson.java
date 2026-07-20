@@ -41,7 +41,8 @@ public final class CanonicalJson {
         .configure(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS, false)
         .setNodeFactory(JsonNodeFactory.withExactBigDecimals(false));
 
-    private CanonicalJson() {}
+    private CanonicalJson() {
+    }
 
     /** 把任意 Java 对象(Map/List/String/Number/Boolean)规范化为 UTF-8 字节序列。 */
     public static byte[] canonicalize(Object value) {

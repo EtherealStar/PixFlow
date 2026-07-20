@@ -22,7 +22,7 @@ public record UnitOutcome(
     DagErrorView error
 ) {
 
-    public enum Status {SUCCEEDED, FAILED}
+    public enum Status { SUCCEEDED, FAILED }
 
     public UnitOutcome {
         // 不可变 record 已隐式支持;此处仅防御性拷贝 list

@@ -12,9 +12,9 @@ import com.pixflow.infra.storage.ObjectRef;
 import com.pixflow.infra.storage.ObjectStorage;
 import com.pixflow.infra.storage.StorageException;
 import com.pixflow.infra.storage.StorageKeys;
-import com.pixflow.infra.storage.StoredObjectMetadata;
 import com.pixflow.module.imagegen.config.ImagegenProperties;
 import com.pixflow.module.imagegen.error.ImagegenErrorCode;
+import com.pixflow.module.imagegen.port.SourceImageContent;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -54,35 +54,39 @@ public class DefaultImageGenExecutor implements ImageGenExecutor {
 
     private final ObjectStorage objectStorage;
 
+    private final SourceImageContent sourceImages;
+
     private final ImagegenProperties properties;
 
     public DefaultImageGenExecutor(ImageGenClient imageGenClient,
                                    ObjectStorage objectStorage,
+                                   SourceImageContent sourceImages,
                                    ImagegenProperties properties) {
         this.imageGenClient = imageGenClient;
         this.objectStorage = objectStorage;
+        this.sourceImages = sourceImages;
         this.properties = properties;
     }
 
     @Override
     public GeneratedArtifact redraw(GenerativeUnitSpec spec) {
         // 1. stat 源图:源图字节防护
-        StoredObjectMetadata meta;
+        SourceImageContent.Metadata meta;
         try {
-            meta = objectStorage.stat(spec.sourceLocation());
-        } catch (StorageException e) {
+            meta = sourceImages.require(spec.sourceReferenceKey());
+        } catch (RuntimeException e) {
             throw new PixFlowException(ImagegenErrorCode.IMAGEGEN_STORAGE_WRITE_FAILED,
                 "源图元数据读取失败: " + spec.sourceImageId(), e);
         }
         long maxRead = properties.getSource().getMaxReadBytes();
-        if (meta.size() > maxRead) {
+        if (meta.sizeBytes() > maxRead) {
             throw new PixFlowException(ImagegenErrorCode.IMAGEGEN_OUTPUT_BYTES_TOO_LARGE,
-                "源图字节超过防护阈值: " + meta.size() + " > " + maxRead
+                "源图字节超过防护阈值: " + meta.sizeBytes() + " > " + maxRead
                     + " (imageId=" + spec.sourceImageId() + ")");
         }
 
         // 2. 解析源图字节
-        byte[] sourceBytes = readSourceBytes(spec.sourceLocation());
+        byte[] sourceBytes = readSourceBytes(spec.sourceReferenceKey());
 
         // 3. ai 重绘
         ImageGenResult result;
@@ -129,15 +133,15 @@ public class DefaultImageGenExecutor implements ImageGenExecutor {
     }
 
     /** 读取源图字节;遇 StorageException 转 IMAGEGEN_STORAGE_WRITE_FAILED(读取失败同样归 storage 类)。 */
-    private byte[] readSourceBytes(ObjectLocation sourceLocation) {
-        try (InputStream in = objectStorage.getStream(sourceLocation)) {
+    private byte[] readSourceBytes(String referenceKey) {
+        try (InputStream in = sourceImages.open(referenceKey)) {
             return in.readAllBytes();
         } catch (StorageException e) {
             throw new PixFlowException(ImagegenErrorCode.IMAGEGEN_STORAGE_WRITE_FAILED,
-                "源图读取失败: " + sourceLocation, e);
+                "源图读取失败: " + referenceKey, e);
         } catch (IOException e) {
             throw new PixFlowException(ImagegenErrorCode.IMAGEGEN_STORAGE_WRITE_FAILED,
-                "源图 IO 失败: " + sourceLocation, e);
+                "源图 IO 失败: " + referenceKey, e);
         }
     }
 

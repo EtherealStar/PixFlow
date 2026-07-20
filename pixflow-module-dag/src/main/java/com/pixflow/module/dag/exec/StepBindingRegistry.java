@@ -6,9 +6,11 @@ import java.util.Map;
 
 public final class StepBindingRegistry {
     public enum Binding { LOCAL_IMAGE, GROUP, EXTERNAL, COPY }
+
     public enum ExecutorBinding { PIPELINE, GROUP, COPY }
 
     private final Map<PixelTool, Binding> bindings = new EnumMap<>(PixelTool.class);
+
     private final Map<PixelTool, ExecutorBinding> executors = new EnumMap<>(PixelTool.class);
 
     public StepBindingRegistry() {
@@ -27,18 +29,26 @@ public final class StepBindingRegistry {
 
     public Binding require(PixelTool tool) {
         Binding binding = bindings.get(tool);
-        if (binding == null) throw new IllegalArgumentException("未绑定工具: " + tool);
+        if (binding == null) {
+            throw new IllegalArgumentException("未绑定工具: " + tool);
+        }
         return binding;
     }
 
     public ExecutorBinding requireExecutor(PixelTool tool) {
         ExecutorBinding binding = executors.get(tool);
-        if (binding == null) throw new IllegalArgumentException("未绑定执行器: " + tool);
+        if (binding == null) {
+            throw new IllegalArgumentException("未绑定执行器: " + tool);
+        }
         return binding;
     }
 
     private void bind(PixelTool tool, Binding binding, ExecutorBinding executor) {
-        if (bindings.put(tool, binding) != null) throw new IllegalStateException("重复工具 binding: " + tool);
-        if (executors.put(tool, executor) != null) throw new IllegalStateException("重复执行器 binding: " + tool);
+        if (bindings.put(tool, binding) != null) {
+            throw new IllegalStateException("重复工具 binding: " + tool);
+        }
+        if (executors.put(tool, executor) != null) {
+            throw new IllegalStateException("重复执行器 binding: " + tool);
+        }
     }
 }

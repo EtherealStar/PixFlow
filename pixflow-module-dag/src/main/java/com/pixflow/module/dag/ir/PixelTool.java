@@ -27,7 +27,9 @@ public enum PixelTool {
     GENERATE_COPY("generate_copy", Arity.TEXT, Target.AI);
 
     private final String wireName;
+
     private final Arity arity;
+
     private final Target target;
 
     PixelTool(String wireName, Arity arity, Target target) {

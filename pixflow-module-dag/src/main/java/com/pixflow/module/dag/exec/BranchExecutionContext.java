@@ -18,6 +18,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public final class BranchExecutionContext implements AutoCloseable {
 
     private final Deque<Runnable> cleanups = new ArrayDeque<>();
+
     private final AtomicBoolean closed = new AtomicBoolean(false);
 
     /** 注册一个 RasterImage 释放任务;后续 close 时按 LIFO 顺序释放。 */

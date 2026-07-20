@@ -20,7 +20,8 @@ import java.util.Objects;
  */
 public final class BranchId {
 
-    private BranchId() {}
+    private BranchId() {
+    }
 
     /** 给定 source/sink id 序列与参数 Map 列表,派生确定性 branchId。 */
     public static String derive(java.util.List<String> pathNodeIds,

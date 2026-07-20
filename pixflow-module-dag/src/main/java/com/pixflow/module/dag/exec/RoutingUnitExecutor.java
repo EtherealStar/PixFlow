@@ -6,8 +6,11 @@ import java.util.Objects;
 /** 按编译期 binding 把类型化支路路由到唯一真实执行器。 */
 public final class RoutingUnitExecutor implements UnitExecutor {
     private final StepBindingRegistry bindings;
+
     private final PipelineUnitExecutor pipeline;
+
     private final GroupUnitExecutor group;
+
     private final CopyUnitExecutor copy;
 
     public RoutingUnitExecutor(StepBindingRegistry bindings, PipelineUnitExecutor pipeline,

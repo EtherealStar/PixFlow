@@ -1,17 +1,18 @@
 package com.pixflow.module.dag.exec;
 
 import com.pixflow.module.dag.ir.CanonicalDag;
-import com.pixflow.module.dag.ir.DagEdge;
-import com.pixflow.module.dag.ir.PixelTool;
 import java.util.List;
 import java.util.Objects;
 
 public final class DefaultDagCompiler implements DagCompiler {
     private final StepSpecCompiler specCompiler;
+
     private final StepBindingRegistry bindings;
+
     public DefaultDagCompiler(StepSpecCompiler specCompiler) {
         this(specCompiler, new StepBindingRegistry());
     }
+
     public DefaultDagCompiler(StepSpecCompiler specCompiler, StepBindingRegistry bindings) {
         this.specCompiler = Objects.requireNonNull(specCompiler);
         this.bindings = Objects.requireNonNull(bindings);
@@ -30,7 +31,8 @@ public final class DefaultDagCompiler implements DagCompiler {
             case COPY -> new CopyStep(node.id(), node.tool(),
                     (CopyBindingSpec) specCompiler.compile(node));
         }).map(step -> (ExecutionStep) step).toList();
-        List<ExecutionEdge> edges = dag.edges().stream().map(edge -> new ExecutionEdge(edge.from(), edge.to())).toList();
+        List<ExecutionEdge> edges = dag.edges().stream()
+            .map(edge -> new ExecutionEdge(edge.from(), edge.to())).toList();
         return new TypedExecutionPlan(dag.canonicalHash(), dag.schemaVersion(), steps, edges);
     }
 }

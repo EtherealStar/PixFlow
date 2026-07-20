@@ -73,11 +73,11 @@ class PipelineUnitExecutorTest {
         AtomicInteger streamOpened = new AtomicInteger();
         AtomicInteger written = new AtomicInteger();
         var reader = new PipelineUnitExecutor.SourceReader() {
-            @Override public InputStream openStream(ObjectLocation location) {
+            @Override public InputStream openStream(String referenceKey) {
                 streamOpened.incrementAndGet();
                 return new ByteArrayInputStream(new byte[]{1, 2, 3});
             }
-            @Override public long statSize(ObjectLocation location) {
+            @Override public long statSize(String referenceKey) {
                 return 100L;
             }
         };
@@ -98,10 +98,10 @@ class PipelineUnitExecutorTest {
     @Test
     void execute_returnsFAILED_andNeverThrows_onBgException() {
         var reader = new PipelineUnitExecutor.SourceReader() {
-            @Override public InputStream openStream(ObjectLocation location) {
+            @Override public InputStream openStream(String referenceKey) {
                 return new ByteArrayInputStream(new byte[]{1});
             }
-            @Override public long statSize(ObjectLocation location) { return 10L; }
+            @Override public long statSize(String referenceKey) { return 10L; }
         };
         var bg = (PipelineUnitExecutor.BackgroundRemovalPort) (bytes, options) -> {
             throw new RuntimeException("upstream failed");
@@ -120,10 +120,10 @@ class PipelineUnitExecutorTest {
     @Test
     void execute_returnsFAILED_DAG_SOURCE_BYTES_TOO_LARGE() {
         var reader = new PipelineUnitExecutor.SourceReader() {
-            @Override public InputStream openStream(ObjectLocation location) {
+            @Override public InputStream openStream(String referenceKey) {
                 throw new AssertionError("不应调用 openStream");
             }
-            @Override public long statSize(ObjectLocation location) {
+            @Override public long statSize(String referenceKey) {
                 return properties.getExecution().getSourceBytesLimit() + 1L;
             }
         };
@@ -138,8 +138,8 @@ class PipelineUnitExecutorTest {
     void execute_returnsFAILED_onNullInput() {
         var ex = executor(
             (PipelineUnitExecutor.SourceReader) new PipelineUnitExecutor.SourceReader() {
-                @Override public InputStream openStream(ObjectLocation location) { return new ByteArrayInputStream(new byte[]{}); }
-                @Override public long statSize(ObjectLocation location) { return 0L; }
+                @Override public InputStream openStream(String referenceKey) { return new ByteArrayInputStream(new byte[]{}); }
+                @Override public long statSize(String referenceKey) { return 0L; }
             },
             (a, b) -> new byte[]{},
             (s, o, e) -> new byte[]{},
@@ -153,14 +153,14 @@ class PipelineUnitExecutorTest {
     void execute_closesInputStream_evenOnFailure() {
         AtomicInteger closed = new AtomicInteger();
         var reader = new PipelineUnitExecutor.SourceReader() {
-            @Override public InputStream openStream(ObjectLocation location) {
+            @Override public InputStream openStream(String referenceKey) {
                 return new ByteArrayInputStream(new byte[]{1}) {
                     @Override public void close() {
                         closed.incrementAndGet();
                     }
                 };
             }
-            @Override public long statSize(ObjectLocation location) { return 10L; }
+            @Override public long statSize(String referenceKey) { return 10L; }
         };
         var bg = (PipelineUnitExecutor.BackgroundRemovalPort) (bytes, options) -> {
             throw new RuntimeException("forced");
@@ -174,10 +174,10 @@ class PipelineUnitExecutorTest {
     @Test
     void execute_safeMessage_isTruncatedAndDoesNotExposeStackTrace() {
         var reader = new PipelineUnitExecutor.SourceReader() {
-            @Override public InputStream openStream(ObjectLocation location) {
+            @Override public InputStream openStream(String referenceKey) {
                 return new ByteArrayInputStream(new byte[]{1});
             }
-            @Override public long statSize(ObjectLocation location) { return 10L; }
+            @Override public long statSize(String referenceKey) { return 10L; }
         };
         // 构造一个超长 message(>1000 字符),测试截断
         String longMessage = "x".repeat(2000);
@@ -193,7 +193,7 @@ class PipelineUnitExecutorTest {
         assertThat(outcome.error().code()).isEqualTo(DagErrorCode.DAG_UNIT_EXECUTION_FAILED);
         assertThat(outcome.error().category()).isEqualTo(ErrorCategory.IMAGE_PROCESSING);
     }
-    private static ObjectLocation location(String key) {
-        return ObjectLocation.of(BucketType.PACKAGES, key);
+    private static String location(String key) {
+        return "asset:image:" + key;
     }
 }

@@ -12,8 +12,11 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public class DagProperties {
 
     private Validate validate = new Validate();
+
     private GroupCache groupCache = new GroupCache();
+
     private Execution execution = new Execution();
+
     private AssetCache assetCache = new AssetCache();
 
     public Validate getValidate() {

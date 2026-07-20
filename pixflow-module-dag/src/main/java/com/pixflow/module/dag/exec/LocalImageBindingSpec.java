@@ -9,11 +9,20 @@ import com.pixflow.module.dag.ir.PixelTool;
 public sealed interface LocalImageBindingSpec permits LocalImageBindingSpec.Resize,
         LocalImageBindingSpec.Compress, LocalImageBindingSpec.SetBackground,
         LocalImageBindingSpec.Watermark, LocalImageBindingSpec.ConvertFormat {
-    record Resize(ResizeSpec value) implements LocalImageBindingSpec {}
-    record Compress(CompressSpec value) implements LocalImageBindingSpec {}
-    record SetBackground(SetBackgroundBindingSpec value) implements LocalImageBindingSpec {}
-    record Watermark(WatermarkBindingSpec value) implements LocalImageBindingSpec {}
-    record ConvertFormat(ConvertFormatSpec value) implements LocalImageBindingSpec {}
+    record Resize(ResizeSpec value) implements LocalImageBindingSpec {
+    }
+
+    record Compress(CompressSpec value) implements LocalImageBindingSpec {
+    }
+
+    record SetBackground(SetBackgroundBindingSpec value) implements LocalImageBindingSpec {
+    }
+
+    record Watermark(WatermarkBindingSpec value) implements LocalImageBindingSpec {
+    }
+
+    record ConvertFormat(ConvertFormatSpec value) implements LocalImageBindingSpec {
+    }
 
     static LocalImageBindingSpec from(PixelTool tool, Object spec) {
         return switch (tool) {

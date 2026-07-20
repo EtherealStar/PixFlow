@@ -18,7 +18,9 @@ import java.util.function.Supplier;
 /** 当前 Group Work Unit 的临时成员产物；引用和字节均不构成 checkpoint。 */
 public final class GroupRuntimeArtifactStore {
     private static final Duration FALLBACK_TTL = Duration.ofHours(24);
+
     private final RunStateRefStore refs;
+
     private final ObjectStorage storage;
 
     public GroupRuntimeArtifactStore(RunStateRefStore refs, ObjectStorage storage) {
@@ -32,7 +34,9 @@ public final class GroupRuntimeArtifactStore {
 
     public final class Session implements AutoCloseable {
         private final UnitKey unitKey;
+
         private final long runEpoch;
+
         private final List<Entry> touched = new ArrayList<>();
 
         private Session(UnitKey unitKey, long runEpoch) {

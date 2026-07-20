@@ -12,5 +12,8 @@ public record CanonicalDag(byte[] canonicalJson, String canonicalHash, String sc
         nodes = List.copyOf(nodes);
         edges = List.copyOf(edges);
     }
-    @Override public byte[] canonicalJson() { return canonicalJson.clone(); }
+
+    @Override public byte[] canonicalJson() {
+        return canonicalJson.clone();
+    }
 }

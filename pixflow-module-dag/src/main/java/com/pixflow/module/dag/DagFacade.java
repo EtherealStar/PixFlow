@@ -27,9 +27,13 @@ import org.springframework.stereotype.Component;
 public class DagFacade {
 
     private final DagValidator validator;
+
     private final BranchExpander expander;
+
     private final GroupPreflight preflight;
+
     private final CanonicalDagFactory canonicalDagFactory;
+
     private final DagCompiler compiler;
 
     public DagFacade(DagValidator validator, BranchExpander expander, GroupPreflight preflight,
@@ -53,7 +57,9 @@ public class DagFacade {
         return canonicalDagFactory.fromDocument(doc, schemaVersion);
     }
 
-    public TypedExecutionPlan compile(CanonicalDag dag) { return compiler.compile(dag); }
+    public TypedExecutionPlan compile(CanonicalDag dag) {
+        return compiler.compile(dag);
+    }
 
     public List<ExecutableBranch> expand(TypedExecutionPlan dag, List<ImageDescriptor> images) {
         return expander.expand(dag, images);

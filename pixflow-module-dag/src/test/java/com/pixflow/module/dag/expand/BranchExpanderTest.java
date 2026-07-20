@@ -202,7 +202,7 @@ class BranchExpanderTest {
             .findFirst().orElseThrow();
         assertThat(groupBranch.memberId()).isEqualTo("groupA");
     }
-    private static ObjectLocation location(String key) {
-        return ObjectLocation.of(BucketType.PACKAGES, key);
+    private static String location(String key) {
+        return "asset:image:" + key;
     }
 }

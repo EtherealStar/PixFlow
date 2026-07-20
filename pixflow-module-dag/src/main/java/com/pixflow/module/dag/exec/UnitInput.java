@@ -22,6 +22,7 @@ public record UnitInput(
     public UnitInput(List<ImageDescriptor> imageDescriptors, CopyContext copyContext) {
         this(imageDescriptors, copyContext, null, null, 0);
     }
+
     public UnitInput {
         imageDescriptors = imageDescriptors == null ? List.of() : List.copyOf(imageDescriptors);
         // copyContext 可空

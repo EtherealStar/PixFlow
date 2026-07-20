@@ -13,8 +13,11 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public class ImagegenProperties {
 
     private Proposal proposal = new Proposal();
+
     private Output output = new Output();
+
     private Source source = new Source();
+
     private Executor executor = new Executor();
 
     public Proposal getProposal() {
@@ -53,8 +56,10 @@ public class ImagegenProperties {
     public static class Proposal {
         /** prompt 长度下界。 */
         private int promptMinChars = 1;
+
         /** prompt 长度上界。 */
         private int promptMaxChars = 2000;
+
         /** params 白名单(白名单外键 → IMAGEGEN_PROMPT_INVALID)。 */
         private List<String> allowedParamKeys = List.of("style", "strength", "negative_prompt", "seed");
 

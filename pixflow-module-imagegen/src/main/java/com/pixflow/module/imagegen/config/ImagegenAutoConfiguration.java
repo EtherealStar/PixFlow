@@ -72,8 +72,9 @@ public class ImagegenAutoConfiguration {
     public com.pixflow.module.imagegen.exec.DefaultImageGenExecutor defaultImageGenExecutor(
             com.pixflow.infra.ai.imagegen.ImageGenClient imageGenClient,
             com.pixflow.infra.storage.ObjectStorage objectStorage,
+            com.pixflow.module.imagegen.port.SourceImageContent sourceImages,
             ImagegenProperties properties) {
         return new com.pixflow.module.imagegen.exec.DefaultImageGenExecutor(
-            imageGenClient, objectStorage, properties);
+            imageGenClient, objectStorage, sourceImages, properties);
     }
 }

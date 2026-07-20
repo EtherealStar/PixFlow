@@ -66,7 +66,7 @@ class DagFacadeTest {
         var dag = facade.compile(facade.validateToCanonical(doc, new DagSchemaVersion("1.0")));
         List<ExecutableBranch> branches = facade.expand(dag,
             List.of(ImageDescriptor.single("img1", "sku1",
-                    ObjectLocation.of(BucketType.PACKAGES, "k1"))));
+                    "asset:image:k1")));
         assertThat(branches).hasSize(1);
     }
 

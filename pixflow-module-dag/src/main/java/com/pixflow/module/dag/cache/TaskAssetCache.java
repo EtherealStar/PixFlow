@@ -26,7 +26,9 @@ import org.springframework.stereotype.Component;
 public class TaskAssetCache {
 
     private final Cache<String, Object> cache;
+
     private final DagProperties properties;
+
     private final AtomicInteger totalSize = new AtomicInteger(0);
 
     public TaskAssetCache(DagProperties properties) {

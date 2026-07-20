@@ -41,23 +41,6 @@ public class DagAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public PipelineUnitExecutor.SourceReader pipelineSourceReader(
-            com.pixflow.infra.storage.ObjectStorage storage) {
-        return new PipelineUnitExecutor.SourceReader() {
-            @Override
-            public java.io.InputStream openStream(com.pixflow.infra.storage.ObjectLocation location) {
-                return storage.getStream(location);
-            }
-
-            @Override
-            public long statSize(com.pixflow.infra.storage.ObjectLocation location) {
-                return storage.stat(location).size();
-            }
-        };
-    }
-
-    @Bean
-    @ConditionalOnMissingBean
     public PipelineUnitExecutor.BackgroundRemovalPort pipelineBackgroundRemoval(
             com.pixflow.infra.thirdparty.bgremoval.BackgroundRemovalClient client) {
         return (bytes, spec) -> client.remove(new com.pixflow.infra.thirdparty.bgremoval.BackgroundRemovalRequest(
@@ -104,13 +87,13 @@ public class DagAutoConfiguration {
     public GroupUnitExecutor.SourceReader groupSourceReader(PipelineUnitExecutor.SourceReader reader) {
         return new GroupUnitExecutor.SourceReader() {
             @Override
-            public java.io.InputStream openStream(com.pixflow.infra.storage.ObjectLocation location) {
-                return reader.openStream(location);
+            public java.io.InputStream openStream(String referenceKey) {
+                return reader.openStream(referenceKey);
             }
 
             @Override
-            public long statSize(com.pixflow.infra.storage.ObjectLocation location) {
-                return reader.statSize(location);
+            public long statSize(String referenceKey) {
+                return reader.statSize(referenceKey);
             }
         };
     }
