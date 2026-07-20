@@ -8,6 +8,7 @@ import static org.mockito.Mockito.when;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pixflow.contracts.asset.ImageAssetReferenceKey;
 import com.pixflow.harness.hooks.payload.RuntimeScope;
+import com.pixflow.harness.tools.ToolHandlerOutput;
 import com.pixflow.harness.tools.ToolInvocation;
 import com.pixflow.harness.tools.ToolRuntimeContext;
 import com.pixflow.module.conversation.proposal.ProposalService;
@@ -43,14 +44,15 @@ class ProposalHandlersTest {
         SubmitImagePlanHandler handler = new SubmitImagePlanHandler(
                 producer, new ProposalService(), objectMapper, clock);
 
-        String output = handler.handle(invocation(
+        ToolHandlerOutput output = handler.handle(invocation(
                 "tool-dag",
                 "submit_image_plan",
                 Map.of(
                         "referenceKeys", List.of("package:7/image:11"),
-                        "dag", Map.of("nodes", List.of(), "edges", List.of())))).content();
+                        "dag", Map.of("nodes", List.of(), "edges", List.of()))));
 
-        assertThat(output).contains("\"payloadHash\":\"dag-hash\"");
+        assertThat(output.content()).contains("\"payloadHash\":\"dag-hash\"");
+        assertThat(output.metadata()).containsEntry("payloadHash", "dag-hash");
         assertThat(handler.submitImagePlanDescriptor().inputSchema().toString())
                 .contains("referenceKeys")
                 .doesNotContain("imageIds");
@@ -71,11 +73,13 @@ class ProposalHandlersTest {
                 "submit_imagegen_plan",
                 Map.of("referenceKey", "package:7/image:11", "prompt", "重绘"));
 
-        String first = handler.handle(invocation).content();
-        String replay = handler.handle(invocation).content();
+        ToolHandlerOutput first = handler.handle(invocation);
+        ToolHandlerOutput replay = handler.handle(invocation);
 
-        assertThat(objectMapper.readTree(replay).path("proposalId").asText())
-                .isEqualTo(objectMapper.readTree(first).path("proposalId").asText());
+        assertThat(objectMapper.readTree(replay.content()).path("proposalId").asText())
+                .isEqualTo(objectMapper.readTree(first.content()).path("proposalId").asText());
+        assertThat(first.metadata()).containsEntry("payloadHash", "redraw-hash");
+        assertThat(replay.metadata()).containsEntry("payloadHash", "redraw-hash");
         assertThat(handler.submitImagegenPlanDescriptor().inputSchema().toString())
                 .contains("referenceKey")
                 .doesNotContain("source_image_ids");

@@ -120,9 +120,10 @@ public class RubricsAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public TraceEvidenceProvider traceEvidenceProvider(TraceQuery traceQuery) {
+    public TraceEvidenceProvider traceEvidenceProvider(
+            TraceQuery traceQuery, ObjectMapper objectMapper) {
         // TraceQuery 是生产必需依赖：缺失时 Spring 构造注入直接 fail fast，不静默少装 trace 能力。
-        return new DefaultTraceEvidenceProvider(traceQuery, Clock.systemUTC());
+        return new DefaultTraceEvidenceProvider(traceQuery, Clock.systemUTC(), objectMapper);
     }
 
     @Bean

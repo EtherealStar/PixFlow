@@ -1,5 +1,8 @@
 package com.pixflow.module.rubrics.evidence;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pixflow.common.web.PageResponse;
 import com.pixflow.common.web.Pagination;
 import com.pixflow.harness.eval.api.TraceQuery;
@@ -35,9 +38,12 @@ public final class DefaultTraceEvidenceProvider implements TraceEvidenceProvider
 
     private final Clock clock;
 
-    public DefaultTraceEvidenceProvider(TraceQuery query, Clock clock) {
+    private final ObjectMapper objectMapper;
+
+    public DefaultTraceEvidenceProvider(TraceQuery query, Clock clock, ObjectMapper objectMapper) {
         this.query = query;
         this.clock = clock;
+        this.objectMapper = objectMapper;
     }
 
     @Override
@@ -48,13 +54,30 @@ public final class DefaultTraceEvidenceProvider implements TraceEvidenceProvider
             return List.of();
         }
         PageResponse<TurnTraceRecord> page;
+        List<TurnTraceRecord> records;
         try {
-            page = query.listByConversation(conversationId, new Pagination(1, MAX_TURNS));
+            // TraceQuery 没有倒序/offset seam；先用单行页取得 total，再读取尾部窗口。
+            page = query.listByConversation(conversationId, new Pagination(1, 1));
+            long lastPage = Math.max(1, (page.total() + MAX_TURNS - 1) / MAX_TURNS);
+            if (lastPage > 1) {
+                // 末页可能不足 50 条；合并末两页后再精确截取最新窗口，读取量仍固定有界。
+                List<TurnTraceRecord> previous = query.listByConversation(
+                        conversationId, new Pagination(lastPage - 1, MAX_TURNS)).records();
+                List<TurnTraceRecord> latest = query.listByConversation(
+                        conversationId, new Pagination(lastPage, MAX_TURNS)).records();
+                List<TurnTraceRecord> tail = new ArrayList<>(previous.size() + latest.size());
+                tail.addAll(previous);
+                tail.addAll(latest);
+                records = List.copyOf(tail.subList(
+                        Math.max(0, tail.size() - MAX_TURNS), tail.size()));
+            } else {
+                records = query.listByConversation(
+                        conversationId, new Pagination(1, MAX_TURNS)).records();
+            }
         } catch (RuntimeException error) {
             // trace 是 best-effort：读取失败不升级为 Subject 失败，也不伪造 span。
             return List.of();
         }
-        List<TurnTraceRecord> records = page.records();
         if (records == null || records.isEmpty()) {
             return List.of();
         }
@@ -66,8 +89,8 @@ public final class DefaultTraceEvidenceProvider implements TraceEvidenceProvider
         int index = 1;
         for (TurnTraceRecord turn : ordered) {
             String toolCalls = nonBlank(turn.toolCallsJson());
-            if (toolCalls == null) {
-                // 没有 tool call 的 turn 不产生 span 证据。
+            if (toolCalls == null || !matchesDecisionRevision(toolCalls, subject.revision())) {
+                // 只保留产生当前已确认决定的 turn，避免旧 Proposal 的 trace 泄漏到本次评估。
                 continue;
             }
             String bounded = boundBytes(toolCalls);
@@ -93,6 +116,32 @@ public final class DefaultTraceEvidenceProvider implements TraceEvidenceProvider
             index++;
         }
         return List.copyOf(entries);
+    }
+
+    private boolean matchesDecisionRevision(String toolCalls, String revision) {
+        try {
+            JsonNode root = objectMapper.readTree(toolCalls);
+            if (root == null || !root.isArray()) {
+                return false;
+            }
+            for (JsonNode call : root) {
+                String toolName = call.path("name").asText("");
+                if (!"submit_image_plan".equals(toolName)
+                        && !"submit_imagegen_plan".equals(toolName)) {
+                    continue;
+                }
+                JsonNode result = call.path("result");
+                if (result.isObject()
+                        && !result.path("error").asBoolean(false)
+                        && revision.equals(result.path("payloadHash").asText(null))) {
+                    return true;
+                }
+            }
+            return false;
+        } catch (JsonProcessingException error) {
+            // 无法结构化验证受控 result metadata 的 trace 不进入证据。
+            return false;
+        }
     }
 
     /** 把空串、纯空白和空数组都视为无 tool call。 */

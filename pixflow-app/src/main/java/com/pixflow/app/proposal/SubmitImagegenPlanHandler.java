@@ -125,7 +125,10 @@ public final class SubmitImagegenPlanHandler {
             result.put("payloadHash", proposal.payloadHash());
             result.put("sourceCount", 1);
             result.put("summary", "已发布单图重绘 Proposal，等待用户确认");
-            return ToolHandlerOutput.of(objectMapper.writeValueAsString(result));
+            // trace 只持久化受控 metadata；显式携带 owner hash，供离线评估绑定确认决定。
+            return new ToolHandlerOutput(
+                    objectMapper.writeValueAsString(result),
+                    Map.of("payloadHash", proposal.payloadHash()));
         } catch (PixFlowException exception) {
             return error(exception.code().code(), exception.getMessage());
         } catch (Exception exception) {

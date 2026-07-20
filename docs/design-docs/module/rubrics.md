@@ -414,6 +414,8 @@ The completed `rubrics-module-implementation-plan.md` remains a historical recor
 
 ## Revision Notes
 
+2026-07-20 / Codex: TASK_DECISION 的 Eval trace 选择现在必须在结构化 tool-call JSON 的受控 `result.payloadHash` 中精确匹配 Task owner 持久化的 `decisionRevision`；DAG/IMAGEGEN Proposal 的 App adapter 只把该 owner hash 写入 trace metadata，不记录完整 payload。长会话先用单行分页取得 total，再通过末两页合并精确截取最新 50 turn，数据库返回行数上限为 101。无法解析、无法证明归属、已过期或读取失败的 trace 均保持缺失证据，不回退为同会话任意历史 tool call，也不新增 Conversation implementation 依赖。
+
 2026-07-19 / Codex: Implemented the backend deep-module path for immutable datasets and transactional Gold Labels, complete-HOLDOUT calibration reports, first formal baselines and paired alerts, durable event/scheduled admission and recovery, heartbeat fencing, Micrometer, and architecture guards. Confirmed Task Decision evidence now exposes only the owner-persisted Canonical DAG snapshot; requirements, validated proposal, and criterion-specific Eval trace remain unavailable rather than being fabricated. Frontend cleanup and existing Checkstyle suppressions were not changed under the user's explicit scope.
 
 2026-07-19 / Codex: 冻结 `RubricsEvaluationService.start/resume/get` 深模块接口与类型化 `RunSelection`，删除后端 end-user Controller，并把开发期数据库策略收敛为无 scalar score/Promotion 兼容的 fresh schema；同时修正 ADR 中残留的 Memory Promotion 表述。
