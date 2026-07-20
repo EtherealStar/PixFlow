@@ -2,9 +2,9 @@ package com.pixflow.agent.memory;
 
 import com.pixflow.agent.config.AgentProperties;
 import com.pixflow.module.memory.MemoryService;
-import com.pixflow.module.memory.context.MemoryAttachment;
 import com.pixflow.module.memory.context.MemoryContext;
 import com.pixflow.module.memory.context.MemoryContextRequest;
+import com.pixflow.module.memory.context.MemoryReference;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -32,13 +32,10 @@ class MemoryRecallPlannerTest {
                 7,
                 "trace-1",
                 "帮我看 SKU-A 的投放表现",
-                List.of(new MemoryAttachment("a.png", "SKU-A", "美妆", Map.of("kind", "image"))),
-                "pkg-1",
-                "task-1",
-                List.of("SKU-A"),
+                List.of(new MemoryReference("asset:image:1:2", "美妆/a.png")),
                 List.of("美妆"),
                 Map.of("recent_assistant_messages", List.of("上一轮结论")),
-                null);
+                1234);
 
         MemoryContext actual = planner.plan(signal);
 
@@ -50,11 +47,8 @@ class MemoryRecallPlannerTest {
         assertEquals(7, request.turnNo());
         assertEquals("trace-1", request.traceId());
         assertEquals("帮我看 SKU-A 的投放表现", request.userPrompt());
-        assertEquals("pkg-1", request.packageId());
-        assertEquals("task-1", request.taskId());
-        assertEquals(List.of("SKU-A"), request.skuIds());
         assertEquals(List.of("美妆"), request.categoryHints());
-        assertEquals(1, request.attachments().size());
+        assertEquals(List.of(new MemoryReference("asset:image:1:2", "美妆/a.png")), request.references());
         assertEquals(1234, request.tokenBudget());
     }
 }

@@ -198,8 +198,6 @@ public class AgentOrchestrator {
      */
     public MemoryContext recall(RuntimeState state,
                                 String userMessage,
-                                String packageId,
-                                List<String> currentPackageSkuIds,
                                 List<MessageReference> references,
                                 List<String> recentAssistantMessages) {
         Objects.requireNonNull(state, "state");
@@ -213,10 +211,7 @@ public class AgentOrchestrator {
                 state.turnNo(),
                 state.traceId(),
                 userMessage,
-                List.of(),
-                packageId,
-                null,
-                currentPackageSkuIds,
+                toMemoryReferences(references),
                 List.of(),
                 metadata,
                 agentProperties.getMemory().getRecall().getMaxTokens()
@@ -267,22 +262,19 @@ public class AgentOrchestrator {
             RuntimeState state,
             String conversationId,
             Integer turnNo,
-            String packageId,
-            List<String> currentPackageSkuIds,
             List<MessageReference> references,
             List<String> recentAssistantMessages,
             String userMessage,
             List<ToolDescriptor> visibleTools) {
         // 1. 同步召回
-        MemoryContext memoryContext = recall(state, userMessage, packageId,
-                currentPackageSkuIds, references, recentAssistantMessages);
+        MemoryContext memoryContext = recall(state, userMessage, references, recentAssistantMessages);
         // 2. 加载 session memory
         SessionMemoryContent sessionMemory = sessionMemoryService
                 .load(conversationId).orElse(null);
         // 3. 构造 PromptRuntimeContext
         SectionRenderer.PromptRuntimeContext ctx = buildContext(
-                state, conversationId, turnNo, packageId,
-                currentPackageSkuIds, userMessage,
+                state, conversationId, turnNo, null,
+                List.of(), userMessage,
                 memoryContext, sessionMemory, visibleTools
         );
         // 4. 渲染 systemPrompt
@@ -382,7 +374,14 @@ public class AgentOrchestrator {
 
             // 1. 同步召回。USER_PROMPT_SUBMIT 与 user message append 由 AgentLoop.stream 统一负责。
             List<String> recentAssistant = recentAssistantTexts(messageStore);
-            MemoryContext memoryContext = recall(state, prompt, null, List.of(), references, recentAssistant);
+            MemoryContext memoryContext;
+            try {
+                memoryContext = recall(state, prompt, references, recentAssistant);
+            } catch (RuntimeException recallFailure) {
+                // Memory 门面异常时仍允许对话继续，避免只读召回成为可用性单点。
+                memoryContext = new MemoryContext(conversationId, targetTurnNo, List.of(),
+                        Map.of("degraded_reason", "memory_unavailable"), true);
+            }
             cancellation.throwIfCancellationRequested();
 
             // 2. 加载 session memory
@@ -612,6 +611,15 @@ public class AgentOrchestrator {
             return List.of();
         }
         return references.stream().map(MessageReference::referenceKey).toList();
+    }
+
+    private static List<com.pixflow.module.memory.context.MemoryReference> toMemoryReferences(
+            List<MessageReference> references) {
+        if (references == null || references.isEmpty()) {
+            return List.of();
+        }
+        return references.stream().map(reference -> new com.pixflow.module.memory.context.MemoryReference(
+                reference.referenceKey(), reference.displayPathSnapshot())).toList();
     }
 
     private static PixFlowException toPixFlow(Throwable error) {

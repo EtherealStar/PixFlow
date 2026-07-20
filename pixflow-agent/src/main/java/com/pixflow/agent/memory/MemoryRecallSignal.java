@@ -1,6 +1,6 @@
 package com.pixflow.agent.memory;
 
-import com.pixflow.module.memory.context.MemoryAttachment;
+import com.pixflow.module.memory.context.MemoryReference;
 
 import java.util.List;
 import java.util.Map;
@@ -17,23 +17,20 @@ public record MemoryRecallSignal(
         int turnNo,
         String traceId,
         String userMessage,
-        List<MemoryAttachment> attachments,
-        String packageId,
-        String taskId,
-        List<String> skuIds,
+        List<MemoryReference> references,
         List<String> categoryHints,
         Map<String, Object> metadata,
-        Integer tokenBudget
+        int tokenBudget
 ) {
 
     public MemoryRecallSignal {
         Objects.requireNonNull(conversationId, "conversationId");
         traceId = traceId == null ? "" : traceId;
         userMessage = userMessage == null ? "" : userMessage;
-        attachments = attachments == null ? List.of() : List.copyOf(attachments);
-        skuIds = normalizeList(skuIds);
+        references = references == null ? List.of() : List.copyOf(references);
         categoryHints = normalizeList(categoryHints);
         metadata = metadata == null ? Map.of() : Map.copyOf(metadata);
+        tokenBudget = Math.max(0, tokenBudget);
     }
 
     private static List<String> normalizeList(List<String> values) {

@@ -42,18 +42,13 @@ public class MemoryRecallPlanner {
     }
 
     MemoryContextRequest toRequest(MemoryRecallSignal signal) {
-        Integer tokenBudget = signal.tokenBudget() == null
-                ? props.getMemory().getRecall().getMaxTokens()
-                : signal.tokenBudget();
+        int tokenBudget = signal.tokenBudget();
         return new MemoryContextRequest(
                 signal.conversationId(),
                 signal.turnNo(),
                 signal.traceId(),
                 signal.userMessage(),
-                signal.attachments(),
-                signal.packageId(),
-                signal.taskId(),
-                signal.skuIds(),
+                signal.references(),
                 signal.categoryHints(),
                 signal.metadata(),
                 tokenBudget);

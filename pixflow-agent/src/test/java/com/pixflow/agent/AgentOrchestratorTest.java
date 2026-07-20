@@ -62,8 +62,7 @@ class AgentOrchestratorTest {
                 mock(SessionMemoryService.class), mock(DynamicPromptAssembler.class));
 
         // When
-        MemoryContext actual = orchestrator.recall(newState(), "user prompt",
-                null, List.of(), List.of(), List.of());
+        MemoryContext actual = orchestrator.recall(newState(), "user prompt", List.of(), List.of());
 
         // Then
         verify(planner, times(1)).plan(any(MemoryRecallSignal.class));
@@ -87,8 +86,7 @@ class AgentOrchestratorTest {
         // When
         RuntimeState state = newState();
         Map<String, Object> result = orchestrator.prepareTurn(
-                state, "conv-1", 1, null,
-                List.of(), List.of(),
+                state, "conv-1", 1, List.of(),
                 List.of(), "user prompt", List.of());
 
         // Then
