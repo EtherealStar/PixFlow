@@ -16,11 +16,31 @@
     <dependencies>
         <dependency>
             <groupId>com.pixflow</groupId>
+            <artifactId>pixflow-contracts</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.pixflow</groupId>
             <artifactId>pixflow-common</artifactId>
         </dependency>
         <dependency>
             <groupId>com.pixflow</groupId>
             <artifactId>pixflow-infra-image</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.pixflow</groupId>
+            <artifactId>pixflow-infra-ai</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.pixflow</groupId>
+            <artifactId>pixflow-infra-cache</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.pixflow</groupId>
+            <artifactId>pixflow-infra-mq</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.pixflow</groupId>
+            <artifactId>pixflow-tools</artifactId>
         </dependency>
 
         <dependency>
