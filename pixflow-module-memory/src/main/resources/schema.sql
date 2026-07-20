@@ -13,7 +13,6 @@ CREATE TABLE IF NOT EXISTS sku_history (
     params_json JSON,
     metrics_before JSON,
     metrics_after JSON,
-    rubrics_score DECIMAL(6, 2),
     created_at TIMESTAMP NOT NULL,
     INDEX idx_sku_history_sku_created (sku_id, created_at)
 );

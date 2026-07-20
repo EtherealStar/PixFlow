@@ -8,19 +8,30 @@ public record MemoryContextRequest(
         int turnNo,
         String traceId,
         String userPrompt,
-        List<MemoryAttachment> attachments,
-        String packageId,
-        String taskId,
-        List<String> skuIds,
+        List<MemoryReference> references,
         List<String> categoryHints,
         Map<String, Object> metadata,
-        Integer tokenBudget) {
+        int tokenBudget) {
 
     public MemoryContextRequest {
-        attachments = attachments == null ? List.of() : List.copyOf(attachments);
-        skuIds = normalizeList(skuIds);
+        references = normalizeReferences(references);
         categoryHints = normalizeList(categoryHints);
         metadata = metadata == null ? Map.of() : Map.copyOf(metadata);
+        tokenBudget = Math.max(0, tokenBudget);
+    }
+
+    private static List<MemoryReference> normalizeReferences(List<MemoryReference> values) {
+        if (values == null || values.isEmpty()) {
+            return List.of();
+        }
+        return values.stream()
+                .filter(java.util.Objects::nonNull)
+                .collect(java.util.stream.Collectors.toMap(
+                        MemoryReference::referenceKey,
+                        value -> value,
+                        (first, ignored) -> first,
+                        java.util.LinkedHashMap::new))
+                .values().stream().toList();
     }
 
     private static List<String> normalizeList(List<String> values) {

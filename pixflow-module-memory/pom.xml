@@ -26,6 +26,10 @@
             <artifactId>pixflow-infra-vector</artifactId>
         </dependency>
         <dependency>
+            <groupId>com.pixflow</groupId>
+            <artifactId>pixflow-module-file</artifactId>
+        </dependency>
+        <dependency>
             <groupId>com.baomidou</groupId>
             <artifactId>mybatis-plus-spring-boot3-starter</artifactId>
             <version>${mybatis-plus.version}</version>

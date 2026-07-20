@@ -1,6 +1,5 @@
 package com.pixflow.module.memory.recall;
 
-import com.pixflow.module.memory.context.MemoryAttachment;
 import com.pixflow.module.memory.context.MemoryContextRequest;
 import java.util.ArrayList;
 import java.util.List;
@@ -20,29 +19,10 @@ public class RecallSignalExtractor {
 
     public RecallSignals extract(MemoryContextRequest request) {
         String prompt = request.userPrompt() == null ? "" : request.userPrompt();
-        List<String> skuIds = new ArrayList<>(request.skuIds());
+        List<String> skuIds = new ArrayList<>();
         List<String> categories = new ArrayList<>(request.categoryHints());
         List<String> intents = new ArrayList<>();
         List<String> metrics = new ArrayList<>();
-
-        Matcher matcher = SKU_PATTERN.matcher(prompt);
-        while (matcher.find()) {
-            skuIds.add(normalizeSku(matcher.group()));
-        }
-
-        for (MemoryAttachment attachment : request.attachments()) {
-            if (attachment.skuId() != null && !attachment.skuId().isBlank()) {
-                skuIds.add(normalizeSku(attachment.skuId()));
-            }
-            if (attachment.category() != null && !attachment.category().isBlank()) {
-                categories.add(attachment.category().trim());
-            }
-            String fileName = attachment.fileName() == null ? "" : attachment.fileName();
-            Matcher fileMatcher = SKU_PATTERN.matcher(fileName);
-            while (fileMatcher.find()) {
-                skuIds.add(normalizeSku(fileMatcher.group()));
-            }
-        }
 
         collectContains(prompt, CATEGORY_WORDS, categories);
         collectContains(prompt, INTENT_WORDS, intents);
@@ -59,7 +39,4 @@ public class RecallSignalExtractor {
         }
     }
 
-    private static String normalizeSku(String raw) {
-        return raw.replace(" ", "").replace("_", "").toUpperCase(Locale.ROOT);
-    }
 }

@@ -9,6 +9,8 @@ import com.pixflow.module.memory.recall.RecallPlan;
 import com.pixflow.module.memory.recall.RecallPlanner;
 import com.pixflow.module.memory.recall.RecallSignalExtractor;
 import com.pixflow.module.memory.recall.RecallSignals;
+import com.pixflow.module.memory.recall.RecallReferenceResolver;
+import com.pixflow.module.memory.recall.ResolvedRecallReferences;
 import com.pixflow.module.memory.skuhistory.SkuHistoryService;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -27,6 +29,8 @@ public class MemoryContextBuilder {
 
     private final RecallPlanner planner;
 
+    private final RecallReferenceResolver referenceResolver;
+
     private final PreferenceService preferenceService;
 
     private final SkuHistoryService skuHistoryService;
@@ -36,36 +40,63 @@ public class MemoryContextBuilder {
     public MemoryContextBuilder(
             RecallSignalExtractor signalExtractor,
             RecallPlanner planner,
+            RecallReferenceResolver referenceResolver,
             PreferenceService preferenceService,
             SkuHistoryService skuHistoryService,
             InsightRecallService insightRecallService) {
         this.signalExtractor = Objects.requireNonNull(signalExtractor, "signalExtractor");
         this.planner = Objects.requireNonNull(planner, "planner");
+        this.referenceResolver = Objects.requireNonNull(referenceResolver, "referenceResolver");
         this.preferenceService = Objects.requireNonNull(preferenceService, "preferenceService");
         this.skuHistoryService = Objects.requireNonNull(skuHistoryService, "skuHistoryService");
         this.insightRecallService = Objects.requireNonNull(insightRecallService, "insightRecallService");
     }
 
     public MemoryContext build(MemoryContextRequest request) {
-        RecallSignals signals = signalExtractor.extract(request);
+        ResolvedRecallReferences resolvedReferences = referenceResolver.resolve(request.references());
+        RecallSignals extractedSignals = signalExtractor.extract(request);
+        RecallSignals signals = new RecallSignals(resolvedReferences.skuIds(),
+                merge(extractedSignals.categories(), resolvedReferences.categoryHints()),
+                extractedSignals.intents(), extractedSignals.metricTerms());
         RecallPlan plan = planner.plan(request, signals);
         List<MemorySection> sections = new ArrayList<>();
-        boolean degraded = false;
+        boolean degraded = !resolvedReferences.trace().isEmpty()
+                && resolvedReferences.trace().stream().anyMatch(item -> "unresolved".equals(item.get("status")));
 
-        List<MemoryItem> preferences = plan.recallPreference()
-                ? preferenceService.recallPreferences(plan.preferenceMaxItems())
-                : List.of();
-        sections.add(section(USER_PREFERENCES, preferences, "偏好", Map.of("required", plan.recallPreference())));
+        List<MemoryItem> preferences = List.of();
+        Map<String, Object> preferenceTrace = new LinkedHashMap<>();
+        try {
+            preferences = plan.recallPreference() ? preferenceService.recallPreferences(plan.preferenceMaxItems()) : List.of();
+            preferenceTrace.put("dependency_status", "available");
+        } catch (RuntimeException ignored) {
+            preferenceTrace.put("dependency_status", "unavailable");
+            degraded = true;
+        }
+        sections.add(section(USER_PREFERENCES, preferences, "偏好", preferenceTrace));
 
-        List<MemoryItem> skuHistory = plan.recallSkuHistory()
-                ? skuHistoryService.recallBySkuIds(plan.skuIds(), plan.skuHistoryMaxItemsPerSku())
-                : List.of();
-        sections.add(section(SKU_HISTORY, skuHistory, "SKU历史", Map.of("sku_ids", plan.skuIds())));
+        List<MemoryItem> skuHistory = List.of();
+        Map<String, Object> skuTrace = new LinkedHashMap<>();
+        skuTrace.put("sku_ids", plan.skuIds());
+        try {
+            skuHistory = plan.recallSkuHistory()
+                    ? skuHistoryService.recallBySkuIds(plan.skuIds(), plan.skuHistoryMaxItemsPerSku()) : List.of();
+            skuTrace.put("dependency_status", "available");
+        } catch (RuntimeException ignored) {
+            skuTrace.put("dependency_status", "unavailable");
+            degraded = true;
+        }
+        sections.add(section(SKU_HISTORY, skuHistory, "SKU历史", skuTrace));
 
-        InsightRecallResult insightResult = plan.recallInsight()
-                ? insightRecallService.recall(plan.insightQuery(), plan.insightFilter(), plan.insightTopN())
-                : InsightRecallResult.empty();
-        degraded = insightResult.degraded();
+        InsightRecallResult insightResult;
+        try {
+            insightResult = plan.recallInsight()
+                    ? insightRecallService.recall(plan.insightQuery(), plan.insightFilter(), plan.insightTopN())
+                    : InsightRecallResult.empty();
+        } catch (RuntimeException ignored) {
+            insightResult = InsightRecallResult.empty();
+            degraded = true;
+        }
+        degraded = degraded || insightResult.degraded();
         sections.add(section(ANALYSIS_INSIGHTS, insightResult.items(), "分析结论", insightResult.trace()));
 
         Map<String, Object> trace = new LinkedHashMap<>();
@@ -75,9 +106,51 @@ public class MemoryContextBuilder {
                 "intents", signals.intents(),
                 "metric_terms", signals.metricTerms()));
         trace.put("plan", plan.trace());
+        trace.put("reference_resolution", resolvedReferences.trace());
         trace.put("insight", insightResult.trace());
         trace.put("degraded", degraded);
-        return new MemoryContext(request.conversationId(), request.turnNo(), sections, trace, degraded);
+        List<MemorySection> budgeted = applyBudget(sections, request.tokenBudget());
+        trace.put("token_budget", request.tokenBudget());
+        trace.put("used_tokens", budgeted.stream().mapToInt(MemorySection::tokenEstimate).sum());
+        return new MemoryContext(request.conversationId(), request.turnNo(), budgeted, trace, degraded);
+    }
+
+    private static List<String> merge(List<String> first, List<String> second) {
+        return java.util.stream.Stream.concat(first.stream(), second.stream()).distinct().toList();
+    }
+
+    private static List<MemorySection> applyBudget(List<MemorySection> sections, int budget) {
+        int remaining = budget;
+        List<MemorySection> selected = new ArrayList<>();
+        for (MemorySection section : sections) {
+            List<MemoryItem> items = new ArrayList<>();
+            for (MemoryItem item : section.items()) {
+                List<MemoryItem> candidateItems = new ArrayList<>(items);
+                candidateItems.add(item);
+                MemorySection candidate = section(section.name(), candidateItems, labelFor(section.name()), Map.of());
+                if (candidate.tokenEstimate() > remaining) {
+                    break;
+                }
+                items = candidateItems;
+            }
+            Map<String, Object> trace = new LinkedHashMap<>(section.trace());
+            trace.put("requested_item_count", section.items().size());
+            trace.put("selected_item_count", items.size());
+            trace.put("omission_reason", items.size() == section.items().size() ? "" : "token_budget");
+            MemorySection budgeted = section(section.name(), items, labelFor(section.name()), trace);
+            remaining -= budgeted.tokenEstimate();
+            selected.add(budgeted);
+        }
+        return selected;
+    }
+
+    private static String labelFor(String name) {
+        return switch (name) {
+            case USER_PREFERENCES -> "偏好";
+            case SKU_HISTORY -> "SKU历史";
+            case ANALYSIS_INSIGHTS -> "分析结论";
+            default -> name;
+        };
     }
 
     private static MemorySection section(String name, List<MemoryItem> items, String label, Map<String, Object> trace) {

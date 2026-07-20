@@ -2,6 +2,8 @@ package com.pixflow.module.memory.config;
 
 import com.pixflow.infra.ai.embedding.EmbeddingClient;
 import com.pixflow.infra.vector.VectorSearch;
+import com.pixflow.module.file.api.AssetReferenceExpander;
+import com.pixflow.module.file.api.AssetReferenceResolver;
 import com.pixflow.module.memory.DefaultMemoryService;
 import com.pixflow.module.memory.MemoryService;
 import com.pixflow.module.memory.context.MemoryContextBuilder;
@@ -21,6 +23,9 @@ import com.pixflow.module.memory.preference.UserPreferenceMapper;
 import com.pixflow.module.memory.recall.MemoryRanker;
 import com.pixflow.module.memory.recall.RecallPlanner;
 import com.pixflow.module.memory.recall.RecallSignalExtractor;
+import com.pixflow.module.memory.recall.RecallReferenceResolver;
+import com.pixflow.module.memory.recall.FileRecallReferenceResolver;
+import com.pixflow.module.memory.recall.NoopRecallReferenceResolver;
 import com.pixflow.module.memory.recall.RrfFuser;
 import com.pixflow.module.memory.skuhistory.MybatisSkuHistoryService;
 import com.pixflow.module.memory.skuhistory.NoopSkuHistoryService;
@@ -47,6 +52,18 @@ public class MemoryAutoConfiguration {
     @ConditionalOnMissingBean
     public RecallSignalExtractor recallSignalExtractor() {
         return new RecallSignalExtractor();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public RecallReferenceResolver recallReferenceResolver(
+            ObjectProvider<AssetReferenceResolver> resolver,
+            ObjectProvider<AssetReferenceExpander> expander) {
+        AssetReferenceResolver referenceResolver = resolver.getIfAvailable();
+        AssetReferenceExpander referenceExpander = expander.getIfAvailable();
+        return referenceResolver == null || referenceExpander == null
+                ? new NoopRecallReferenceResolver()
+                : new FileRecallReferenceResolver(referenceResolver, referenceExpander);
     }
 
     @Bean
@@ -129,12 +146,14 @@ public class MemoryAutoConfiguration {
     public MemoryContextBuilder memoryContextBuilder(
             RecallSignalExtractor signalExtractor,
             RecallPlanner planner,
+            RecallReferenceResolver referenceResolver,
             PreferenceService preferenceService,
             SkuHistoryService skuHistoryService,
             InsightRecallService insightRecallService) {
         return new MemoryContextBuilder(
                 signalExtractor,
                 planner,
+                referenceResolver,
                 preferenceService,
                 skuHistoryService,
                 insightRecallService);

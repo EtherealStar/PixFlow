@@ -15,7 +15,7 @@ public class RecallPlanner {
 
     public RecallPlan plan(MemoryContextRequest request, RecallSignals signals) {
         int insightTopN = properties.getPrompt().getInsightTopn();
-        if (request.tokenBudget() != null && request.tokenBudget() < properties.getPrompt().getMaxTokens() / 2) {
+        if (request.tokenBudget() < properties.getPrompt().getMaxTokens() / 2) {
             insightTopN = Math.max(1, insightTopN / 2);
         }
 

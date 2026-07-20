@@ -114,12 +114,9 @@ class MemoryMySqlQdrantIntegrationTest {
                 "trace-1",
                 "帮我处理 SKU123 的连衣裙主图，优先提升点击率",
                 List.of(),
-                null,
-                "task-1",
-                List.of(),
                 List.of(),
                 Map.of(),
-                null));
+                2000));
 
         assertThat(context.section(MemoryContextBuilder.ANALYSIS_INSIGHTS).items())
                 .extracting(MemoryItem::id)
