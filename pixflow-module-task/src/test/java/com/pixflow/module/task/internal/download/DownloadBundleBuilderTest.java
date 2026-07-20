@@ -25,7 +25,7 @@ class DownloadBundleBuilderTest {
   @Test
   void streamsArchiveThroughBoundedTemporaryFile() {
     ObjectStorage storage = mock(ObjectStorage.class);
-    when(storage.getStream(any())).thenReturn(new ByteArrayInputStream("image-bytes".getBytes()));
+    byte[] imageBytes = "image-bytes".getBytes();
     AtomicReference<byte[]> uploaded = new AtomicReference<>();
     when(storage.put(any(), any(), anyLong(), eq("application/zip")))
         .thenAnswer(
@@ -45,7 +45,7 @@ class DownloadBundleBuilderTest {
                 "downloads/test.zip",
                 List.of(
                     new DownloadBundleBuilder.BundleSource(
-                        "photo.png", ObjectLocation.of(BucketType.RESULTS, "results/photo.png"))));
+                        "photo.png", () -> new ByteArrayInputStream(imageBytes))));
 
     assertThat(result.bucket()).isEqualTo(BucketType.TMP);
     assertThat(result.key()).isEqualTo("downloads/test.zip");
@@ -57,7 +57,6 @@ class DownloadBundleBuilderTest {
     ObjectStorage storage = mock(ObjectStorage.class);
     byte[] incompressible = new byte[4096];
     new java.util.Random(1).nextBytes(incompressible);
-    when(storage.getStream(any())).thenReturn(new ByteArrayInputStream(incompressible));
     TaskProperties properties = new TaskProperties();
     properties.getDownload().setMaxBundleBytes(128);
 
@@ -69,7 +68,7 @@ class DownloadBundleBuilderTest {
                         List.of(
                             new DownloadBundleBuilder.BundleSource(
                                 "photo.png",
-                                ObjectLocation.of(BucketType.RESULTS, "results/photo.png")))))
+                                () -> new ByteArrayInputStream(incompressible)))))
         .isInstanceOfSatisfying(
             PixFlowException.class,
             failure ->

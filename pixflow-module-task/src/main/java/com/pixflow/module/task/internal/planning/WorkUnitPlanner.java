@@ -70,7 +70,8 @@ public final class WorkUnitPlanner {
       // 生成式任务冻结源图对象 key；恢复时不能重新读取可变的 asset_image 行。
       ImageDescriptor image =
           new ImageDescriptor(
-              source.sourceImageId(), source.skuId(), null, null, source.location(), null);
+              source.sourceImageId(), source.skuId(), null, null, source.referenceKey(), null,
+              source.sizeBytes());
       return new WorkUnitSelection(
           List.of(
               new WorkUnitSelection.Item(

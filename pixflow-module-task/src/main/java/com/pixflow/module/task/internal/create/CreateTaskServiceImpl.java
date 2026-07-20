@@ -6,6 +6,7 @@ import com.pixflow.harness.state.model.UnitKey;
 import com.pixflow.harness.state.model.UnitKeyCodec;
 import com.pixflow.module.task.api.TaskCommandService;
 import com.pixflow.module.task.api.command.CancelTaskCommand;
+import com.pixflow.module.task.api.command.ClearTaskCommand;
 import com.pixflow.module.task.api.command.CreateTaskCommand;
 import com.pixflow.module.task.api.command.RetryFailedTaskCommand;
 import com.pixflow.module.task.api.command.RetryTaskResponse;
@@ -21,6 +22,7 @@ import com.pixflow.module.task.infra.metrics.TaskMetrics;
 import com.pixflow.module.task.infra.persistence.ProcessResultMapper;
 import com.pixflow.module.task.infra.persistence.ProcessTaskMapper;
 import com.pixflow.module.task.internal.cancel.CancellationService;
+import com.pixflow.module.task.internal.cleanup.TaskCleanupService;
 import com.pixflow.module.task.internal.planning.WorkUnitPlanner;
 import com.pixflow.module.task.internal.publish.TaskEventPublisher;
 import com.pixflow.module.task.internal.retry.RetryFailedTaskService;
@@ -56,6 +58,8 @@ public class CreateTaskServiceImpl implements TaskCommandService {
 
   private final RetryFailedTaskService retryFailedTaskService;
 
+  private final TaskCleanupService cleanupService;
+
   public CreateTaskServiceImpl(
       ProcessTaskMapper taskMapper,
       PendingTaskEnqueuer pendingTaskEnqueuer,
@@ -67,7 +71,8 @@ public class CreateTaskServiceImpl implements TaskCommandService {
       ProcessResultMapper resultMapper,
       WorkUnitPlanner planner,
       ObjectMapper objectMapper,
-      RetryFailedTaskService retryFailedTaskService) {
+      RetryFailedTaskService retryFailedTaskService,
+      TaskCleanupService cleanupService) {
     this.taskMapper = taskMapper;
     this.pendingTaskEnqueuer = pendingTaskEnqueuer;
     this.idempotencyGuard = idempotencyGuard;
@@ -79,6 +84,7 @@ public class CreateTaskServiceImpl implements TaskCommandService {
     this.planner = planner;
     this.objectMapper = objectMapper;
     this.retryFailedTaskService = retryFailedTaskService;
+    this.cleanupService = cleanupService;
   }
 
   @Override
@@ -104,6 +110,11 @@ public class CreateTaskServiceImpl implements TaskCommandService {
   @Override
   public boolean cancel(CancelTaskCommand command) {
     return cancellationService.cancel(command);
+  }
+
+  @Override
+  public boolean clear(ClearTaskCommand command) {
+    return cleanupService.clear(command);
   }
 
   @Override
@@ -215,7 +226,7 @@ public class CreateTaskServiceImpl implements TaskCommandService {
         result.setSkuId(image.skuId());
         result.setGroupKey(image.groupKey());
         result.setViewId(image.viewId());
-        result.setSourcePath(image.location().key());
+        result.setSourcePath(image.referenceKey());
       }
       // PENDING 行是冻结 selection 的数据库投影，执行线程只更新它，不能另插一套身份。
       resultMapper.insert(result);

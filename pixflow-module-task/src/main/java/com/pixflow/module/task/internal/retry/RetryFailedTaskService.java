@@ -198,7 +198,7 @@ public class RetryFailedTaskService {
         result.setSkuId(image.skuId());
         result.setGroupKey(image.groupKey());
         result.setViewId(image.viewId());
-        result.setSourcePath(image.location().key());
+        result.setSourcePath(image.referenceKey());
       }
       // PENDING 行是派生 selection 的投影，来源结果不会被复用或改写。
       resultMapper.insert(result);

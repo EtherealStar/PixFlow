@@ -4,14 +4,18 @@ import com.pixflow.module.task.api.TaskOutcomeQuery;
 import com.pixflow.module.task.domain.model.ProcessResult;
 import com.pixflow.module.task.domain.model.ResultStatus;
 import com.pixflow.module.task.infra.persistence.ProcessResultMapper;
+import com.pixflow.module.task.infra.persistence.ProcessTaskMapper;
 import java.util.List;
 import java.util.Optional;
 
 public final class TaskOutcomeQueryImpl implements TaskOutcomeQuery {
   private final ProcessResultMapper mapper;
 
-  public TaskOutcomeQueryImpl(ProcessResultMapper mapper) {
+  private final ProcessTaskMapper taskMapper;
+
+  public TaskOutcomeQueryImpl(ProcessResultMapper mapper, ProcessTaskMapper taskMapper) {
     this.mapper = mapper;
+    this.taskMapper = taskMapper;
   }
 
   @Override
@@ -27,6 +31,40 @@ public final class TaskOutcomeQueryImpl implements TaskOutcomeQuery {
         .filter(this::visibleSuccess)
         .map(this::snapshot)
         .toList();
+  }
+
+  @Override
+  public Optional<CopyResultSnapshot> successfulCopy(long resultId) {
+    return Optional.ofNullable(mapper.selectById(resultId))
+        .filter(result -> result.getStatus() == ResultStatus.SUCCESS)
+        .filter(result -> result.getDeletedAt() == null)
+        .filter(result -> result.getGeneratedCopy() != null)
+        .filter(result -> !result.getGeneratedCopy().isBlank())
+        .map(result -> new CopyResultSnapshot(
+            result.getId(),
+            result.getTaskId(),
+            result.getGeneratedCopy(),
+            result.getProducerProvider(),
+            result.getProducerModel(),
+            result.getFinishedAt()));
+  }
+
+  @Override
+  public Optional<ConfirmedDecisionSnapshot> confirmedDecision(long taskId, String revision) {
+    if (revision == null || revision.isBlank()) {
+      throw new IllegalArgumentException("decision revision must not be blank");
+    }
+    return Optional.ofNullable(taskMapper.selectById(taskId))
+        .filter(task -> revision.equals(task.getPayloadHash()))
+        .map(task -> new ConfirmedDecisionSnapshot(
+            task.getId(),
+            task.getTaskType().name(),
+            task.getConversationId(),
+            task.getPackageId(),
+            task.getDagJson(),
+            task.getPayloadHash(),
+            task.getSchemaVersion(),
+            task.getCreatedAt()));
   }
 
   private boolean visibleSuccess(ProcessResult result) {

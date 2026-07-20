@@ -81,7 +81,7 @@ public class ImageGenWorker {
                         runEpoch,
                         source.skuId(),
                         source.imageId(),
-                        source.location(),
+                        source.referenceKey(),
                         plan.prompt(),
                         plan.params(),
                         "png");

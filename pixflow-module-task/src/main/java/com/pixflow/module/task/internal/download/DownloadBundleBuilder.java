@@ -37,10 +37,10 @@ public class DownloadBundleBuilder {
           ZipOutputStream zip = new ZipOutputStream(limited)) {
         int index = 0;
         for (BundleSource source : sources) {
-          if (source == null || source.location() == null) {
+          if (source == null || source.content() == null) {
             continue;
           }
-          try (InputStream in = objectStorage.getStream(source.location())) {
+          try (InputStream in = source.content().open()) {
             zip.putNextEntry(new ZipEntry(entryName(++index, source.entryName())));
             in.transferTo(zip);
             zip.closeEntry();
@@ -90,7 +90,12 @@ public class DownloadBundleBuilder {
         "download bundle exceeds max bytes: " + maxBytes);
   }
 
-  public record BundleSource(String entryName, ObjectLocation location) { }
+  public record BundleSource(String entryName, ContentSource content) { }
+
+  @FunctionalInterface
+  public interface ContentSource {
+    InputStream open();
+  }
 
   private static final class LimitedOutputStream extends FilterOutputStream {
     private final long maxBytes;

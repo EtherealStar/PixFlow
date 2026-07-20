@@ -6,12 +6,16 @@ import com.pixflow.module.task.domain.model.ResultStatus;
 import java.time.Instant;
 import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Delete;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
 @Mapper
 public interface ProcessResultMapper extends BaseMapper<ProcessResult> {
+  @Delete("delete from process_result where task_id = #{taskId}")
+  int deleteByTaskId(@Param("taskId") long taskId);
+
   @Select("select * from process_result where task_id = #{taskId} order by id asc")
   List<ProcessResult> findByTaskId(@Param("taskId") long taskId);
 

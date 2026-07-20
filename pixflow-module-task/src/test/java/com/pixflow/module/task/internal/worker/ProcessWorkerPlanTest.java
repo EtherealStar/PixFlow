@@ -7,8 +7,6 @@ import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pixflow.harness.state.model.UnitKind;
-import com.pixflow.infra.storage.BucketType;
-import com.pixflow.infra.storage.ObjectLocation;
 import com.pixflow.module.dag.DagFacade;
 import com.pixflow.module.dag.exec.TypedExecutionPlan;
 import com.pixflow.module.dag.expand.BranchExpander;
@@ -33,7 +31,7 @@ class ProcessWorkerPlanTest {
 
     ImageDescriptor image =
         ImageDescriptor.single(
-            "11", "SKU-11", ObjectLocation.of(BucketType.PACKAGES, "7/11.png"));
+            "11", "SKU-11", "asset:image:7:11");
     ExecutableBranch first = branch("branch-a", "11");
     ExecutableBranch failed = branch("branch-b", "11");
     when(expander.expand(typed, List.of(image))).thenReturn(List.of(first, failed));

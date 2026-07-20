@@ -17,9 +17,11 @@ import com.pixflow.module.dag.expand.BranchExpander;
 import com.pixflow.module.imagegen.config.ImagegenProperties;
 import com.pixflow.module.imagegen.exec.DefaultImageGenExecutor;
 import com.pixflow.module.imagegen.exec.ImageGenExecutor;
+import com.pixflow.module.imagegen.port.SourceImageContent;
 import com.pixflow.module.task.api.TaskCommandService;
 import com.pixflow.module.task.api.TaskOutcomeQuery;
 import com.pixflow.module.task.api.TaskQueryService;
+import com.pixflow.module.task.api.authorization.TaskAuthorizationFactsQuery;
 import com.pixflow.module.task.api.download.CustomDownloadBundleService;
 import com.pixflow.module.task.api.download.PublishedTaskResultQuery;
 import com.pixflow.module.task.api.port.TaskAssetReader;
@@ -30,6 +32,8 @@ import com.pixflow.module.task.infra.cache.TaskCacheKeys;
 import com.pixflow.module.task.infra.cache.TaskCancelFlag;
 import com.pixflow.module.task.infra.cache.TaskIdempotencyStore;
 import com.pixflow.module.task.infra.cache.TaskProgressCounter;
+import com.pixflow.module.task.api.activity.TaskActivitySource;
+import com.pixflow.module.task.internal.query.TaskActivitySourceImpl;
 import com.pixflow.module.task.infra.lock.TaskLockManager;
 import com.pixflow.module.task.infra.metrics.TaskMetrics;
 import com.pixflow.module.task.infra.mq.TaskMessageDestination;
@@ -40,6 +44,7 @@ import com.pixflow.module.task.infra.persistence.ProcessResultMapper;
 import com.pixflow.module.task.infra.persistence.ProcessResultMemberMapper;
 import com.pixflow.module.task.infra.persistence.ProcessTaskMapper;
 import com.pixflow.module.task.internal.cancel.CancellationService;
+import com.pixflow.module.task.internal.cleanup.TaskCleanupService;
 import com.pixflow.module.task.internal.create.CreateTaskServiceImpl;
 import com.pixflow.module.task.internal.create.PendingTaskEnqueuer;
 import com.pixflow.module.task.internal.download.DownloadBundleBuilder;
@@ -52,6 +57,7 @@ import com.pixflow.module.task.internal.publish.TaskEventPublisher;
 import com.pixflow.module.task.internal.query.TaskOutcomeQueryImpl;
 import com.pixflow.module.task.internal.query.PublishedTaskResultQueryImpl;
 import com.pixflow.module.task.internal.query.TaskQueryServiceImpl;
+import com.pixflow.module.task.internal.query.TaskAuthorizationFactsQueryImpl;
 import com.pixflow.module.task.internal.recovery.HeartbeatWriter;
 import com.pixflow.module.task.internal.recovery.RecoveryService;
 import com.pixflow.module.task.internal.retry.RetryFailedTaskService;
@@ -176,6 +182,16 @@ public class TaskAutoConfiguration {
 
   @Bean
   @ConditionalOnMissingBean
+  public TaskCleanupService taskCleanupService(
+      ProcessTaskMapper taskMapper,
+      ProcessResultMapper resultMapper,
+      ProcessResultMemberMapper memberMapper,
+      ObjectStorage storage) {
+    return new TaskCleanupService(taskMapper, resultMapper, memberMapper, storage);
+  }
+
+  @Bean
+  @ConditionalOnMissingBean
   public TaskEventPublisher taskEventPublisher(ApplicationEventPublisher publisher) {
     return new TaskEventPublisher(publisher);
   }
@@ -219,8 +235,9 @@ public class TaskAutoConfiguration {
   public ImageGenExecutor taskImageGenExecutor(
       com.pixflow.infra.ai.imagegen.ImageGenClient client,
       ObjectStorage objectStorage,
+      SourceImageContent sourceImages,
       ImagegenProperties properties) {
-    return new DefaultImageGenExecutor(client, objectStorage, properties);
+    return new DefaultImageGenExecutor(client, objectStorage, sourceImages, properties);
   }
 
   @Bean
@@ -361,7 +378,8 @@ public class TaskAutoConfiguration {
       ProcessResultMapper resultMapper,
       WorkUnitPlanner planner,
       ObjectMapper objectMapper,
-      RetryFailedTaskService retryFailedTaskService) {
+      RetryFailedTaskService retryFailedTaskService,
+      TaskCleanupService cleanupService) {
     return new CreateTaskServiceImpl(
         taskMapper,
         pendingTaskEnqueuer,
@@ -373,7 +391,8 @@ public class TaskAutoConfiguration {
         resultMapper,
         planner,
         objectMapper,
-        retryFailedTaskService);
+        retryFailedTaskService,
+        cleanupService);
   }
 
   @Bean
@@ -389,8 +408,10 @@ public class TaskAutoConfiguration {
       DownloadBundleBuilder bundleBuilder,
       ObjectStorage storage,
       TaskProperties properties,
-      Clock clock) {
-    return new CustomDownloadBundleServiceImpl(bundleBuilder, storage, properties, clock);
+      Clock clock,
+      PublishedAssetReader publishedAssets) {
+    return new CustomDownloadBundleServiceImpl(
+        bundleBuilder, storage, properties, clock, publishedAssets);
   }
 
   @Bean
@@ -425,9 +446,23 @@ public class TaskAutoConfiguration {
   }
 
   @Bean
+  @ConditionalOnMissingBean(TaskAuthorizationFactsQuery.class)
+  public TaskAuthorizationFactsQuery taskAuthorizationFactsQuery(ProcessTaskMapper taskMapper) {
+    return new TaskAuthorizationFactsQueryImpl(taskMapper);
+  }
+
+  @Bean
+  @ConditionalOnMissingBean(TaskActivitySource.class)
+  public TaskActivitySource taskActivitySource(
+      ProcessTaskMapper taskMapper, ProcessResultMapper resultMapper) {
+    return new TaskActivitySourceImpl(taskMapper, resultMapper);
+  }
+
+  @Bean
   @ConditionalOnMissingBean(TaskOutcomeQuery.class)
-  public TaskOutcomeQuery taskOutcomeQuery(ProcessResultMapper resultMapper) {
-    return new TaskOutcomeQueryImpl(resultMapper);
+  public TaskOutcomeQuery taskOutcomeQuery(
+      ProcessResultMapper resultMapper, ProcessTaskMapper taskMapper) {
+    return new TaskOutcomeQueryImpl(resultMapper, taskMapper);
   }
 
   @Bean

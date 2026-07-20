@@ -1,6 +1,7 @@
 package com.pixflow.module.task.api;
 
 import com.pixflow.module.task.api.command.CancelTaskCommand;
+import com.pixflow.module.task.api.command.ClearTaskCommand;
 import com.pixflow.module.task.api.command.CreateTaskCommand;
 import com.pixflow.module.task.api.command.RetryFailedTaskCommand;
 import com.pixflow.module.task.api.command.RetryTaskResponse;
@@ -13,6 +14,8 @@ public interface TaskCommandService {
   Optional<TaskId> findByIdempotencyKey(String idempotencyKey);
 
   boolean cancel(CancelTaskCommand command);
+
+  boolean clear(ClearTaskCommand command);
 
   RetryTaskResponse retryFailed(RetryFailedTaskCommand command);
 }

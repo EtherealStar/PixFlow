@@ -1,3 +1,4 @@
+-- Task Execution 目标基线；不保留旧表结构的增量迁移路径。
 CREATE TABLE process_task (
   id BIGINT NOT NULL AUTO_INCREMENT,
   task_type VARCHAR(32) NOT NULL,
@@ -43,6 +44,20 @@ CREATE TABLE process_result (
   branch_id VARCHAR(128) NOT NULL,
   source_path TEXT DEFAULT NULL,
   output_minio_key VARCHAR(512) DEFAULT NULL,
+  candidate_bucket VARCHAR(32) DEFAULT NULL,
+  candidate_content_type VARCHAR(128) DEFAULT NULL,
+  candidate_extension VARCHAR(32) DEFAULT NULL,
+  producer_kind VARCHAR(32) DEFAULT NULL,
+  producer_provider VARCHAR(128) DEFAULT NULL,
+  producer_model VARCHAR(128) DEFAULT NULL,
+  producer_tool VARCHAR(128) DEFAULT NULL,
+  producer_node_id VARCHAR(128) DEFAULT NULL,
+  publication_status VARCHAR(32) NOT NULL DEFAULT 'NOT_APPLICABLE',
+  generated_image_id BIGINT DEFAULT NULL,
+  published_reference_key VARCHAR(512) DEFAULT NULL,
+  published_at DATETIME(3) DEFAULT NULL,
+  publication_attempt_count INT NOT NULL DEFAULT 0,
+  publication_last_error VARCHAR(1000) DEFAULT NULL,
   generated_copy MEDIUMTEXT DEFAULT NULL,
   display_name VARCHAR(255) DEFAULT NULL,
   deleted_at DATETIME(3) DEFAULT NULL,
@@ -65,7 +80,8 @@ CREATE TABLE process_result (
   UNIQUE KEY uq_process_result_task_unit_key (task_id, unit_key),
   KEY idx_process_result_task_group_branch (task_id, group_key, branch_id),
   KEY idx_process_result_task_status (task_id, status),
-  KEY idx_process_result_task_visible (task_id, deleted_at, id)
+  KEY idx_process_result_task_visible (task_id, deleted_at, id),
+  KEY idx_process_result_publication_backlog (status, publication_status, task_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE process_result_member (

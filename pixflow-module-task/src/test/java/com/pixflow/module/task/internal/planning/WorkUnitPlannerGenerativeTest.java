@@ -3,8 +3,6 @@ package com.pixflow.module.task.internal.planning;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.pixflow.infra.storage.BucketType;
-import com.pixflow.infra.storage.ObjectLocation;
 import com.pixflow.module.imagegen.proposal.ImagegenPlan;
 import com.pixflow.module.task.api.port.TaskAssetReader;
 import java.util.List;
@@ -27,7 +25,8 @@ class WorkUnitPlannerGenerativeTest {
             return new GenerativeSource(
                 sourceImageId,
                 "SKU-" + sourceImageId,
-                ObjectLocation.of(BucketType.PACKAGES, packageId + "/" + sourceImageId + ".png"));
+                "asset:image:" + packageId + ":" + sourceImageId,
+                128L);
           }
         };
     WorkUnitPlanner planner = new WorkUnitPlanner(objectMapper, null, null, assets);
@@ -45,8 +44,8 @@ class WorkUnitPlannerGenerativeTest {
         .satisfies(
             image -> {
               assertThat(image.skuId()).isEqualTo("SKU-11");
-              assertThat(image.location())
-                  .isEqualTo(ObjectLocation.of(BucketType.PACKAGES, "7/11.png"));
+              assertThat(image.referenceKey()).isEqualTo("asset:image:7:11");
+              assertThat(image.sizeBytes()).isEqualTo(128L);
             });
   }
 }

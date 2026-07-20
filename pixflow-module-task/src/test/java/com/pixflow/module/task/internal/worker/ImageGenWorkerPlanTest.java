@@ -4,8 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pixflow.harness.state.model.UnitKind;
-import com.pixflow.infra.storage.BucketType;
-import com.pixflow.infra.storage.ObjectLocation;
 import com.pixflow.module.dag.expand.ImageDescriptor;
 import com.pixflow.module.imagegen.proposal.ImagegenPlan;
 import com.pixflow.module.task.internal.planning.WorkUnitSelection;
@@ -30,8 +28,7 @@ class ImageGenWorkerPlanTest {
                     List.of(
                         new ImageDescriptor(
                             "12", "SKU-12", null, null,
-                            ObjectLocation.of(BucketType.PACKAGES, "7/frozen-12.png"),
-                            "image/png")))));
+                            "asset:image:7:12", "image/png", 128L)))));
     ImageGenWorker worker = new ImageGenWorker(mapper, null, null, null, null, null);
 
     var units = worker.plan("99", 4L, payload, mapper.writeValueAsString(retrySelection));
@@ -39,8 +36,7 @@ class ImageGenWorkerPlanTest {
     assertThat(units).hasSize(1);
     var spec = units.getFirst().generativeSpec();
     assertThat(spec.sourceImageId()).isEqualTo("12");
-    assertThat(spec.sourceLocation().bucket()).isEqualTo(BucketType.PACKAGES);
-    assertThat(spec.sourceLocation().key()).isEqualTo("7/frozen-12.png");
+    assertThat(spec.sourceReferenceKey()).isEqualTo("asset:image:7:12");
     assertThat(spec.runEpoch()).isEqualTo(4L);
   }
 }

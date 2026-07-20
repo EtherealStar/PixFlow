@@ -54,6 +54,18 @@ public interface ProcessTaskMapper extends BaseMapper<ProcessTask> {
   List<ProcessTask> findStaleRunning(
       @Param("staleBefore") Instant staleBefore, @Param("limit") int limit);
 
+  @Select(
+            """
+            select * from process_task
+            where status <> 'CANCELLED'
+            order by updated_at desc, id desc
+            limit #{limit} offset #{offset}
+            """)
+  List<ProcessTask> pageActivities(@Param("offset") long offset, @Param("limit") int limit);
+
+  @Select("select count(*) from process_task where status <> 'CANCELLED'")
+  long countActivities();
+
   @Update(
       """
             update process_task

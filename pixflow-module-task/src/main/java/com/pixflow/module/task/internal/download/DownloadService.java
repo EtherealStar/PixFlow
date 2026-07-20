@@ -64,7 +64,7 @@ public class DownloadService {
                   result -> {
                     var content = publishedAssets.require(result.getPublishedReferenceKey());
                     return new DownloadBundleBuilder.BundleSource(
-                        result.getDisplayName(), content.location());
+                        result.getDisplayName(), content::open);
               })
               .toList();
       if (sources.isEmpty()) {
@@ -119,8 +119,7 @@ public class DownloadService {
   }
 
   private DownloadHandle downloadHandle(PublishedAssetReader.PublishedAssetContent content) {
-    URL url =
-        objectStorage.presignGet(content.location(), properties.getDownload().getSingleUrlExpiry());
+    URL url = content.presign(properties.getDownload().getSingleUrlExpiry());
     return new DownloadHandle(
         url,
         clock.instant().plus(properties.getDownload().getSingleUrlExpiry()),

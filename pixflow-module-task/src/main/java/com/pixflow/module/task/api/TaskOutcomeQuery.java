@@ -9,6 +9,10 @@ public interface TaskOutcomeQuery {
 
   List<SuccessfulResultSnapshot> successfulResults(long taskId);
 
+  Optional<CopyResultSnapshot> successfulCopy(long resultId);
+
+  Optional<ConfirmedDecisionSnapshot> confirmedDecision(long taskId, String revision);
+
   record SuccessfulResultSnapshot(
       long resultId,
       long taskId,
@@ -22,4 +26,22 @@ public interface TaskOutcomeQuery {
       String referenceKey,
       long bytesOut,
       Instant completedAt) { }
+
+  record CopyResultSnapshot(
+      long resultId,
+      long taskId,
+      String text,
+      String producerProvider,
+      String producerModel,
+      Instant completedAt) { }
+
+  record ConfirmedDecisionSnapshot(
+      long taskId,
+      String taskType,
+      String conversationId,
+      Long packageId,
+      String dagSnapshot,
+      String decisionRevision,
+      String schemaVersion,
+      Instant confirmedAt) { }
 }
