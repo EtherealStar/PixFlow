@@ -5,5 +5,7 @@ import java.util.List;
 
 public record CriterionEvaluation(CriterionResult result, List<JudgeRollout> rollouts,
                                   double agreement, String evaluatorVersion) {
-    public CriterionEvaluation { rollouts = List.copyOf(rollouts); }
+    public CriterionEvaluation {
+        rollouts = List.copyOf(rollouts);
+    }
 }

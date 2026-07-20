@@ -1,44 +1,148 @@
 package com.pixflow.module.rubrics.evidence;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pixflow.infra.image.ImageCodec;
-import com.pixflow.infra.storage.BucketType;
-import com.pixflow.infra.storage.ObjectLocation;
-import com.pixflow.infra.storage.ObjectStorage;
+import com.pixflow.infra.image.ImageFormat;
+import com.pixflow.infra.image.ImageProbe;
+import com.pixflow.module.rubrics.model.EvidenceType;
 import com.pixflow.module.rubrics.subject.ImageResultSubject;
 import com.pixflow.module.task.api.publication.PublishedAssetReader;
+import java.io.InputStream;
+import java.io.ByteArrayInputStream;
+import java.nio.charset.StandardCharsets;
 import java.time.Clock;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 
 class ImageEvidencePackBuilderTest {
 
     @Test
     void distinguishesIdentityMismatchFromTransientStorageFailure() {
-        ObjectStorage storage = mock(ObjectStorage.class);
         PublishedAssetReader assets = mock(PublishedAssetReader.class);
-        ObjectLocation location = ObjectLocation.of(BucketType.TMP, "rubrics/image.png");
         when(assets.require("IMAGE:2:10")).thenReturn(
-                new PublishedAssetReader.PublishedAssetContent(11, location, "image/png", 10));
-        ImageEvidencePackBuilder builder = new ImageEvidencePackBuilder(
-                storage, assets, mock(ImageCodec.class), new ObjectMapper(), Clock.systemUTC());
+                content(11, new byte[10]));
+        ImageEvidencePackBuilder builder = builder(assets, mock(ImageCodec.class));
 
         EvidencePack mismatch = builder.build(subject());
 
         assertThat(mismatch.failure().kind()).isEqualTo(EvidenceFailureKind.INVALID_IDENTITY);
 
         when(assets.require("IMAGE:2:10")).thenReturn(
-                new PublishedAssetReader.PublishedAssetContent(10, location, "image/png", 10));
-        when(storage.getBytes(location)).thenThrow(new IllegalStateException("storage unavailable"));
+                failingContent(10));
 
         EvidencePack unavailable = builder.build(subject());
 
-        assertThat(unavailable.failure().kind())
-                .isEqualTo(EvidenceFailureKind.TRANSIENT_DEPENDENCY);
+        assertThat(unavailable.failure().kind()).isEqualTo(EvidenceFailureKind.TRANSIENT_DEPENDENCY);
         assertThat(unavailable.hash()).isNotEqualTo(mismatch.hash());
+    }
+
+    @Test
+    void publishedAssetMissingIsNonReplayable() {
+        // 对象已被删除或发布资产不可读：属于不可回放，不能伪装成质量失败。
+        PublishedAssetReader assets = mock(PublishedAssetReader.class);
+        when(assets.require("IMAGE:2:10")).thenThrow(new IllegalStateException("asset not found"));
+
+        EvidencePack pack = builder(assets, mock(ImageCodec.class)).build(subject());
+
+        assertThat(pack.failure().kind()).isEqualTo(EvidenceFailureKind.NON_REPLAYABLE);
+        assertThat(pack.failure().code()).isEqualTo("PUBLISHED_ASSET_UNAVAILABLE");
+        assertThat(pack.entries()).isEmpty();
+    }
+
+    @Test
+    void corruptedImageBytesAreInvalidContent() {
+        // 字节存在但无法 probe（损坏图片）：独立于对象缺失与存储故障的失败语义。
+        PublishedAssetReader assets = mock(PublishedAssetReader.class);
+        when(assets.require("IMAGE:2:10")).thenReturn(
+                content(10, "not-an-image".getBytes(StandardCharsets.UTF_8)));
+        ImageCodec codec = mock(ImageCodec.class);
+        when(codec.probe(any(InputStream.class))).thenThrow(new IllegalStateException("decode failed"));
+
+        EvidencePack pack = builder(assets, codec).build(subject());
+
+        assertThat(pack.failure().kind()).isEqualTo(EvidenceFailureKind.INVALID_CONTENT);
+        assertThat(pack.failure().code()).isEqualTo("IMAGE_PROBE_FAILED");
+    }
+
+    @Test
+    void buildsOutputImageAndMetadataEntriesWithStableIdentity() {
+        // 正常路径：OUTPUT_IMAGE + IMAGE_METADATA 两条证据，content hash 基于实际字节与 canonical metadata，
+        // 不使用 referenceKey/ETag/文件名替代内容身份；重放相同字节得到相同 pack hash。
+        byte[] bytes = "png-bytes".getBytes(StandardCharsets.UTF_8);
+        PublishedAssetReader assets = mock(PublishedAssetReader.class);
+        when(assets.require("IMAGE:2:10")).thenReturn(
+                content(10, bytes));
+        ImageCodec codec = mock(ImageCodec.class);
+        when(codec.probe(any(InputStream.class)))
+                .thenReturn(new ImageProbe(ImageFormat.PNG, 1024, 1024, false));
+
+        ImageEvidencePackBuilder builder = builder(assets, codec);
+
+        EvidencePack first = builder.build(subject());
+        EvidencePack second = builder.build(subject());
+
+        assertThat(first.failure()).isNull();
+        assertThat(first.view(Set.of(EvidenceType.OUTPUT_IMAGE)))
+                .singleElement()
+                .satisfies(image -> {
+                    assertThat(image.type()).isEqualTo(EvidenceType.OUTPUT_IMAGE);
+                    assertThat(image.sourceRef()).isEqualTo("IMAGE:2:10");
+                    // OUTPUT_IMAGE 的 content hash 必须是实际字节的哈希，而非 referenceKey 或 ETag。
+                    assertThat(image.contentHash())
+                            .isEqualTo(EvidenceHashing.sha256(bytes));
+                    assertThat(image.metadata()).containsEntry("size", bytes.length);
+                });
+        assertThat(first.view(Set.of(EvidenceType.IMAGE_METADATA)))
+                .singleElement()
+                .satisfies(meta -> {
+                    assertThat(meta.type()).isEqualTo(EvidenceType.IMAGE_METADATA);
+                    assertThat(meta.metadata()).containsEntry("format", "PNG");
+                    assertThat(meta.metadata()).containsEntry("width", 1024);
+                    assertThat(meta.metadata()).containsEntry("height", 1024);
+                });
+        // 相同字节重放产生稳定 identity。
+        assertThat(second.hash()).isEqualTo(first.hash());
+    }
+
+    private static ImageEvidencePackBuilder builder(PublishedAssetReader assets,
+            ImageCodec codec) {
+        return new ImageEvidencePackBuilder(
+                assets, codec, new ObjectMapper(), Clock.systemUTC());
+    }
+
+    private static PublishedAssetReader.PublishedAssetContent content(long imageId, byte[] bytes) {
+        return new PublishedAssetReader.PublishedAssetContent(
+                imageId, "image/png", bytes.length, new PublishedAssetReader.ContentAccess() {
+                    @Override
+                    public InputStream open() {
+                        return new ByteArrayInputStream(bytes);
+                    }
+
+                    @Override
+                    public java.net.URL presign(java.time.Duration ttl) {
+                        return null;
+                    }
+                });
+    }
+
+    private static PublishedAssetReader.PublishedAssetContent failingContent(long imageId) {
+        return new PublishedAssetReader.PublishedAssetContent(
+                imageId, "image/png", 10, new PublishedAssetReader.ContentAccess() {
+                    @Override
+                    public InputStream open() {
+                        throw new IllegalStateException("storage unavailable");
+                    }
+
+                    @Override
+                    public java.net.URL presign(java.time.Duration ttl) {
+                        return null;
+                    }
+                });
     }
 
     private static ImageResultSubject subject() {

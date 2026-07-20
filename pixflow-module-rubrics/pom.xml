@@ -34,18 +34,16 @@
             <groupId>com.pixflow</groupId>
             <artifactId>pixflow-module-task</artifactId>
         </dependency>
+        <!-- Rubrics 只读 Eval 的 TraceQuery/TraceReplay 公开 seam，用于 TASK_DECISION 的 criterion-specific trace 证据；
+             不依赖 harness.eval.internal 或 persistence 实现。 -->
+        <dependency>
+            <groupId>com.pixflow</groupId>
+            <artifactId>pixflow-eval</artifactId>
+        </dependency>
         <dependency>
             <groupId>com.baomidou</groupId>
             <artifactId>mybatis-plus-spring-boot3-starter</artifactId>
             <version>${mybatis-plus.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-web</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-validation</artifactId>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>

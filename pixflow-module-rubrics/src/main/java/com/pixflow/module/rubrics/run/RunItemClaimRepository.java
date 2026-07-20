@@ -144,6 +144,29 @@ public final class RunItemClaimRepository {
         return updated == 1;
     }
 
+    /**
+     * 将运行期发现的不可回放项收敛为 PARTIAL。
+     *
+     * <p>这里仍校验 claim epoch、owner 与 lease，防止失去所有权的 worker 覆盖接管者结果。
+     */
+    public boolean finishNonReplayable(
+            RunItemClaim claim, String errorCode, Instant now) {
+        int updated = jdbc.update("""
+                update rubrics_run_item
+                set status = 'PARTIAL', error_msg = ?, finished_at = ?, updated_at = ?
+                where id = ? and status = 'RUNNING'
+                  and claim_epoch = ? and claim_owner = ? and lease_expires_at >= ?
+                """,
+                "NON_REPLAYABLE:" + errorCode,
+                Timestamp.from(now),
+                Timestamp.from(now),
+                claim.itemId(),
+                claim.epoch(),
+                claim.owner(),
+                Timestamp.from(now));
+        return updated == 1;
+    }
+
     private static BigDecimal decimal(Double value) {
         return value == null ? null : BigDecimal.valueOf(value);
     }

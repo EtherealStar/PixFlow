@@ -9,5 +9,8 @@ import java.util.List;
 public record CriterionResultView(String criterionKey, CriterionKind kind, CriterionVerdict verdict,
                                   VerdictReason reason, String rationale, List<String> evidenceIds,
                                   Double agreement, List<JudgeRollout> rollouts) {
-    public CriterionResultView { evidenceIds = List.copyOf(evidenceIds); rollouts = List.copyOf(rollouts); }
+    public CriterionResultView {
+        evidenceIds = List.copyOf(evidenceIds);
+        rollouts = List.copyOf(rollouts);
+    }
 }

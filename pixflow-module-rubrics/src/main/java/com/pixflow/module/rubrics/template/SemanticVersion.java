@@ -19,7 +19,9 @@ public record SemanticVersion(int major, int minor, int patch) implements Compar
     @Override
     public int compareTo(SemanticVersion other) {
         int majorOrder = Integer.compare(major, other.major);
-        if (majorOrder != 0) return majorOrder;
+        if (majorOrder != 0) {
+            return majorOrder;
+        }
         int minorOrder = Integer.compare(minor, other.minor);
         return minorOrder != 0 ? minorOrder : Integer.compare(patch, other.patch);
     }

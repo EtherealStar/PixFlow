@@ -20,6 +20,8 @@ import com.pixflow.module.rubrics.evidence.EvidencePack;
 import com.pixflow.module.rubrics.model.CriterionKind;
 import com.pixflow.module.rubrics.model.CriterionVerdict;
 import com.pixflow.module.rubrics.model.EvidenceType;
+import com.pixflow.module.rubrics.observability.RubricsMetrics;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import com.pixflow.module.rubrics.subject.ImageResultSubject;
 import com.pixflow.module.rubrics.template.Applicability;
 import com.pixflow.module.rubrics.template.Criterion;
@@ -34,6 +36,7 @@ import java.util.ArrayDeque;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 import reactor.core.publisher.Flux;
 import org.junit.jupiter.api.Test;
 
@@ -72,6 +75,18 @@ class RepeatedLlmCriterionVerifierTest {
         assertThat(result.result().reason()).isEqualTo(VerdictReason.JUDGE_DISAGREEMENT);
     }
 
+    @Test
+    void heartbeatsBeforeEveryIndependentRollout() {
+        var vision = new FakeVisionClient(
+                json("PASS", "E1"), json("PASS", "E1"), json("PASS", "E1"));
+        AtomicInteger heartbeats = new AtomicInteger();
+
+        verifier(vision).verify(
+                criterion(), evaluator(), subject(), evidence(), heartbeats::incrementAndGet);
+
+        assertThat(heartbeats).hasValue(3);
+    }
+
     private static RepeatedLlmCriterionVerifier verifier(FakeVisionClient vision) {
         ChatModelClient chat = new ChatModelClient() {
             public ChatResult call(ChatRequest request) { throw new AssertionError("text client not expected"); }
@@ -81,7 +96,7 @@ class RepeatedLlmCriterionVerifierTest {
                 ModelCapability.VISION, 0.0, 256, Duration.ofSeconds(1));
         return new RepeatedLlmCriterionVerifier(chat, vision, router, new ObjectMapper(),
                 entry -> new com.pixflow.infra.ai.chat.ChatMessage.UrlImageContent(URI.create("https://example.invalid/e1")),
-                new MajorityVerdictReducer());
+                new MajorityVerdictReducer(), new RubricsMetrics(new SimpleMeterRegistry()), 2000);
     }
 
     private static Criterion criterion() {

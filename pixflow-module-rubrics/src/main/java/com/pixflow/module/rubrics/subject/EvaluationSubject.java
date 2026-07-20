@@ -5,9 +5,14 @@ import java.util.Optional;
 
 public interface EvaluationSubject {
     SubjectType type();
+
     String id();
+
     String snapshotHash();
-    default Optional<ProductionModelIdentity> productionModel() { return Optional.empty(); }
+
+    default Optional<ProductionModelIdentity> productionModel() {
+        return Optional.empty();
+    }
 
     record ProductionModelIdentity(String provider, String model) {
         public ProductionModelIdentity {

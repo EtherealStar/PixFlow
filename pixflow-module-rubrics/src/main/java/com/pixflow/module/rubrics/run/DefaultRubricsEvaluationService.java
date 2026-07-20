@@ -13,7 +13,7 @@ import com.pixflow.module.rubrics.api.RunTrigger;
 import com.pixflow.module.rubrics.api.TemplateRef;
 import com.pixflow.module.rubrics.evidence.EvidenceEntry;
 import com.pixflow.module.rubrics.evidence.EvidencePack;
-import com.pixflow.module.rubrics.evidence.ImageEvidencePackBuilder;
+import com.pixflow.module.rubrics.evidence.EvidencePackFactory;
 import com.pixflow.module.rubrics.judge.CriterionEvaluation;
 import com.pixflow.module.rubrics.judge.JudgeRollout;
 import com.pixflow.module.rubrics.judge.RepeatedLlmCriterionVerifier;
@@ -21,12 +21,13 @@ import com.pixflow.module.rubrics.model.CriterionVerdict;
 import com.pixflow.module.rubrics.model.EvidenceType;
 import com.pixflow.module.rubrics.model.QualityGate;
 import com.pixflow.module.rubrics.model.SubjectType;
+import com.pixflow.module.rubrics.observability.RubricsMetrics;
 import com.pixflow.module.rubrics.persistence.RubricsRunEntity;
 import com.pixflow.module.rubrics.persistence.RubricsRunItemEntity;
 import com.pixflow.module.rubrics.persistence.RubricsRunItemMapper;
 import com.pixflow.module.rubrics.persistence.RubricsRunMapper;
-import com.pixflow.module.rubrics.subject.ImageResultSubject;
-import com.pixflow.module.rubrics.subject.ImageSubjectSnapshotResolver;
+import com.pixflow.module.rubrics.subject.EvaluationSubject;
+import com.pixflow.module.rubrics.subject.EvaluationSubjectCatalog;
 import com.pixflow.module.rubrics.summary.CriterionOutcome;
 import com.pixflow.module.rubrics.summary.EvaluationSummary;
 import com.pixflow.module.rubrics.summary.EvaluationSummaryCalculator;
@@ -34,6 +35,7 @@ import com.pixflow.module.rubrics.template.Applicability;
 import com.pixflow.module.rubrics.template.Criterion;
 import com.pixflow.module.rubrics.template.LoadedTemplate;
 import com.pixflow.module.rubrics.template.TemplateRegistry;
+import com.pixflow.module.rubrics.template.TemplateLifecycle;
 import com.pixflow.module.rubrics.template.VerifierType;
 import com.pixflow.module.rubrics.verifier.CriterionResult;
 import com.pixflow.module.rubrics.verifier.RuleCriterionVerifier;
@@ -43,23 +45,31 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.transaction.support.TransactionOperations;
 
 /** Rubrics 对外深模块接口的默认实现。 */
 public final class DefaultRubricsEvaluationService implements RubricsEvaluationService {
+    private static final Logger LOGGER = LoggerFactory.getLogger(DefaultRubricsEvaluationService.class);
+
     private static final int MAX_VIEW_ITEMS = 100;
 
     private static final String NON_REPLAYABLE_PREFIX = "NON_REPLAYABLE:";
 
     private final TemplateRegistry templates;
 
-    private final ImageSubjectSnapshotResolver subjects;
+    private final EvaluationSubjectCatalog subjects;
 
-    private final ImageEvidencePackBuilder evidence;
+    private final EvidencePackFactory evidence;
 
     private final RuleCriterionVerifier rules;
 
@@ -77,16 +87,28 @@ public final class DefaultRubricsEvaluationService implements RubricsEvaluationS
 
     private final EvaluationDatasetRepository datasets;
 
+    private final ValidationReportRepository validationReports;
+
+    private final CalibrationReportRepository calibrationReports;
+
+    private final RegressionReportRepository regressionReports;
+
+    private final RegressionAlertRepository regressionAlerts;
+
     private final Clock clock;
 
     private final Duration claimLease;
 
     private final String workerId;
 
+    private final TransactionOperations transactions;
+
+    private final RubricsMetrics metrics;
+
     public DefaultRubricsEvaluationService(
             TemplateRegistry templates,
-            ImageSubjectSnapshotResolver subjects,
-            ImageEvidencePackBuilder evidence,
+            EvaluationSubjectCatalog subjects,
+            EvidencePackFactory evidence,
             RuleCriterionVerifier rules,
             RepeatedLlmCriterionVerifier llm,
             EvaluationSummaryCalculator summaries,
@@ -95,8 +117,14 @@ public final class DefaultRubricsEvaluationService implements RubricsEvaluationS
             RubricsRunItemMapper items,
             RunItemClaimRepository claims,
             EvaluationDatasetRepository datasets,
+            ValidationReportRepository validationReports,
+            CalibrationReportRepository calibrationReports,
+            RegressionReportRepository regressionReports,
+            RegressionAlertRepository regressionAlerts,
             Clock clock,
-            Duration claimLease) {
+            Duration claimLease,
+            TransactionOperations transactions,
+            RubricsMetrics metrics) {
         this.templates = templates;
         this.subjects = subjects;
         this.evidence = evidence;
@@ -108,27 +136,69 @@ public final class DefaultRubricsEvaluationService implements RubricsEvaluationS
         this.items = items;
         this.claims = claims;
         this.datasets = datasets;
+        this.validationReports = validationReports;
+        this.calibrationReports = calibrationReports;
+        this.regressionReports = regressionReports;
+        this.regressionAlerts = regressionAlerts;
         this.clock = clock;
         this.claimLease = claimLease;
+        this.transactions = transactions;
+        this.metrics = metrics;
         workerId = "rubrics-" + UUID.randomUUID();
     }
 
     @Override
     public EvaluationRunView start(EvaluationRunRequest request) {
+        return resume(admit(request, null));
+    }
+
+    EvaluationRunId admit(EvaluationRunRequest request, String admissionKey) {
+        if (admissionKey != null && admissionKey.isBlank()) {
+            throw new IllegalArgumentException("admission key must not be blank");
+        }
+        EvaluationRunId admitted = transactions.execute(status ->
+                admitInTransaction(request, admissionKey));
+        if (admitted == null) {
+            throw new IllegalStateException("run admission returned no identity");
+        }
+        return admitted;
+    }
+
+    private EvaluationRunId admitInTransaction(
+            EvaluationRunRequest request, String admissionKey) {
+        RubricsRunEntity existing = admissionKey == null
+                ? null : runs.findByAdmissionKey(admissionKey);
+        if (existing != null) {
+            return new EvaluationRunId(existing.getId());
+        }
         LoadedTemplate loaded = templates.require(
                 request.template().templateId(), request.template().semanticVersion());
         ResolvedSelection selection = resolveSelection(request);
         if (loaded.template().subjectType() != selection.subjectType()) {
             throw new IllegalArgumentException("template subject type does not match run subject type");
         }
+        validatePurposeAuthority(request, loaded, selection);
         validateBaseline(request, selection);
         Instant now = clock.instant();
         RubricsRunEntity run = newRun(request, loaded, selection, now);
-        runs.insert(run);
+        run.setEvaluatorVersion(expectedEvaluatorVersion(loaded));
+        run.setAdmissionKey(admissionKey);
+        try {
+            runs.insert(run);
+        } catch (DataIntegrityViolationException error) {
+            if (admissionKey == null) {
+                throw error;
+            }
+            RubricsRunEntity concurrent = runs.findByAdmissionKey(admissionKey);
+            if (concurrent == null) {
+                throw error;
+            }
+            return new EvaluationRunId(concurrent.getId());
+        }
         for (SelectedSubject subject : selection.subjects()) {
             items.insert(newItem(run.getId(), selection.subjectType(), subject, now));
         }
-        return resume(new EvaluationRunId(run.getId()));
+        return new EvaluationRunId(run.getId());
     }
 
     @Override
@@ -166,7 +236,22 @@ public final class DefaultRubricsEvaluationService implements RubricsEvaluationS
             return;
         }
         try {
-            PreparedEvaluation prepared = evaluate(loaded, item.getSubjectId());
+            LOGGER.info("Rubrics item started runId={} subjectType={} subjectId={} template={}:{} evaluator={}",
+                    run.getId(), item.getSubjectType(), item.getSubjectId(),
+                    run.getTemplateId(), run.getTemplateVersion(), run.getEvaluatorVersion());
+            EvaluationSubject subject = subjects.resolve(
+                    loaded.template().subjectType(), item.getSubjectId());
+            if (item.getSubjectSnapshotHash() != null
+                    && !Objects.equals(item.getSubjectSnapshotHash(), subject.snapshotHash())) {
+                // Dataset 绑定的是不可变 owner snapshot；漂移项不能调用 judge，也不能伪装成质量失败。
+                claims.finishNonReplayable(
+                        claim, "SUBJECT_SNAPSHOT_MISMATCH", clock.instant());
+                metrics.recordItem(item.getSubjectType(), "PARTIAL",
+                        Duration.between(claimedAt, clock.instant()));
+                return;
+            }
+            PreparedEvaluation prepared = evaluate(
+                    loaded, subject, () -> heartbeat(claim));
             persistence.save(
                     run.getId(),
                     claim,
@@ -178,6 +263,8 @@ public final class DefaultRubricsEvaluationService implements RubricsEvaluationS
                     prepared.criteria(),
                     clock.instant());
             run.setEvaluatorVersion(prepared.evaluatorVersion());
+            metrics.recordItem(item.getSubjectType(), prepared.summary().inconclusiveCount() > 0
+                    ? "PARTIAL" : "SUCCEEDED", Duration.between(claimedAt, clock.instant()));
         } catch (IllegalArgumentException error) {
             // Subject/schema 等不可恢复错误成为 item 失败；局部 provider 错误已在 criterion 内隔离。
             claims.finish(
@@ -185,41 +272,48 @@ public final class DefaultRubricsEvaluationService implements RubricsEvaluationS
                     item.getSubjectSnapshotHash(),
                     RunItemStatus.FAILED,
                     clock.instant());
+            metrics.recordItem(item.getSubjectType(), "FAILED",
+                    Duration.between(claimedAt, clock.instant()));
         } catch (RuntimeException error) {
             // 数据库、序列化和瞬时依赖错误保留恢复资格，watchdog/resume 可在新 epoch 重试。
             claims.failRetryable(claim, error.getClass().getSimpleName(), clock.instant());
+            metrics.recordItem(item.getSubjectType(), "FAILED_RETRYABLE",
+                    Duration.between(claimedAt, clock.instant()));
         }
     }
 
-    private PreparedEvaluation evaluate(LoadedTemplate loaded, String subjectId) {
-        if (loaded.template().subjectType() != SubjectType.IMAGE_RESULT) {
-            throw new IllegalArgumentException(
-                    "subject adapter is not available: " + loaded.template().subjectType());
-        }
-        ImageResultSubject subject = subjects.resolve(subjectId);
+    private PreparedEvaluation evaluate(
+            LoadedTemplate loaded,
+            EvaluationSubject subject,
+            Runnable beforeRollout) {
         EvidencePack pack = evidence.build(subject);
         List<EvaluatedCriterion> evaluated = new ArrayList<>();
         String evaluatorVersion = "deterministic:" + loaded.canonicalHash();
         for (Criterion criterion : loaded.template().criteria()) {
-            CriterionEvaluationResult result = evaluateCriterion(criterion, loaded, subject, pack);
+            CriterionEvaluationResult result = evaluateCriterion(
+                    criterion, loaded, subject, pack, beforeRollout);
             evaluatorVersion = result.evaluatorVersion() == null
                     ? evaluatorVersion : result.evaluatorVersion();
             evaluated.add(new EvaluatedCriterion(
                     criterion.key(), criterion.kind(), result.result(),
                     result.agreement(), result.rollouts()));
+            metrics.recordCriterion(criterion.key(), result.result().verdict(),
+                    result.result().reason(), result.agreement());
         }
         EvaluationSummary summary = summaries.calculate(evaluated.stream()
                 .map(value -> new CriterionOutcome(
                         value.key(), value.kind(), value.result().verdict()))
                 .toList());
+        metrics.recordSummary(summary);
         return new PreparedEvaluation(subject, pack, summary, evaluated, evaluatorVersion);
     }
 
     private CriterionEvaluationResult evaluateCriterion(
             Criterion criterion,
             LoadedTemplate loaded,
-            ImageResultSubject subject,
-            EvidencePack pack) {
+            EvaluationSubject subject,
+            EvidencePack pack,
+            Runnable beforeRollout) {
         List<EvidenceEntry> allowed = pack.view(criterion.evidenceTypes());
         Set<EvidenceType> presentTypes = allowed.stream()
                 .map(EvidenceEntry::type)
@@ -244,7 +338,7 @@ public final class DefaultRubricsEvaluationService implements RubricsEvaluationS
             return criterionResult(rules.verify(criterion, allowed));
         }
         CriterionEvaluation judged = llm.verify(
-                criterion, loaded.template().evaluator(), subject, pack);
+                criterion, loaded.template().evaluator(), subject, pack, beforeRollout);
         return new CriterionEvaluationResult(
                 judged.result(), judged.agreement(), judged.rollouts(), judged.evaluatorVersion());
     }
@@ -253,7 +347,14 @@ public final class DefaultRubricsEvaluationService implements RubricsEvaluationS
         return new CriterionEvaluationResult(result, null, List.of(), null);
     }
 
+    private void heartbeat(RunItemClaim claim) {
+        if (!claims.heartbeat(claim, clock.instant(), claimLease)) {
+            throw new IllegalStateException("evaluation claim was lost before rollout");
+        }
+    }
+
     private void recomputeRun(RubricsRunEntity run) {
+        RunStatus previousStatus = run.getStatus();
         List<RubricsRunItemEntity> all = items.findByRunId(run.getId());
         int succeeded = count(all, RunItemStatus.SUCCEEDED);
         int partial = count(all, RunItemStatus.PARTIAL);
@@ -277,6 +378,28 @@ public final class DefaultRubricsEvaluationService implements RubricsEvaluationS
         run.setFinishedAt(finishedAt);
         run.setUpdatedAt(clock.instant());
         runs.updateById(run);
+        if (finishedAt != null && previousStatus != RunStatus.SUCCEEDED
+                && previousStatus != RunStatus.PARTIAL && previousStatus != RunStatus.FAILED) {
+            metrics.recordRun(run.getPurpose().name(), status.name(),
+                    Duration.between(run.getStartedAt(), finishedAt));
+            LOGGER.info("Rubrics run finished runId={} template={}:{} evaluator={} status={}",
+                    run.getId(), run.getTemplateId(), run.getTemplateVersion(),
+                    run.getEvaluatorVersion(), status);
+        }
+        if (finishedAt != null
+                && run.getPurpose() == com.pixflow.module.rubrics.api.RunPurpose.CALIBRATION) {
+            LoadedTemplate loaded = templates.require(run.getTemplateId(), run.getTemplateVersion());
+            calibrationReports.createIfComplete(run, loaded);
+        }
+        if (finishedAt != null
+                && run.getPurpose()
+                        == com.pixflow.module.rubrics.api.RunPurpose.FORMAL_REGRESSION
+                && run.getBaselineRunId() != null) {
+            regressionAlerts.createIfRegressed(
+                    run,
+                    regressionReports.compare(run.getId(), run.getBaselineRunId()),
+                    clock.instant());
+        }
     }
 
     private EvaluationRunView view(RubricsRunEntity run) {
@@ -307,8 +430,27 @@ public final class DefaultRubricsEvaluationService implements RubricsEvaluationS
                 all.size() > MAX_VIEW_ITEMS,
                 new EvaluationRunReport(
                         run.getPurpose(),
-                        Map.of("nonReplayableCount", countNonReplayable(all)),
+                        reportFacts(run, all),
                         complete));
+    }
+
+    private Map<String, Object> reportFacts(
+            RubricsRunEntity run, List<RubricsRunItemEntity> all) {
+        Map<String, Object> facts = new LinkedHashMap<>();
+        facts.put("nonReplayableCount", countNonReplayable(all));
+        if (run.getPurpose() == com.pixflow.module.rubrics.api.RunPurpose.CALIBRATION) {
+            facts.putAll(calibrationReports.findByRunId(run.getId()));
+        }
+        if (run.getPurpose()
+                == com.pixflow.module.rubrics.api.RunPurpose.FORMAL_REGRESSION) {
+            if (run.getBaselineRunId() == null) {
+                facts.put("formalBaseline", true);
+            } else {
+                facts.putAll(regressionReports.compare(
+                        run.getId(), run.getBaselineRunId()));
+            }
+        }
+        return Map.copyOf(facts);
     }
 
     private RubricsRunEntity requireRun(long runId) {
@@ -426,6 +568,7 @@ public final class DefaultRubricsEvaluationService implements RubricsEvaluationS
                             .map(id -> new SelectedSubject(id, null, true, null))
                             .toList(),
                     null,
+                    null,
                     null);
         }
         DatasetSelection selected = (DatasetSelection) request.selection();
@@ -443,7 +586,8 @@ public final class DefaultRubricsEvaluationService implements RubricsEvaluationS
                 dataset.subjectType(),
                 selectedSubjects,
                 dataset.datasetId(),
-                dataset.version());
+                dataset.version(),
+                dataset.databaseId());
     }
 
     private void validateBaseline(
@@ -473,6 +617,39 @@ public final class DefaultRubricsEvaluationService implements RubricsEvaluationS
         }
     }
 
+    private void validatePurposeAuthority(
+            EvaluationRunRequest request,
+            LoadedTemplate loaded,
+            ResolvedSelection selection) {
+        if (request.purpose()
+                != com.pixflow.module.rubrics.api.RunPurpose.FORMAL_REGRESSION) {
+            return;
+        }
+        if (loaded.template().lifecycle() == TemplateLifecycle.EXPERIMENTAL) {
+            throw new IllegalArgumentException(
+                    "experimental template cannot run a formal regression");
+        }
+        String evaluatorVersion = expectedEvaluatorVersion(loaded);
+        if (selection.datasetDatabaseId() == null
+                || !validationReports.hasPassingReport(
+                        selection.datasetDatabaseId(),
+                        loaded.template().id(),
+                        loaded.template().version(),
+                        loaded.canonicalHash(),
+                        evaluatorVersion)) {
+            throw new IllegalArgumentException(
+                    "formal regression requires a passing validation report for the exact release");
+        }
+    }
+
+    private String expectedEvaluatorVersion(LoadedTemplate loaded) {
+        boolean usesLlm = loaded.template().criteria().stream()
+                .anyMatch(criterion -> criterion.verifier().type() == VerifierType.LLM);
+        return usesLlm
+                ? llm.expectedEvaluatorVersion(loaded.template().evaluator())
+                : "deterministic:" + loaded.canonicalHash();
+    }
+
     private record CriterionEvaluationResult(
             CriterionResult result,
             Double agreement,
@@ -481,7 +658,7 @@ public final class DefaultRubricsEvaluationService implements RubricsEvaluationS
     }
 
     private record PreparedEvaluation(
-            ImageResultSubject subject,
+            EvaluationSubject subject,
             EvidencePack pack,
             EvaluationSummary summary,
             List<EvaluatedCriterion> criteria,
@@ -492,7 +669,8 @@ public final class DefaultRubricsEvaluationService implements RubricsEvaluationS
             SubjectType subjectType,
             List<SelectedSubject> subjects,
             String datasetId,
-            String datasetVersion) {
+            String datasetVersion,
+            Long datasetDatabaseId) {
     }
 
     private record SelectedSubject(

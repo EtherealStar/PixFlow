@@ -9,6 +9,7 @@ import org.apache.ibatis.annotations.Select;
 
 @Mapper
 public interface RubricsEvaluationMapper extends BaseMapper<RubricsEvaluationEntity> {
-    @Select("select * from rubrics_evaluation where subject_type=#{type} and subject_id=#{subjectId} order by created_at desc")
+    @Select("select * from rubrics_evaluation where subject_type=#{type} "
+            + "and subject_id=#{subjectId} order by created_at desc")
     List<RubricsEvaluationEntity> history(@Param("type") SubjectType type, @Param("subjectId") String subjectId);
 }

@@ -10,7 +10,10 @@ public record EvaluationView(long id, long runId, SubjectType subjectType, Strin
                              String templateHash, String evaluatorVersion, String evidencePackHash,
                              List<EvidenceEntry> evidence, QualityGate qualityGate, Double passRate,
                              Double coverage, boolean selfJudged, List<CriterionResultView> criteria) {
-    public EvaluationView { evidence = List.copyOf(evidence); criteria = List.copyOf(criteria); }
+    public EvaluationView {
+        evidence = List.copyOf(evidence);
+        criteria = List.copyOf(criteria);
+    }
 
     public EvaluationView(long id, long runId, SubjectType subjectType, String subjectId,
                           String subjectSnapshotHash, String templateId, String templateVersion,

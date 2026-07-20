@@ -123,6 +123,7 @@ CREATE TABLE rubrics_dataset (
   manifest_hash CHAR(64) NOT NULL,
   holdout_manifest_hash CHAR(64) NULL,
   gold_label_version VARCHAR(64) NULL,
+  evidence_schema_version VARCHAR(64) NOT NULL DEFAULT '1',
   created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   PRIMARY KEY (id),
   UNIQUE KEY uk_rubrics_dataset (dataset_id, version)
@@ -134,6 +135,8 @@ CREATE TABLE rubrics_dataset_item (
   subject_id VARCHAR(255) NOT NULL,
   subject_snapshot_hash CHAR(64) NOT NULL,
   partition_name VARCHAR(32) NOT NULL,
+  category_name VARCHAR(128) NOT NULL DEFAULT 'UNSPECIFIED',
+  difficulty VARCHAR(32) NOT NULL DEFAULT 'UNSPECIFIED',
   replayable BOOLEAN NOT NULL DEFAULT TRUE,
   replay_error VARCHAR(500) NULL,
   PRIMARY KEY (id),
@@ -154,15 +157,18 @@ CREATE TABLE rubrics_gold_label (
 
 CREATE TABLE rubrics_validation_report (
   id BIGINT NOT NULL AUTO_INCREMENT,
+  run_id BIGINT NOT NULL,
   dataset_pk BIGINT NOT NULL,
   template_id VARCHAR(128) NOT NULL,
   template_version VARCHAR(64) NOT NULL,
   template_hash CHAR(64) NOT NULL,
   evaluator_version VARCHAR(255) NOT NULL,
+  evidence_schema_version VARCHAR(64) NOT NULL,
   report_json JSON NOT NULL,
   thresholds_met BOOLEAN NOT NULL,
   created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   PRIMARY KEY (id),
+  UNIQUE KEY uk_rubrics_validation_run (run_id),
   KEY idx_rubrics_validation_release (template_id, template_version, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
@@ -180,5 +186,6 @@ CREATE TABLE rubrics_alert (
   created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   acknowledged_at DATETIME(3) NULL,
   PRIMARY KEY (id),
+  UNIQUE KEY uk_rubrics_alert_run (run_id),
   KEY idx_rubrics_alert_acknowledged (acknowledged, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

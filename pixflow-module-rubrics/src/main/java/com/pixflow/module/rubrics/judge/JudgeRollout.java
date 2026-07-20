@@ -8,5 +8,7 @@ public record JudgeRollout(int index, CriterionVerdict verdict, VerdictReason re
                            String rationale, List<String> evidenceIds, String provider,
                            String model, String promptHash, long latencyMs,
                            long promptTokens, long completionTokens, long totalTokens) {
-    public JudgeRollout { evidenceIds = evidenceIds == null ? List.of() : List.copyOf(evidenceIds); }
+    public JudgeRollout {
+        evidenceIds = evidenceIds == null ? List.of() : List.copyOf(evidenceIds);
+    }
 }

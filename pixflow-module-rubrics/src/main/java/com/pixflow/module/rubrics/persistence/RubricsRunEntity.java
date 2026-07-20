@@ -29,6 +29,8 @@ public class RubricsRunEntity {
 
     private Long baselineRunId;
 
+    private String admissionKey;
+
     private RunPurpose purpose;
 
     private String statsJson;
@@ -125,6 +127,14 @@ public class RubricsRunEntity {
 
     public void setBaselineRunId(Long value) {
         baselineRunId = value;
+    }
+
+    public String getAdmissionKey() {
+        return admissionKey;
+    }
+
+    public void setAdmissionKey(String value) {
+        admissionKey = value;
     }
 
     public RunPurpose getPurpose() {

@@ -16,7 +16,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionOperations;
 
 public class EvaluationPersistence {
     private final RubricsEvaluationMapper evaluations;
@@ -29,6 +29,8 @@ public class EvaluationPersistence {
 
     private final ObjectMapper mapper;
 
+    private final TransactionOperations transactions;
+
     private final SelfJudgedDetector selfJudgedDetector = new SelfJudgedDetector();
 
     public EvaluationPersistence(
@@ -36,16 +38,35 @@ public class EvaluationPersistence {
             RubricsCriterionResultMapper criteria,
             RubricsJudgeRolloutMapper rollouts,
             RunItemClaimRepository claims,
-            ObjectMapper mapper) {
+            ObjectMapper mapper,
+            TransactionOperations transactions) {
         this.evaluations = evaluations;
         this.criteria = criteria;
         this.rollouts = rollouts;
         this.claims = claims;
         this.mapper = mapper;
+        this.transactions = transactions;
     }
 
-    @Transactional
     public long save(
+            long runId,
+            RunItemClaim claim,
+            LoadedTemplate loaded,
+            String evaluatorVersion,
+            EvaluationSubject subject,
+            EvidencePack pack,
+            EvaluationSummary summary,
+            List<EvaluatedCriterion> values,
+            Instant now) {
+        Long evaluationId = transactions.execute(status -> saveInTransaction(
+                runId, claim, loaded, evaluatorVersion, subject, pack, summary, values, now));
+        if (evaluationId == null) {
+            throw new IllegalStateException("evaluation transaction returned no identity");
+        }
+        return evaluationId;
+    }
+
+    private long saveInTransaction(
             long runId,
             RunItemClaim claim,
             LoadedTemplate loaded,

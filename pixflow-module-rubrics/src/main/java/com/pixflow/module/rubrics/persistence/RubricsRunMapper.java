@@ -11,12 +11,23 @@ import org.apache.ibatis.annotations.Update;
 
 @Mapper
 public interface RubricsRunMapper extends BaseMapper<RubricsRunEntity> {
+    @Select("select * from rubrics_run where admission_key = #{admissionKey} limit 1")
+    RubricsRunEntity findByAdmissionKey(@Param("admissionKey") String admissionKey);
+
     @Select("""
             select * from rubrics_run
             where status = #{status}
             order by created_at asc
             """)
     List<RubricsRunEntity> findByStatus(@Param("status") RunStatus status);
+
+    @Select("""
+            select * from rubrics_run
+            where status in ('PENDING', 'RUNNING')
+            order by updated_at asc
+            limit #{limit}
+            """)
+    List<RubricsRunEntity> findRecoverable(@Param("limit") int limit);
 
     @Update("""
             update rubrics_run

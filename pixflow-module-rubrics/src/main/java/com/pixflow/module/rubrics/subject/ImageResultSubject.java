@@ -6,5 +6,8 @@ public record ImageResultSubject(String id, long taskId, String skuId, String un
                                  String imageId, String groupKey, String viewId, String branchId,
                                  long generatedImageId, String referenceKey, long bytesOut,
                                  String snapshotHash) implements EvaluationSubject {
-    @Override public SubjectType type() { return SubjectType.IMAGE_RESULT; }
+    @Override
+    public SubjectType type() {
+        return SubjectType.IMAGE_RESULT;
+    }
 }

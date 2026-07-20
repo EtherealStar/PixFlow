@@ -19,10 +19,12 @@ public final class RuleCriterionVerifier {
             return switch (criterion.verifier().ruleClass()) {
                 case "resolution" -> resolution(criterion, metadata);
                 case "format" -> format(criterion, metadata);
-                default -> inconclusive(VerdictReason.EVALUATOR_FAILURE, "unknown rule verifier: " + criterion.verifier().ruleClass());
+                default -> inconclusive(VerdictReason.EVALUATOR_FAILURE,
+                        "unknown rule verifier: " + criterion.verifier().ruleClass());
             };
         } catch (RuntimeException error) {
-            return inconclusive(VerdictReason.EVALUATOR_FAILURE, "rule verifier failed: " + error.getClass().getSimpleName());
+            return inconclusive(VerdictReason.EVALUATOR_FAILURE,
+                    "rule verifier failed: " + error.getClass().getSimpleName());
         }
     }
 
@@ -47,7 +49,9 @@ public final class RuleCriterionVerifier {
 
     private static int number(Map<String, Object> values, String key) {
         Object value = values.get(key);
-        if (!(value instanceof Number number)) throw new IllegalArgumentException("missing numeric parameter " + key);
+        if (!(value instanceof Number number)) {
+            throw new IllegalArgumentException("missing numeric parameter " + key);
+        }
         return number.intValue();
     }
 

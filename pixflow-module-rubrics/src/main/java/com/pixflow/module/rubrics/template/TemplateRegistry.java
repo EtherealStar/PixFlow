@@ -21,7 +21,9 @@ public final class TemplateRegistry {
         }
     }
 
-    public List<LoadedTemplate> list() { return List.copyOf(templates.values()); }
+    public List<LoadedTemplate> list() {
+        return List.copyOf(templates.values());
+    }
 
     public List<LoadedTemplate> versions(String id) {
         return templates.values().stream()

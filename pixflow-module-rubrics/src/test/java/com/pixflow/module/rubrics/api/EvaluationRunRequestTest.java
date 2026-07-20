@@ -26,14 +26,14 @@ class EvaluationRunRequestTest {
     }
 
     @Test
-    void formalRegressionRequiresFrozenBaselineRun() {
-        assertThatThrownBy(() -> new EvaluationRunRequest(
+    void formalRegressionAllowsValidatedBootstrapWithoutABaselineRun() {
+        EvaluationRunRequest request = new EvaluationRunRequest(
                 new TemplateRef("image-quality", "2.0.0"),
                 RunPurpose.FORMAL_REGRESSION,
                 RunTrigger.MANUAL,
                 new DatasetSelection("gold-images", "1.0.0"),
-                null))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("baseline");
+                null);
+
+        assertThat(request.baselineRunId()).isNull();
     }
 }

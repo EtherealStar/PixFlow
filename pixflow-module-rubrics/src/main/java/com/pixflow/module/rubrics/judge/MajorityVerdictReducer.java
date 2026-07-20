@@ -12,10 +12,14 @@ public final class MajorityVerdictReducer {
         long pass = count(rollouts, CriterionVerdict.PASS);
         long fail = count(rollouts, CriterionVerdict.FAIL);
         int majority = configuredRollouts / 2 + 1;
-        if (pass >= majority) return new MajorityVerdict(CriterionVerdict.PASS, VerdictReason.RULE_MATCH,
-                (double) pass / configuredRollouts);
-        if (fail >= majority) return new MajorityVerdict(CriterionVerdict.FAIL, VerdictReason.RULE_MISMATCH,
-                (double) fail / configuredRollouts);
+        if (pass >= majority) {
+            return new MajorityVerdict(CriterionVerdict.PASS, VerdictReason.RULE_MATCH,
+                    (double) pass / configuredRollouts);
+        }
+        if (fail >= majority) {
+            return new MajorityVerdict(CriterionVerdict.FAIL, VerdictReason.RULE_MISMATCH,
+                    (double) fail / configuredRollouts);
+        }
         return new MajorityVerdict(CriterionVerdict.INCONCLUSIVE, VerdictReason.JUDGE_DISAGREEMENT,
                 (double) Math.max(pass, fail) / configuredRollouts);
     }

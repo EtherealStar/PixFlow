@@ -16,6 +16,7 @@ import com.pixflow.infra.ai.vision.VisionRequest;
 import com.pixflow.module.rubrics.evidence.EvidenceEntry;
 import com.pixflow.module.rubrics.evidence.EvidencePack;
 import com.pixflow.module.rubrics.model.CriterionVerdict;
+import com.pixflow.module.rubrics.observability.RubricsMetrics;
 import com.pixflow.module.rubrics.subject.EvaluationSubject;
 import com.pixflow.module.rubrics.template.Criterion;
 import com.pixflow.module.rubrics.template.EvaluatorSpec;
@@ -30,25 +31,49 @@ import java.util.Map;
 
 public final class RepeatedLlmCriterionVerifier {
     private final ChatModelClient chat;
+
     private final VisionModelClient vision;
+
     private final ModelRouter router;
+
     private final ObjectMapper mapper;
+
     private final EvidenceImageResolver images;
+
     private final MajorityVerdictReducer reducer;
+
+    private final RubricsMetrics metrics;
+
+    private final int maxRationaleChars;
 
     public RepeatedLlmCriterionVerifier(ChatModelClient chat, VisionModelClient vision, ModelRouter router,
                                         ObjectMapper mapper, EvidenceImageResolver images,
-                                        MajorityVerdictReducer reducer) {
+                                        MajorityVerdictReducer reducer, RubricsMetrics metrics,
+                                        int maxRationaleChars) {
         this.chat = chat;
         this.vision = vision;
         this.router = router;
         this.mapper = mapper;
         this.images = images;
         this.reducer = reducer;
+        this.metrics = metrics;
+        if (maxRationaleChars <= 0) {
+            throw new IllegalArgumentException("max rationale chars must be positive");
+        }
+        this.maxRationaleChars = maxRationaleChars;
     }
 
     public CriterionEvaluation verify(Criterion criterion, EvaluatorSpec evaluator,
                                       EvaluationSubject subject, EvidencePack pack) {
+        return verify(criterion, evaluator, subject, pack, () -> { });
+    }
+
+    public CriterionEvaluation verify(
+            Criterion criterion,
+            EvaluatorSpec evaluator,
+            EvaluationSubject subject,
+            EvidencePack pack,
+            Runnable beforeRollout) {
         List<EvidenceEntry> allowed = pack.view(criterion.evidenceTypes());
         String prompt = prompt(criterion, subject, allowed);
         ResolvedModel model = router.resolve(evaluator.judgeRole());
@@ -56,9 +81,11 @@ public final class RepeatedLlmCriterionVerifier {
         String evaluatorVersion = evaluatorVersion(evaluator, model);
         List<JudgeRollout> rollouts = new ArrayList<>(evaluator.rollouts());
         for (int index = 1; index <= evaluator.rollouts(); index++) {
+            beforeRollout.run();
             rollouts.add(call(index, evaluator.judgeRole(), model, prompt, promptHash, allowed));
         }
         MajorityVerdict majority = reducer.reduce(rollouts, evaluator.rollouts());
+        rollouts.forEach(metrics::recordJudge);
         List<String> evidenceIds = rollouts.stream()
                 .filter(value -> value.verdict() == majority.verdict())
                 .flatMap(value -> value.evidenceIds().stream()).distinct().toList();
@@ -70,6 +97,11 @@ public final class RepeatedLlmCriterionVerifier {
         return new CriterionEvaluation(result, rollouts, majority.agreement(), evaluatorVersion);
     }
 
+    /** 返回调用 provider 前即可锁定的 evaluator identity。 */
+    public String expectedEvaluatorVersion(EvaluatorSpec evaluator) {
+        return evaluatorVersion(evaluator, router.resolve(evaluator.judgeRole()));
+    }
+
     private JudgeRollout call(int index, ModelRole role, ResolvedModel model, String prompt,
                               String promptHash, List<EvidenceEntry> allowed) {
         long started = System.nanoTime();
@@ -79,14 +111,18 @@ public final class RepeatedLlmCriterionVerifier {
             if (role == ModelRole.RUBRICS_JUDGE_VISION) {
                 List<ChatMessage.Part> parts = new ArrayList<>(user.parts());
                 allowed.stream().filter(entry -> entry.type().name().contains("IMAGE"))
-                        .findFirst().ifPresent(entry -> parts.add(new ChatMessage.ImagePart(images.resolve(entry), entry.id())));
+                        .findFirst()
+                        .ifPresent(entry -> parts.add(new ChatMessage.ImagePart(
+                                images.resolve(entry), entry.id())));
                 response = vision.call(new VisionRequest(role,
-                        List.of(message(ChatMessage.Role.SYSTEM, systemPrompt()), new ChatMessage(ChatMessage.Role.USER, parts)),
-                        new ChatOptions(0.0, 512, null)));
+                        List.of(
+                                message(ChatMessage.Role.SYSTEM, systemPrompt()),
+                                new ChatMessage(ChatMessage.Role.USER, parts)),
+                        List.of(), ToolChoice.NONE, new ChatOptions(0.0, 512, null), null));
             } else if (role == ModelRole.RUBRICS_JUDGE_TEXT) {
                 response = chat.call(new ChatRequest(role,
                         List.of(message(ChatMessage.Role.SYSTEM, systemPrompt()), user), List.of(), ToolChoice.NONE,
-                        new ChatOptions(0.0, 512, null)));
+                        new ChatOptions(0.0, 512, null), null));
             } else {
                 throw new IllegalArgumentException("unsupported rubrics judge role: " + role);
             }
@@ -104,19 +140,28 @@ public final class RepeatedLlmCriterionVerifier {
         try {
             JsonNode json = mapper.readTree(output);
             CriterionVerdict verdict = CriterionVerdict.valueOf(json.path("verdict").asText());
-            if (verdict == CriterionVerdict.NOT_APPLICABLE) throw new IllegalArgumentException("judge cannot emit N/A");
+            if (verdict == CriterionVerdict.NOT_APPLICABLE) {
+                throw new IllegalArgumentException("judge cannot emit N/A");
+            }
             String rationale = json.path("rationale").asText();
             List<String> evidenceIds = new ArrayList<>();
             json.path("evidenceIds").forEach(value -> evidenceIds.add(value.asText()));
-            if (rationale.isBlank() || evidenceIds.isEmpty()) throw new IllegalArgumentException("missing rationale or evidence");
+            if (rationale.isBlank() || evidenceIds.isEmpty()) {
+                throw new IllegalArgumentException("missing rationale or evidence");
+            }
+            rationale = rationale.length() <= maxRationaleChars
+                    ? rationale : rationale.substring(0, maxRationaleChars);
             var allowedIds = new HashSet<>(allowed.stream().map(EvidenceEntry::id).toList());
             if (!allowedIds.containsAll(evidenceIds)) {
                 return new JudgeRollout(index, CriterionVerdict.INCONCLUSIVE, VerdictReason.INVALID_EVIDENCE,
                         "judge referenced evidence outside the allowed pack view", List.of(), model.provider(),
-                        model.model(), promptHash, latencyMs, usage.promptTokens(), usage.completionTokens(), usage.totalTokens());
+                        model.model(), promptHash, latencyMs, usage.promptTokens(),
+                        usage.completionTokens(), usage.totalTokens());
             }
-            return new JudgeRollout(index, verdict, VerdictReason.RULE_MATCH, rationale, evidenceIds, model.provider(),
-                    model.model(), promptHash, latencyMs, usage.promptTokens(), usage.completionTokens(), usage.totalTokens());
+            return new JudgeRollout(
+                    index, verdict, VerdictReason.RULE_MATCH, rationale, evidenceIds,
+                    model.provider(), model.model(), promptHash, latencyMs,
+                    usage.promptTokens(), usage.completionTokens(), usage.totalTokens());
         } catch (Exception error) {
             return new JudgeRollout(index, CriterionVerdict.INCONCLUSIVE, VerdictReason.PARSER_FAILURE,
                     "judge response did not match parser schema", List.of(), model.provider(), model.model(),
@@ -153,6 +198,8 @@ public final class RepeatedLlmCriterionVerifier {
         try {
             return java.util.HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
                     .digest(value.getBytes(StandardCharsets.UTF_8)));
-        } catch (Exception error) { throw new IllegalStateException(error); }
+        } catch (Exception error) {
+            throw new IllegalStateException(error);
+        }
     }
 }

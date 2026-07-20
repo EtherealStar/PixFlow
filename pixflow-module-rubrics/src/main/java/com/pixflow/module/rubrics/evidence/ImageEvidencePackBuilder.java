@@ -2,7 +2,6 @@ package com.pixflow.module.rubrics.evidence;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pixflow.infra.image.ImageCodec;
-import com.pixflow.infra.storage.ObjectStorage;
 import com.pixflow.module.rubrics.model.EvidenceType;
 import com.pixflow.module.rubrics.subject.ImageResultSubject;
 import com.pixflow.module.task.api.publication.PublishedAssetReader;
@@ -14,8 +13,6 @@ import java.time.Clock;
 import java.time.Instant;
 
 public final class ImageEvidencePackBuilder {
-    private final ObjectStorage storage;
-
     private final PublishedAssetReader publishedAssets;
 
     private final ImageCodec codec;
@@ -24,14 +21,13 @@ public final class ImageEvidencePackBuilder {
 
     private final Clock clock;
 
-    public ImageEvidencePackBuilder(ObjectStorage storage, PublishedAssetReader publishedAssets,
+    public ImageEvidencePackBuilder(PublishedAssetReader publishedAssets,
             ImageCodec codec, ObjectMapper mapper) {
-        this(storage, publishedAssets, codec, mapper, Clock.systemUTC());
+        this(publishedAssets, codec, mapper, Clock.systemUTC());
     }
 
-    public ImageEvidencePackBuilder(ObjectStorage storage, PublishedAssetReader publishedAssets,
+    public ImageEvidencePackBuilder(PublishedAssetReader publishedAssets,
             ImageCodec codec, ObjectMapper mapper, Clock clock) {
-        this.storage = storage;
         this.publishedAssets = publishedAssets;
         this.codec = codec;
         this.mapper = mapper;
@@ -50,8 +46,8 @@ public final class ImageEvidencePackBuilder {
         }
         byte[] bytes;
         try {
-            bytes = storage.getBytes(published.location());
-        } catch (RuntimeException error) {
+            bytes = published.open().readAllBytes();
+        } catch (java.io.IOException | RuntimeException error) {
             return unavailable(subject, EvidenceFailureKind.TRANSIENT_DEPENDENCY, "STORAGE_READ_FAILED");
         }
         com.pixflow.infra.image.ImageProbe probe;
