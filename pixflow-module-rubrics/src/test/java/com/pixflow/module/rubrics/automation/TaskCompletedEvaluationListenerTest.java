@@ -42,7 +42,7 @@ class TaskCompletedEvaluationListenerTest {
                 .thenReturn(new LoadedTemplate(template, "hash", "test"));
         when(outcomes.successfulResults(42)).thenReturn(List.of(new TaskOutcomeQuery.SuccessfulResultSnapshot(
                 7, 42, "STANDARD", "image", "sku", null, null, "branch",
-                31, "package:5/image:31", 10, Instant.EPOCH)));
+                31, "package:5/image:31", 10, "provider", "model", Instant.EPOCH)));
         when(admissions.admit(any(), anyString())).thenReturn(new EvaluationRunId(9));
         AutomationAdmissionPolicy policy = mock(AutomationAdmissionPolicy.class);
         when(policy.allows(anyBoolean(), any(LoadedTemplate.class))).thenReturn(true);

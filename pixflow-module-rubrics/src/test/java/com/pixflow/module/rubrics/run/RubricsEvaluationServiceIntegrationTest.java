@@ -354,7 +354,7 @@ class RubricsEvaluationServiceIntegrationTest {
                 null);
         assertThatThrownBy(() -> service.start(request))
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("every HOLDOUT subject");
+                .hasMessageContaining("two independent annotators");
         long runId = jdbc.queryForObject("select id from rubrics_run", Long.class);
         labels.importLabels("calibration-holdout", "1.0.0", List.of(
                 new GoldLabelRepository.GoldLabel(
@@ -667,7 +667,7 @@ class RubricsEvaluationServiceIntegrationTest {
                 "The decision has a concrete proposal.",
                 "The proposal contains an executable payload.",
                 "The proposal payload is absent.",
-                Set.of(EvidenceType.DAG_SNAPSHOT),
+                Set.of(EvidenceType.PROPOSAL),
                 Applicability.ALWAYS,
                 new VerifierSpec(VerifierType.LLM, null, null, Map.of()));
         RubricTemplate decisionTemplate = new RubricTemplate(
@@ -700,7 +700,9 @@ class RubricsEvaluationServiceIntegrationTest {
                         "branch-1",
                         91,
                         "IMAGE:91",
-                        4,
+                        5,
+                        "provider",
+                        "model",
                         NOW));
             }
 
@@ -731,6 +733,7 @@ class RubricsEvaluationServiceIntegrationTest {
                                 "IMAGE_PROCESS",
                                 "conversation-1",
                                 3L,
+                                "{\"nodes\":[]}",
                                 "{\"nodes\":[]}",
                                 revision,
                                 "1.0",
@@ -765,6 +768,7 @@ class RubricsEvaluationServiceIntegrationTest {
                 new PublishedAssetReader.PublishedAssetContent(
                     91,
                     "image/png",
+                    sha256(bytes),
                     bytes.length,
                     new PublishedAssetReader.ContentAccess() {
                         @Override
@@ -792,6 +796,15 @@ class RubricsEvaluationServiceIntegrationTest {
                 .thenReturn(new ImageProbe(ImageFormat.PNG, 1024, 1024, true));
         return new ImageEvidencePackBuilder(
                 published, codec, mapper, Clock.fixed(NOW, ZoneOffset.UTC));
+    }
+
+    private static String sha256(byte[] bytes) {
+        try {
+            return java.util.HexFormat.of().formatHex(
+                    java.security.MessageDigest.getInstance("SHA-256").digest(bytes));
+        } catch (java.security.NoSuchAlgorithmException error) {
+            throw new IllegalStateException("SHA-256 is unavailable", error);
+        }
     }
 
     private void applySchema() throws Exception {

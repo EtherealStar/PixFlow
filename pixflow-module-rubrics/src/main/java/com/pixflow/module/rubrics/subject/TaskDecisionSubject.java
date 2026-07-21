@@ -10,6 +10,7 @@ public record TaskDecisionSubject(
         String taskType,
         String conversationId,
         Long packageId,
+        String confirmedProposal,
         String dagSnapshot,
         String schemaVersion,
         Instant confirmedAt,

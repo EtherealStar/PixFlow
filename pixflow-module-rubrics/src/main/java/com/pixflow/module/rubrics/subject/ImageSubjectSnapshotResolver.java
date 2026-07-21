@@ -20,6 +20,7 @@ public final class ImageSubjectSnapshotResolver {
         return new ImageResultSubject(subjectId, snapshot.taskId(), snapshot.skuId(), snapshot.unitKind(),
                 snapshot.imageId(), snapshot.groupKey(), snapshot.viewId(), snapshot.branchId(),
                 snapshot.generatedImageId(), snapshot.referenceKey(), snapshot.bytesOut(),
+                snapshot.producerProvider(), snapshot.producerModel(),
                 sha256(canonical.getBytes(StandardCharsets.UTF_8)));
     }
 
@@ -29,6 +30,7 @@ public final class ImageSubjectSnapshotResolver {
                 value(snapshot.groupKey()), value(snapshot.viewId()), value(snapshot.branchId()),
                 Long.toString(snapshot.generatedImageId()), value(snapshot.referenceKey()),
                 Long.toString(snapshot.bytesOut()),
+                value(snapshot.producerProvider()), value(snapshot.producerModel()),
                 snapshot.completedAt() == null ? "" : snapshot.completedAt().toString());
     }
 

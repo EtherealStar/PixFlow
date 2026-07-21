@@ -44,7 +44,7 @@ class TextEvidencePackBuilderTest {
         TextEvidencePackBuilder builder = new TextEvidencePackBuilder(CLOCK, provider);
         TaskDecisionSubject subject = new TaskDecisionSubject(
                 "7@rev", 7, "rev", "IMAGE_PROCESS", "c1", 3L,
-                "{\"nodes\":[]}", "1.0", Instant.EPOCH, "snapshot");
+                "{\"nodes\":[]}", "{\"nodes\":[]}", "1.0", Instant.EPOCH, "snapshot");
 
         EvidencePack pack = builder.build(subject);
 
@@ -53,9 +53,10 @@ class TextEvidencePackBuilderTest {
         assertThat(pack.view(Set.of(EvidenceType.DAG_SNAPSHOT)))
                 .singleElement()
                 .satisfies(entry -> {
-                    assertThat(entry.id()).isEqualTo("E1");
+                    assertThat(entry.id()).isEqualTo("E2");
                     assertThat(entry.type()).isEqualTo(EvidenceType.DAG_SNAPSHOT);
                 });
+        assertThat(pack.view(Set.of(EvidenceType.PROPOSAL))).hasSize(1);
         assertThat(pack.view(Set.of(EvidenceType.TRACE_SPAN))).hasSize(2);
     }
 
@@ -65,12 +66,13 @@ class TextEvidencePackBuilderTest {
         TextEvidencePackBuilder builder = new TextEvidencePackBuilder(CLOCK, noTrace());
         TaskDecisionSubject subject = new TaskDecisionSubject(
                 "7@rev", 7, "rev", "IMAGE_PROCESS", "c1", 3L,
-                "{\"nodes\":[]}", "1.0", Instant.EPOCH, "snapshot");
+                "{\"nodes\":[]}", "{\"nodes\":[]}", "1.0", Instant.EPOCH, "snapshot");
 
         EvidencePack pack = builder.build(subject);
 
         assertThat(pack.failure()).isNull();
         assertThat(pack.view(Set.of(EvidenceType.TRACE_SPAN))).isEmpty();
         assertThat(pack.view(Set.of(EvidenceType.DAG_SNAPSHOT))).hasSize(1);
+        assertThat(pack.view(Set.of(EvidenceType.PROPOSAL))).hasSize(1);
     }
 }

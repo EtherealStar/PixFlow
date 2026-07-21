@@ -9,6 +9,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pixflow.infra.image.ImageCodec;
 import com.pixflow.infra.image.ImageFormat;
 import com.pixflow.infra.image.ImageProbe;
+import com.pixflow.infra.image.ImageProcessingException;
 import com.pixflow.module.rubrics.model.EvidenceType;
 import com.pixflow.module.rubrics.subject.ImageResultSubject;
 import com.pixflow.module.task.api.publication.PublishedAssetReader;
@@ -59,7 +60,7 @@ class ImageEvidencePackBuilderTest {
         // 字节存在但无法 probe（损坏图片）：独立于对象缺失与存储故障的失败语义。
         PublishedAssetReader assets = mock(PublishedAssetReader.class);
         when(assets.require("IMAGE:2:10")).thenReturn(
-                content(10, "not-an-image".getBytes(StandardCharsets.UTF_8)));
+                content(10, "bad-image!".getBytes(StandardCharsets.UTF_8)));
         ImageCodec codec = mock(ImageCodec.class);
         when(codec.probe(any(InputStream.class))).thenThrow(new IllegalStateException("decode failed"));
 
@@ -70,10 +71,48 @@ class ImageEvidencePackBuilderTest {
     }
 
     @Test
+    void pixelBudgetRejectionHasAnIndependentFailureCode() {
+        PublishedAssetReader assets = mock(PublishedAssetReader.class);
+        when(assets.require("IMAGE:2:10")).thenReturn(content(10, new byte[10]));
+        ImageCodec codec = mock(ImageCodec.class);
+        when(codec.probe(any(InputStream.class))).thenThrow(new ImageProcessingException(
+                ImageProcessingException.Reason.SOURCE_TOO_LARGE,
+                ImageFormat.PNG, 10_000, 10_000, "too large"));
+
+        EvidencePack pack = builder(assets, codec).build(subject());
+
+        assertThat(pack.failure().kind()).isEqualTo(EvidenceFailureKind.INVALID_CONTENT);
+        assertThat(pack.failure().code()).isEqualTo("IMAGE_PIXEL_BUDGET_REJECTED");
+    }
+
+    @Test
+    void exposesTheFrozenProducerIdentityForSelfJudgedDetection() {
+        assertThat(subject().productionModel()).get().satisfies(identity -> {
+            assertThat(identity.provider()).isEqualTo("provider");
+            assertThat(identity.model()).isEqualTo("model");
+        });
+    }
+
+    @Test
+    void replacedBytesWithTheSamePublishedIdentityAreRejected() {
+        // imageId 与长度都相同仍不足以证明对象未变；必须核对 File 冻结的内容哈希。
+        PublishedAssetReader assets = mock(PublishedAssetReader.class);
+        byte[] original = "png-bytes!".getBytes(StandardCharsets.UTF_8);
+        byte[] replaced = "bad-bytes!".getBytes(StandardCharsets.UTF_8);
+        when(assets.require("IMAGE:2:10")).thenReturn(
+                content(10, replaced, EvidenceHashing.sha256(original)));
+
+        EvidencePack pack = builder(assets, mock(ImageCodec.class)).build(subject());
+
+        assertThat(pack.failure().kind()).isEqualTo(EvidenceFailureKind.INVALID_IDENTITY);
+        assertThat(pack.failure().code()).isEqualTo("PUBLISHED_ASSET_CONTENT_MISMATCH");
+    }
+
+    @Test
     void buildsOutputImageAndMetadataEntriesWithStableIdentity() {
         // 正常路径：OUTPUT_IMAGE + IMAGE_METADATA 两条证据，content hash 基于实际字节与 canonical metadata，
         // 不使用 referenceKey/ETag/文件名替代内容身份；重放相同字节得到相同 pack hash。
-        byte[] bytes = "png-bytes".getBytes(StandardCharsets.UTF_8);
+        byte[] bytes = "png-bytes!".getBytes(StandardCharsets.UTF_8);
         PublishedAssetReader assets = mock(PublishedAssetReader.class);
         when(assets.require("IMAGE:2:10")).thenReturn(
                 content(10, bytes));
@@ -116,8 +155,14 @@ class ImageEvidencePackBuilderTest {
     }
 
     private static PublishedAssetReader.PublishedAssetContent content(long imageId, byte[] bytes) {
+        return content(imageId, bytes, EvidenceHashing.sha256(bytes));
+    }
+
+    private static PublishedAssetReader.PublishedAssetContent content(
+            long imageId, byte[] bytes, String contentHash) {
         return new PublishedAssetReader.PublishedAssetContent(
-                imageId, "image/png", bytes.length, new PublishedAssetReader.ContentAccess() {
+                imageId, "image/png", contentHash, bytes.length,
+                new PublishedAssetReader.ContentAccess() {
                     @Override
                     public InputStream open() {
                         return new ByteArrayInputStream(bytes);
@@ -132,7 +177,8 @@ class ImageEvidencePackBuilderTest {
 
     private static PublishedAssetReader.PublishedAssetContent failingContent(long imageId) {
         return new PublishedAssetReader.PublishedAssetContent(
-                imageId, "image/png", 10, new PublishedAssetReader.ContentAccess() {
+                imageId, "image/png", EvidenceHashing.sha256(new byte[10]), 10,
+                new PublishedAssetReader.ContentAccess() {
                     @Override
                     public InputStream open() {
                         throw new IllegalStateException("storage unavailable");
@@ -148,6 +194,6 @@ class ImageEvidencePackBuilderTest {
     private static ImageResultSubject subject() {
         return new ImageResultSubject(
                 "1", 2, "sku", "STANDARD", "image", null, null, "branch",
-                10, "IMAGE:2:10", 10, "snapshot");
+                10, "IMAGE:2:10", 10, "provider", "model", "snapshot");
     }
 }

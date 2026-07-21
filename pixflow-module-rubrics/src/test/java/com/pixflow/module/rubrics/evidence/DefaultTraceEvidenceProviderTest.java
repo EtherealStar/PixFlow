@@ -31,7 +31,7 @@ class DefaultTraceEvidenceProviderTest {
     private static TaskDecisionSubject decision(String conversationId) {
         return new TaskDecisionSubject(
                 "7@rev", 7, "rev", "IMAGE_PROCESS", conversationId, 3L,
-                "{\"nodes\":[]}", "1.0", Instant.EPOCH, "snapshot");
+                "{\"nodes\":[]}", "{\"nodes\":[]}", "1.0", Instant.EPOCH, "snapshot");
     }
 
     private static TurnTraceRecord turn(int turnNo, String traceId, String toolCalls) {
@@ -133,8 +133,9 @@ class DefaultTraceEvidenceProviderTest {
 
         assertThat(pack.view(Set.of(EvidenceType.TRACE_SPAN))).hasSize(1);
         assertThat(pack.view(Set.of(EvidenceType.DAG_SNAPSHOT))).hasSize(1);
-        // 全量条目 = 1 个 DAG + 1 个 TRACE_SPAN。
-        assertThat(pack.entries()).hasSize(2);
+        assertThat(pack.view(Set.of(EvidenceType.PROPOSAL))).hasSize(1);
+        // 全量条目 = 1 个 Proposal + 1 个 DAG + 1 个 TRACE_SPAN。
+        assertThat(pack.entries()).hasSize(3);
     }
 
     @Test

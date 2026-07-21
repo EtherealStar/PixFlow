@@ -111,7 +111,7 @@ class RepeatedLlmCriterionVerifierTest {
 
     private static ImageResultSubject subject() {
         return new ImageResultSubject("1", 2, "sku", "STANDARD", "image", null, null, "b", 10,
-                "IMAGE:2:10", 10, "snapshot");
+                "IMAGE:2:10", 10, "provider", "model", "snapshot");
     }
 
     private static EvidencePack evidence() {

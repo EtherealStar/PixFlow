@@ -29,11 +29,16 @@ public final class TextEvidencePackBuilder {
     }
 
     public EvidencePack build(TaskDecisionSubject subject) {
+        String proposal = bounded(subject.confirmedProposal());
         String dagSnapshot = bounded(subject.dagSnapshot());
         // trace 是 best-effort：缺失时不伪造 span，由声明 TRACE_SPAN 的 criterion 得到 MISSING_EVIDENCE。
         List<EvidenceEntry> trace = traces.trace(subject);
-        List<EvidenceEntry> entries = new ArrayList<>(1 + trace.size());
-        entries.add(textEntry("E1", EvidenceType.DAG_SNAPSHOT, "task-decision:" + subject.id(), dagSnapshot));
+        List<EvidenceEntry> entries = new ArrayList<>(2 + trace.size());
+        // confirmedProposal 由 Task owner 从创建时冻结的 canonical payload 提供，Rubrics 不从 DAG 或 trace 猜测需求。
+        entries.add(textEntry("E1", EvidenceType.PROPOSAL,
+                "task-decision:" + subject.id(), proposal));
+        entries.add(textEntry("E2", EvidenceType.DAG_SNAPSHOT,
+                "task-decision:" + subject.id(), dagSnapshot));
         entries.addAll(trace);
         return EvidencePack.create(subject.snapshotHash(), entries);
     }
