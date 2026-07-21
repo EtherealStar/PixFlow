@@ -103,7 +103,11 @@ public final class ProposalService {
     }
 
     public void reject(String proposalId) {
-        PendingProposal proposal = requireEntity(proposalId);
+        PendingProposal proposal = proposals.get(proposalId);
+        // reject 是幂等删除；已经不存在的 Proposal 视为拒绝完成。
+        if (proposal == null) {
+            return;
+        }
         if (proposal.status() != PendingProposalStatus.PENDING) {
             throw stateConflict();
         }
@@ -111,6 +115,14 @@ public final class ProposalService {
             throw stateConflict();
         }
         proposalIdsByToolCall.values().removeIf(proposal.proposalId()::equals);
+    }
+
+    public void deleteConversation(String conversationId) {
+        proposals.values().stream()
+                .filter(proposal -> proposal.conversationId().equals(conversationId))
+                .map(PendingProposal::proposalId)
+                .toList()
+                .forEach(this::removeConfirmed);
     }
 
     private void removeConfirmed(String proposalId) {

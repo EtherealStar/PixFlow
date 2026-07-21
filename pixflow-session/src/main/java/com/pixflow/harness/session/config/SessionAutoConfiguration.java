@@ -7,10 +7,12 @@ import com.pixflow.harness.session.chain.ActiveChainResolver;
 import com.pixflow.harness.session.externalize.SessionToolResultExternalizer;
 import com.pixflow.harness.session.history.DefaultTranscriptHistoryReader;
 import com.pixflow.harness.session.history.TranscriptHistoryReader;
+import com.pixflow.harness.session.history.TranscriptDeletionService;
 import com.pixflow.harness.session.mapping.MessageMapper;
 import com.pixflow.harness.session.persistence.CompactionMapper;
 import com.pixflow.harness.session.persistence.MessageReadMapper;
 import com.pixflow.harness.session.persistence.MessageWriteMapper;
+import com.pixflow.harness.session.persistence.TranscriptDeletionMapper;
 import com.pixflow.harness.session.persistence.TranscriptService;
 import com.pixflow.harness.session.seq.SequenceAllocator;
 import com.pixflow.infra.storage.toolresult.ToolResultStorage;
@@ -62,6 +64,14 @@ public class SessionAutoConfiguration {
     public TranscriptHistoryReader transcriptHistoryReader(
             MessageReadMapper readMapper, MessageMapper messageMapper) {
         return new DefaultTranscriptHistoryReader(readMapper, messageMapper);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public TranscriptDeletionService transcriptDeletionService(
+            TranscriptDeletionMapper deletionMapper,
+            TranscriptBuffer buffer) {
+        return new TranscriptDeletionService(deletionMapper, buffer);
     }
 
     @Bean

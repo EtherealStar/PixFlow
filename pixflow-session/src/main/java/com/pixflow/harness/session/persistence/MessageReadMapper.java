@@ -66,17 +66,29 @@ public interface MessageReadMapper {
             SELECT id, conversation_id AS conversationId, seq, role, content,
                    tool_call_id AS toolCallId, compaction_marker AS compactionMarker, metadata,
                    task_id AS taskId, created_at AS createdAt
-            FROM message
-            WHERE conversation_id = #{conversationId}
-            ORDER BY seq
-            LIMIT #{limit} OFFSET #{offset}
+            FROM (
+              SELECT id, conversation_id, seq, role, content, tool_call_id,
+                     compaction_marker, metadata, task_id, created_at
+              FROM message
+              WHERE conversation_id = #{conversationId}
+                AND role IN ('USER', 'ASSISTANT')
+                AND compaction_marker IS NULL
+              ORDER BY seq DESC
+              LIMIT #{limit} OFFSET #{offset}
+            ) public_history
+            ORDER BY seq ASC
             """)
     List<MessageEntity> findMessagesByConversation(
             @Param("conversationId") String conversationId,
             @Param("offset") long offset,
             @Param("limit") long limit);
 
-    @Select("SELECT COUNT(*) FROM message WHERE conversation_id = #{conversationId}")
+    @Select("""
+            SELECT COUNT(*) FROM message
+            WHERE conversation_id = #{conversationId}
+              AND role IN ('USER', 'ASSISTANT')
+              AND compaction_marker IS NULL
+            """)
     long countMessagesByConversation(@Param("conversationId") String conversationId);
 
 }

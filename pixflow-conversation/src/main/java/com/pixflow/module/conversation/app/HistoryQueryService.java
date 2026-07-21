@@ -26,10 +26,17 @@ public class HistoryQueryService {
 
     public PageResponse<MessageView> timeline(long ownerUserId, String conversationId, Long page, Long size) {
         conversationService.requireActive(ownerUserId, conversationId);
-        long resolvedPage = page == null ? 1L : Math.max(1L, page);
+        long resolvedPage = page == null ? 1L : page;
         long resolvedSize = size == null
                 ? properties.getHistory().getDefaultPageSize()
-                : Math.max(1L, Math.min(size, properties.getHistory().getMaxPageSize()));
+                : size;
+        if (resolvedPage < 1L || resolvedSize < 1L
+                || resolvedSize > properties.getHistory().getMaxPageSize()) {
+            throw new BusinessException(ConversationErrorCode.HISTORY_PAGE_INVALID,
+                    "history page is invalid",
+                    Map.of("page", resolvedPage, "size", resolvedSize,
+                            "maxSize", properties.getHistory().getMaxPageSize()));
+        }
         if (resolvedPage > Long.MAX_VALUE / resolvedSize) {
             throw new BusinessException(ConversationErrorCode.HISTORY_PAGE_INVALID,
                     "history page offset overflow",

@@ -25,9 +25,8 @@ class ConversationServiceTest {
     void createsConversationWithNormalizedFields() {
         ConversationView view = service.create(7L, new CreateConversationRequest("  新会话  "));
 
-        assertThat(view.id()).isNotBlank();
+        assertThat(view.conversationId()).isNotBlank();
         assertThat(view.title()).isEqualTo("新会话");
-        assertThat(view.archived()).isFalse();
         verify(mapper).insert(any(ConversationEntity.class));
     }
 
@@ -38,15 +37,13 @@ class ConversationServiceTest {
     }
 
     @Test
-    void rejectsArchivedConversationForActiveUse() {
+    void returnsOwnedConversationForActiveUse() {
         ConversationEntity entity = new ConversationEntity();
         entity.setId("conv-1");
         entity.setOwnerUserId(7L);
-        entity.setArchived(true);
         when(mapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(entity);
 
-        assertThatThrownBy(() -> service.requireActive(7L, "conv-1"))
-                .isInstanceOf(BusinessException.class);
+        assertThat(service.requireActive(7L, "conv-1")).isSameAs(entity);
     }
 
     @Test

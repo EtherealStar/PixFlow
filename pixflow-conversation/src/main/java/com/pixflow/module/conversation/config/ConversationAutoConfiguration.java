@@ -2,12 +2,15 @@ package com.pixflow.module.conversation.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pixflow.harness.session.history.TranscriptHistoryReader;
+import com.pixflow.harness.session.history.TranscriptDeletionService;
 import com.pixflow.harness.permission.PermissionPolicy;
 import com.pixflow.harness.loop.AgentTurnRunner;
 import com.pixflow.module.conversation.app.AgentTurnRunnerRegistry;
 import com.pixflow.module.conversation.app.CancellationService;
 import com.pixflow.module.conversation.app.ConfirmationService;
 import com.pixflow.module.conversation.app.ConversationService;
+import com.pixflow.module.conversation.app.ConversationDeletionCleanup;
+import com.pixflow.module.conversation.app.ConversationDeletionGuard;
 import com.pixflow.module.conversation.app.HistoryQueryService;
 import com.pixflow.module.conversation.app.DefaultMessageReferenceValidator;
 import com.pixflow.module.conversation.app.MessageReferenceValidator;
@@ -40,8 +43,23 @@ public class ConversationAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public ConversationService conversationService(ConversationMapper conversationMapper, Clock clock) {
-        return new ConversationService(conversationMapper, clock);
+    public ConversationService conversationService(
+            ConversationMapper conversationMapper,
+            Clock clock,
+            ConversationLock conversationLock,
+            TranscriptDeletionService transcriptDeletionService,
+            ProposalService proposalService,
+            ObjectProvider<ConversationDeletionGuard> deletionGuardProvider) {
+        ConversationDeletionCleanup cleanup = conversationId -> {
+            transcriptDeletionService.deleteConversation(conversationId);
+            proposalService.deleteConversation(conversationId);
+        };
+        return new ConversationService(
+                conversationMapper,
+                clock,
+                deletionGuardProvider.getIfAvailable(() -> (administratorId, conversationId) -> { }),
+                cleanup,
+                conversationLock);
     }
 
     @Bean

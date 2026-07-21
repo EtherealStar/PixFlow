@@ -12,17 +12,38 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
+import com.pixflow.module.conversation.lock.ConversationLock;
+import com.pixflow.module.conversation.lock.TurnLockHandle;
 
-public class ConversationService {
+public class ConversationService implements ConversationTitleQuery {
     private static final int MAX_TITLE_LENGTH = 120;
 
     private final ConversationMapper conversationMapper;
 
     private final Clock clock;
 
+    private final ConversationDeletionGuard deletionGuard;
+
+    private final ConversationDeletionCleanup deletionCleanup;
+
+    private final ConversationLock conversationLock;
+
     public ConversationService(ConversationMapper conversationMapper, Clock clock) {
+        this(conversationMapper, clock, (administratorId, conversationId) -> { },
+                conversationId -> { }, null);
+    }
+
+    public ConversationService(
+            ConversationMapper conversationMapper,
+            Clock clock,
+            ConversationDeletionGuard deletionGuard,
+            ConversationDeletionCleanup deletionCleanup,
+            ConversationLock conversationLock) {
         this.conversationMapper = conversationMapper;
         this.clock = clock;
+        this.deletionGuard = deletionGuard;
+        this.deletionCleanup = deletionCleanup;
+        this.conversationLock = conversationLock;
     }
 
     public ConversationView create(long ownerUserId, CreateConversationRequest request) {
@@ -31,52 +52,62 @@ public class ConversationService {
         entity.setId(UUID.randomUUID().toString());
         entity.setOwnerUserId(requireOwner(ownerUserId));
         entity.setTitle(normalizeTitle(request == null ? null : request.title()));
-        entity.setArchived(false);
         entity.setCreatedAt(now);
         entity.setUpdatedAt(now);
         conversationMapper.insert(entity);
-        return ConversationView.from(entity);
+        return toView(entity);
     }
 
-    public PageResponse<ConversationView> list(long ownerUserId, long page, long size, boolean includeArchived) {
+    public PageResponse<ConversationView> list(long ownerUserId, long page, long size) {
         LambdaQueryWrapper<ConversationEntity> query = new LambdaQueryWrapper<ConversationEntity>()
                 .eq(ConversationEntity::getOwnerUserId, requireOwner(ownerUserId))
                 .orderByDesc(ConversationEntity::getUpdatedAt);
-        if (!includeArchived) {
-            query.eq(ConversationEntity::getArchived, false);
-        }
         IPage<ConversationEntity> result = conversationMapper.selectPage(new Page<>(page, size), query);
         return PageResponse.of(
-                result.getRecords().stream().map(ConversationView::from).toList(),
+                result.getRecords().stream().map(ConversationService::toView).toList(),
                 result.getTotal(),
                 result.getCurrent(),
                 result.getSize());
     }
 
     public ConversationView detail(long ownerUserId, String conversationId) {
-        return ConversationView.from(require(ownerUserId, conversationId));
+        return toView(require(ownerUserId, conversationId));
+    }
+
+    @Override
+    public String titleSnapshot(String conversationId) {
+        String id = normalizeRequired(conversationId, "conversationId");
+        ConversationEntity entity = conversationMapper.selectById(id);
+        if (entity == null) {
+            throw new BusinessException(ConversationErrorCode.CONVERSATION_NOT_FOUND,
+                    "conversation not found: " + id,
+                    Map.of("conversationId", id));
+        }
+        return entity.getTitle() == null ? "" : entity.getTitle();
     }
 
     public ConversationEntity requireActive(long ownerUserId, String conversationId) {
-        ConversationEntity entity = require(ownerUserId, conversationId);
-        if (Boolean.TRUE.equals(entity.getArchived())) {
-            throw new BusinessException(ConversationErrorCode.CONVERSATION_ARCHIVED,
-                    "conversation archived: " + conversationId,
-                    Map.of("conversationId", conversationId));
-        }
-        return entity;
+        return require(ownerUserId, conversationId);
     }
 
-    public void archive(long ownerUserId, String conversationId) {
+    public void delete(long ownerUserId, String conversationId) {
         ConversationEntity entity = require(ownerUserId, conversationId);
-        if (Boolean.TRUE.equals(entity.getArchived())) {
+        deletionGuard.requireDeletable(ownerUserId, entity.getId());
+        if (conversationLock == null) {
+            deletionCleanup.delete(entity.getId());
+            conversationMapper.deleteById(entity.getId());
             return;
         }
-        ConversationEntity update = new ConversationEntity();
-        update.setId(entity.getId());
-        update.setArchived(true);
-        update.setUpdatedAt(clock.instant());
-        conversationMapper.updateById(update);
+        TurnLockHandle handle = conversationLock.tryLock(entity.getId()).orElseThrow(() ->
+                new BusinessException(ConversationErrorCode.CONVERSATION_BUSY,
+                        "conversation has an active turn",
+                        Map.of("conversationId", entity.getId())));
+        try (handle) {
+            // 取得回合锁后再次检查 Task，关闭检查与删除之间的竞争窗口。
+            deletionGuard.requireDeletable(ownerUserId, entity.getId());
+            deletionCleanup.delete(entity.getId());
+            conversationMapper.deleteById(entity.getId());
+        }
     }
 
     private ConversationEntity require(long ownerUserId, String conversationId) {
@@ -126,5 +157,11 @@ public class ConversationService {
             return null;
         }
         return value.trim();
+    }
+
+    private static ConversationView toView(ConversationEntity entity) {
+        // owner API 只暴露稳定业务事实，持久化实体不会越过模块边界。
+        return new ConversationView(
+                entity.getId(), entity.getTitle(), entity.getCreatedAt(), entity.getUpdatedAt());
     }
 }

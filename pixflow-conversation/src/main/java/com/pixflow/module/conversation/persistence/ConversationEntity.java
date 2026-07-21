@@ -14,8 +14,6 @@ public class ConversationEntity {
 
     private String title;
 
-    private Boolean archived;
-
     private Instant createdAt;
 
     private Instant updatedAt;
@@ -42,14 +40,6 @@ public class ConversationEntity {
 
     public void setTitle(String title) {
         this.title = title;
-    }
-
-    public Boolean getArchived() {
-        return archived;
-    }
-
-    public void setArchived(Boolean archived) {
-        this.archived = archived;
     }
 
     public Instant getCreatedAt() {
