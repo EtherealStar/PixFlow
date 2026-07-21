@@ -18,6 +18,8 @@ import com.pixflow.infra.storage.ObjectStorage;
 import com.pixflow.infra.storage.StoredObjectMetadata;
 import com.pixflow.module.file.api.publication.GeneratedImageKind;
 import com.pixflow.module.file.api.publication.GeneratedImageProducer;
+import com.pixflow.module.file.api.publication.GeneratedOutputContext;
+import com.pixflow.module.file.api.publication.OutputTaskType;
 import com.pixflow.module.file.api.publication.PublishGeneratedImage;
 import com.pixflow.module.file.api.publication.SourceImageRef;
 import com.pixflow.module.file.image.AssetImage;
@@ -28,6 +30,7 @@ import java.time.ZoneOffset;
 import java.io.ByteArrayInputStream;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
+import com.pixflow.module.file.internal.output.GeneratedOutputContextMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
@@ -42,6 +45,7 @@ class DefaultGeneratedImagePublisherTest {
   void publishesOnceAndReplaysTheSameReadyIdentity() {
     AssetImageMapper images = mock(AssetImageMapper.class);
     AssetImageLineageSourceMapper lineage = mock(AssetImageLineageSourceMapper.class);
+    GeneratedOutputContextMapper contexts = mock(GeneratedOutputContextMapper.class);
     ObjectStorage storage = mock(ObjectStorage.class);
     AtomicReference<AssetImage> row = new AtomicReference<>();
     when(images.insert(any(AssetImage.class)))
@@ -70,7 +74,7 @@ class DefaultGeneratedImagePublisherTest {
     when(storage.exists(stable)).thenReturn(false);
     when(storage.stat(any())).thenReturn(new StoredObjectMetadata(8L, "image/png", "etag", NOW));
     PublishGeneratedImage command = command(candidate);
-    var publisher = publisher(images, lineage, storage);
+    var publisher = publisher(images, lineage, contexts, storage);
 
     var first = publisher.publish(command);
 
@@ -104,7 +108,7 @@ class DefaultGeneratedImagePublisherTest {
         org.mockito.ArgumentMatchers.eq(stable.key()), any(String.class),
         org.mockito.ArgumentMatchers.eq(NOW))).thenReturn(0);
 
-    assertThatThrownBy(() -> publisher(images, lineage, storage).publish(command(candidate())))
+    assertThatThrownBy(() -> publisher(images, lineage, mock(GeneratedOutputContextMapper.class), storage).publish(command(candidate())))
         .isInstanceOf(IllegalStateException.class)
         .hasMessageContaining("fenced");
 
@@ -126,7 +130,7 @@ class DefaultGeneratedImagePublisherTest {
     doThrow(new IllegalStateException("temporary delete failure"))
         .when(storage).delete(candidate());
 
-    var published = publisher(images, lineage, storage).publish(command(candidate()));
+    var published = publisher(images, lineage, mock(GeneratedOutputContextMapper.class), storage).publish(command(candidate()));
 
     assertThat(published.imageId()).isEqualTo(91L);
     verify(images).recordCleanupError(91L, "temporary delete failure", NOW);
@@ -146,7 +150,7 @@ class DefaultGeneratedImagePublisherTest {
     when(storage.exists(stable)).thenReturn(true);
     when(storage.stat(stable)).thenReturn(new StoredObjectMetadata(9L, "image/png", "other", NOW));
 
-    assertThatThrownBy(() -> publisher(images, lineage, storage).publish(command(candidate())))
+    assertThatThrownBy(() -> publisher(images, lineage, mock(GeneratedOutputContextMapper.class), storage).publish(command(candidate())))
         .isInstanceOf(IllegalStateException.class)
         .hasMessageContaining("metadata");
 
@@ -168,7 +172,7 @@ class DefaultGeneratedImagePublisherTest {
     when(storage.exists(stable)).thenReturn(true);
     when(storage.stat(stable)).thenReturn(new StoredObjectMetadata(8L, null, "etag", NOW));
 
-    assertThatThrownBy(() -> publisher(images, lineage, storage).publish(command(candidate())))
+    assertThatThrownBy(() -> publisher(images, lineage, mock(GeneratedOutputContextMapper.class), storage).publish(command(candidate())))
         .isInstanceOf(IllegalStateException.class)
         .hasMessageContaining("metadata");
 
@@ -201,7 +205,8 @@ class DefaultGeneratedImagePublisherTest {
                         null,
                         null,
                         "dag-pipeline",
-                        "branch-a")))
+                        "branch-a"),
+                    context()))
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessageContaining("contentType");
   }
@@ -212,6 +217,26 @@ class DefaultGeneratedImagePublisherTest {
     return new DefaultGeneratedImagePublisher(
         images,
         lineage,
+        mock(GeneratedOutputContextMapper.class),
+        storage,
+        new CanonicalAssetReferenceCodec(),
+        new TransactionTemplate(transactionManager()),
+        Clock.fixed(NOW, ZoneOffset.UTC));
+  }
+
+  private static DefaultGeneratedImagePublisher publisher(
+      AssetImageMapper images,
+      AssetImageLineageSourceMapper lineage,
+      GeneratedOutputContextMapper contexts,
+      ObjectStorage storage) {
+    when(contexts.find("5"))
+        .thenReturn(new com.pixflow.module.file.internal.output.GeneratedOutputContextRow(
+            "5", "conversation-1", "Campaign", "IMAGE_PROCESS", NOW, null));
+    when(storage.getStream(any())).thenReturn(new ByteArrayInputStream(new byte[] {1, 2, 3}));
+    return new DefaultGeneratedImagePublisher(
+        images,
+        lineage,
+        contexts,
         storage,
         new CanonicalAssetReferenceCodec(),
         new TransactionTemplate(transactionManager()),
@@ -232,7 +257,13 @@ class DefaultGeneratedImagePublisherTest {
         GeneratedImageKind.DETERMINISTIC,
         List.of(new SourceImageRef("11"), new SourceImageRef("12")),
         new GeneratedImageProducer(
-            GeneratedImageKind.DETERMINISTIC, null, null, "dag-pipeline", "branch-a"));
+            GeneratedImageKind.DETERMINISTIC, null, null, "dag-pipeline", "branch-a"),
+        context());
+  }
+
+  private static GeneratedOutputContext context() {
+    return new GeneratedOutputContext(
+        "conversation-1", "Campaign", "5", OutputTaskType.IMAGE_PROCESS, NOW);
   }
 
   private static ObjectLocation candidate() {

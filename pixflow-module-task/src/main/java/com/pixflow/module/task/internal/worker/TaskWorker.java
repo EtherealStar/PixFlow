@@ -159,6 +159,7 @@ public class TaskWorker {
       }
       run.assertCommitAllowed();
       terminalStateJudge.judge(taskId, run.epoch());
+      publicationCoordinator.markTaskFinished(taskId, clock.instant());
     }
   }
 

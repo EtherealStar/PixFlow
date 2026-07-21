@@ -4,10 +4,14 @@ import com.pixflow.infra.storage.BucketType;
 import com.pixflow.infra.storage.ObjectLocation;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.time.Instant;
 
 /** Task 交给 File 的完整候选描述。 */
 public record GeneratedAssetCandidate(
     long taskId,
+    String conversationId,
+    String taskType,
+    Instant taskCreatedAt,
     long resultId,
     String unitKey,
     long resultRunEpoch,
@@ -22,6 +26,11 @@ public record GeneratedAssetCandidate(
   public GeneratedAssetCandidate {
     if (taskId <= 0 || resultId <= 0 || resultRunEpoch <= 0 || packageId <= 0 || size <= 0) {
       throw new IllegalArgumentException("ids, epoch and size must be positive");
+    }
+    conversationId = requireText(conversationId, "conversationId");
+    taskType = requireText(taskType, "taskType");
+    if (taskCreatedAt == null) {
+      throw new IllegalArgumentException("taskCreatedAt must not be null");
     }
     unitKey = requireText(unitKey, "unitKey");
     if (candidate == null || candidate.bucket() != BucketType.TMP) {

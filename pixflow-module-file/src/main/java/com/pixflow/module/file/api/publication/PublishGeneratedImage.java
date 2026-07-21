@@ -18,7 +18,8 @@ public record PublishGeneratedImage(
         String extension,
         GeneratedImageKind kind,
         List<SourceImageRef> sourceImages,
-        GeneratedImageProducer producer) {
+        GeneratedImageProducer producer,
+        GeneratedOutputContext outputContext) {
     public PublishGeneratedImage {
         if (sourceTaskId <= 0 || sourceResultId <= 0 || sourceRunEpoch <= 0
                 || packageId <= 0 || size <= 0) {
@@ -45,7 +46,7 @@ public record PublishGeneratedImage(
         if (!extension.equals(candidateExtension)) {
             throw new IllegalArgumentException("extension does not match candidate key");
         }
-        if (kind == null || producer == null || producer.kind() != kind) {
+        if (kind == null || producer == null || producer.kind() != kind || outputContext == null) {
             throw new IllegalArgumentException("kind and producer must agree");
         }
         if (sourceImages == null || sourceImages.isEmpty()) {

@@ -49,25 +49,16 @@ public final class DefaultAssetReferenceCatalog implements AssetReferenceCatalog
             long page,
             long size,
             List<String> excludedReferenceKeys) {
-        validate(source, page, size, excludedReferenceKeys);
+        validate(source, parentKey, query, page, size, excludedReferenceKeys);
         Set<String> excluded = canonicalExclusions(excludedReferenceKeys);
         String normalizedQuery = normalizeQuery(query);
         if (normalizedQuery != null) {
-            if (source == null) {
-                return searchBoth(normalizedQuery, page, size, excluded);
+            return searchBoth(normalizedQuery, page, size, excluded);
+        }
+        if (source != null) {
+            if (source == AssetReferenceSource.OUTPUTS) {
+                return imagePage(null, null, null, AssetSourceType.GENERATED, page, size, excluded);
             }
-            return search(source, normalizedQuery, page, size, excluded);
-        }
-        if (source == null) {
-            throw new IllegalArgumentException("source is required when query is empty");
-        }
-        if (source == AssetReferenceSource.OUTPUTS) {
-            if (parentKey != null && !parentKey.isBlank()) {
-                throw new IllegalArgumentException("OUTPUTS does not accept a File parentKey");
-            }
-            return imagePage(source, null, null, AssetSourceType.GENERATED, page, size, excluded);
-        }
-        if (parentKey == null || parentKey.isBlank()) {
             return packagePage(page, size, excluded);
         }
         AssetReferenceKey parent = codec.parse(parentKey);
@@ -75,7 +66,7 @@ public final class DefaultAssetReferenceCatalog implements AssetReferenceCatalog
             return skuPage(packageKey.packageId(), page, size, excluded);
         }
         if (parent instanceof SkuAssetReferenceKey skuKey) {
-            return imagePage(source, skuKey.packageId(), skuKey.skuId(),
+            return imagePage(null, skuKey.packageId(), skuKey.skuId(),
                     AssetSourceType.ORIGINAL, page, size, excluded);
         }
         throw new IllegalArgumentException("IMAGE reference cannot be a parent");
@@ -87,7 +78,7 @@ public final class DefaultAssetReferenceCatalog implements AssetReferenceCatalog
         if (taskId <= 0) {
             throw new IllegalArgumentException("taskId must be positive");
         }
-        validate(AssetReferenceSource.OUTPUTS, page, size, excludedReferenceKeys);
+        validatePage(page, size, excludedReferenceKeys);
         Set<String> excluded = canonicalExclusions(excludedReferenceKeys);
         LambdaQueryWrapper<AssetImage> query = new LambdaQueryWrapper<AssetImage>()
                 .eq(AssetImage::getSourceType, AssetSourceType.GENERATED.name())
@@ -98,7 +89,7 @@ public final class DefaultAssetReferenceCatalog implements AssetReferenceCatalog
         excludeImageIds(query, excluded);
         IPage<AssetImage> result = imageMapper.selectPage(new Page<>(page, size), query);
         List<AssetReferenceCandidate> items = result.getRecords().stream()
-                .map(image -> imageCandidate(image, AssetReferenceSource.OUTPUTS))
+                .map(image -> imageCandidate(image, null))
                 .toList();
         return new PageResponse<>(items, result.getTotal(), result.getCurrent(), result.getSize());
     }
@@ -121,7 +112,7 @@ public final class DefaultAssetReferenceCatalog implements AssetReferenceCatalog
                 .map(item -> new AssetReferenceCandidate(
                         codec.serialize(new PackageAssetReferenceKey(item.getId())),
                         AssetReferenceKind.PACKAGE, null, item.getName(), true,
-                        AssetReferenceSource.MATERIALS))
+                        null))
                 .toList();
         return new PageResponse<>(items, result.getTotal(), result.getCurrent(), result.getSize());
     }
@@ -143,7 +134,7 @@ public final class DefaultAssetReferenceCatalog implements AssetReferenceCatalog
                 .map(sku -> new SkuAssetReferenceKey(packageId, sku))
                 .map(key -> new AssetReferenceCandidate(codec.serialize(key), AssetReferenceKind.SKU,
                         null, assetPackage.getName() + " / " + key.skuId(), true,
-                        AssetReferenceSource.MATERIALS))
+                        null))
                 .toList();
         return new PageResponse<>(candidates, total, page, size);
     }
@@ -255,7 +246,23 @@ public final class DefaultAssetReferenceCatalog implements AssetReferenceCatalog
         }
     }
 
-    private static void validate(AssetReferenceSource source, long page, long size, List<String> exclusions) {
+    private static void validate(
+            AssetReferenceSource source,
+            String parentKey,
+            String query,
+            long page,
+            long size,
+            List<String> exclusions) {
+        int selectors = source == null ? 0 : 1;
+        selectors += parentKey == null || parentKey.isBlank() ? 0 : 1;
+        selectors += query == null || query.isBlank() ? 0 : 1;
+        if (selectors != 1) {
+            throw new IllegalArgumentException("exactly one asset reference selector is required");
+        }
+        validatePage(page, size, exclusions);
+    }
+
+    private static void validatePage(long page, long size, List<String> exclusions) {
         if (page < 1 || size < 1 || size > 100) {
             throw new IllegalArgumentException("invalid asset reference page request");
         }

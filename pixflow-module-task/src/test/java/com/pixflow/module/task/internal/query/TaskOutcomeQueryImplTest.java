@@ -66,6 +66,7 @@ class TaskOutcomeQueryImplTest {
       assertThat(snapshot.producerModel()).isEqualTo("copy-v1");
     });
     assertThat(query.confirmedDecision(5L, "revision-1")).get().satisfies(snapshot -> {
+      assertThat(snapshot.confirmedProposal()).isEqualTo("{\"nodes\":[]}");
       assertThat(snapshot.dagSnapshot()).isEqualTo("{\"nodes\":[]}");
       assertThat(snapshot.decisionRevision()).isEqualTo("revision-1");
     });

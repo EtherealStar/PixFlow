@@ -95,6 +95,7 @@ public class AssetPackageService {
 
     public LambdaQueryWrapper<AssetPackage> visiblePackages() {
         return new LambdaQueryWrapper<AssetPackage>()
+                .in(AssetPackage::getStatus, PackageStatus.READY, PackageStatus.PARTIAL)
                 .isNull(AssetPackage::getCleanupStatus);
     }
 

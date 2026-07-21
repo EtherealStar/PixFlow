@@ -27,6 +27,7 @@ import com.pixflow.module.file.api.AssetContentReader;
 import com.pixflow.module.file.internal.publication.AssetImageLineageSourceMapper;
 import com.pixflow.module.file.internal.publication.DefaultGeneratedImagePublisher;
 import com.pixflow.module.file.internal.publication.GeneratedImagePublicationRecovery;
+import com.pixflow.module.file.internal.output.GeneratedOutputContextMapper;
 import com.pixflow.module.file.ingest.ExtractionConsumer;
 import com.pixflow.module.file.ingest.ExtractionErrorHandler;
 import com.pixflow.module.file.ingest.ExtractionPublisher;
@@ -47,6 +48,7 @@ import com.pixflow.module.file.pkg.AssetPackageMapper;
 import com.pixflow.module.file.internal.activity.DefaultFileActivitySource;
 import com.pixflow.module.file.internal.activity.DefaultFileActivityCommandService;
 import com.pixflow.module.file.pkg.AssetPackageService;
+import com.pixflow.module.file.output.OutputQueryService;
 import com.pixflow.module.file.permission.AssetPermissionProof;
 import com.pixflow.module.file.api.AssetReferenceResolver;
 import com.pixflow.module.file.internal.reference.DefaultAssetReferenceService;
@@ -92,6 +94,7 @@ import org.springframework.transaction.support.TransactionTemplate;
                 AssetCopyMapper.class,
                 AssetCleanupIntentMapper.class,
                 AssetReferenceTombstoneMapper.class,
+                GeneratedOutputContextMapper.class,
                 com.pixflow.module.file.visual.AssetVisualInputOutboxMapper.class
         },
         annotationClass = Mapper.class)
@@ -204,12 +207,13 @@ public class FileAutoConfiguration {
     public DefaultGeneratedImagePublisher generatedImagePublisher(
             AssetImageMapper imageMapper,
             AssetImageLineageSourceMapper lineageMapper,
+            GeneratedOutputContextMapper outputContextMapper,
             ObjectStorage objectStorage,
             CanonicalAssetReferenceCodec codec,
             PlatformTransactionManager transactionManager,
             Clock clock) {
         return new DefaultGeneratedImagePublisher(
-                imageMapper, lineageMapper, objectStorage, codec,
+                imageMapper, lineageMapper, outputContextMapper, objectStorage, codec,
                 new TransactionTemplate(transactionManager), clock);
     }
 
@@ -269,7 +273,8 @@ public class FileAutoConfiguration {
             AssetIngestErrorMapper errorMapper,
             ObjectStorage objectStorage,
             CanonicalAssetReferenceCodec referenceCodec,
-            AssetDeletionService deletionService) {
+            AssetDeletionService deletionService,
+            Clock clock) {
         return new FileService(
                 packageService,
                 packageMapper,
@@ -277,7 +282,8 @@ public class FileAutoConfiguration {
                 errorMapper,
                 objectStorage,
                 referenceCodec,
-                deletionService);
+                deletionService,
+                clock);
     }
 
     @Bean
@@ -290,6 +296,19 @@ public class FileAutoConfiguration {
             Clock clock) {
         return new RedisUploadSessionStore(stateStore, hashStore, cacheNamespace,
                 properties.getUpload().getSessionTtl(), clock);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public OutputQueryService outputQueryService(
+            GeneratedOutputContextMapper outputContextMapper,
+            AssetImageMapper imageMapper,
+            ObjectStorage objectStorage,
+            CanonicalAssetReferenceCodec referenceCodec,
+            AssetDeletionService deletionService,
+            Clock clock) {
+        return new OutputQueryService(
+                outputContextMapper, imageMapper, objectStorage, referenceCodec, deletionService, clock);
     }
 
     @Bean

@@ -8,6 +8,7 @@ import com.pixflow.module.dag.exec.PipelineUnitExecutor;
 import com.pixflow.module.task.api.port.TaskAssetReader;
 import com.pixflow.module.task.api.publication.GeneratedAssetPublicationPort;
 import com.pixflow.module.task.api.publication.PublishedAssetReader;
+import com.pixflow.module.conversation.app.ConversationTitleQuery;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -15,8 +16,8 @@ import org.springframework.context.annotation.Configuration;
 public class TaskAssetConfiguration {
     @Bean
     public GeneratedAssetPublicationPort generatedAssetPublicationPort(
-            GeneratedImagePublisher publisher) {
-        return new TaskGeneratedAssetPublicationAdapter(publisher);
+            GeneratedImagePublisher publisher, ConversationTitleQuery conversations) {
+        return new TaskGeneratedAssetPublicationAdapter(publisher, conversations);
     }
 
     @Bean

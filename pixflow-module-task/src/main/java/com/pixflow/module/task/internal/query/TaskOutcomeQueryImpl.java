@@ -62,6 +62,7 @@ public final class TaskOutcomeQueryImpl implements TaskOutcomeQuery {
             task.getConversationId(),
             task.getPackageId(),
             task.getDagJson(),
+            task.getDagJson(),
             task.getPayloadHash(),
             task.getSchemaVersion(),
             task.getCreatedAt()));
@@ -87,6 +88,8 @@ public final class TaskOutcomeQueryImpl implements TaskOutcomeQuery {
         result.getGeneratedImageId(),
         result.getPublishedReferenceKey(),
         result.getBytesOut() == null ? -1 : result.getBytesOut(),
+        result.getProducerProvider(),
+        result.getProducerModel(),
         result.getFinishedAt());
   }
 }

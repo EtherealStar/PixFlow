@@ -33,6 +33,6 @@ public final class FilePublishedAssetReader implements PublishedAssetReader {
       }
     };
     return Optional.of(new PublishedAssetContent(
-        image.imageId(), image.contentType(), image.size(), access));
+        image.imageId(), image.contentType(), image.contentHash(), image.size(), access));
   }
 }

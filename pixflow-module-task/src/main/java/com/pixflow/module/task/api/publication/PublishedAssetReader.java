@@ -15,7 +15,7 @@ public interface PublishedAssetReader {
   }
 
   record PublishedAssetContent(
-      long imageId, String contentType, long size, ContentAccess content) {
+      long imageId, String contentType, String contentHash, long size, ContentAccess content) {
     public InputStream open() {
       return content.open();
     }

@@ -1,15 +1,17 @@
-package com.pixflow.module.file.image;
+package com.pixflow.module.file.output;
 
 import java.time.Instant;
-import com.pixflow.module.file.api.AssetSourceType;
 
-public record AssetImageView(
+public record GeneratedImageView(
         String imageId,
-        long packageId,
         String referenceKey,
-        AssetSourceType sourceType,
+        String sourceType,
         String displayName,
+        long packageId,
         String skuId,
+        String conversationId,
+        String taskId,
+        String sourceImageId,
         Integer width,
         Integer height,
         Long sizeBytes,

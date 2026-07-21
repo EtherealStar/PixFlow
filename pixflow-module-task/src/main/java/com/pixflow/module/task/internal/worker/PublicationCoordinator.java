@@ -83,6 +83,9 @@ final class PublicationCoordinator {
             .toList();
     return new GeneratedAssetCandidate(
         task.getId(),
+        task.getConversationId(),
+        task.getTaskType().name(),
+        task.getCreatedAt(),
         result.getId(),
         result.getUnitKey(),
         result.getRunEpoch(),
@@ -103,5 +106,9 @@ final class PublicationCoordinator {
       message = failure.getClass().getSimpleName();
     }
     return message.length() <= 1000 ? message : message.substring(0, 1000);
+  }
+
+  void markTaskFinished(long taskId, java.time.Instant finishedAt) {
+    publicationPort.markTaskFinished(taskId, finishedAt);
   }
 }

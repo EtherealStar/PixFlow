@@ -21,6 +21,8 @@ import com.pixflow.infra.storage.StorageInitializer;
 import com.pixflow.infra.storage.StorageProperties;
 import com.pixflow.module.file.api.publication.GeneratedImageKind;
 import com.pixflow.module.file.api.publication.GeneratedImageProducer;
+import com.pixflow.module.file.api.publication.GeneratedOutputContext;
+import com.pixflow.module.file.api.publication.OutputTaskType;
 import com.pixflow.module.file.api.publication.PublishGeneratedImage;
 import com.pixflow.module.file.api.publication.PublishedImage;
 import com.pixflow.module.file.api.publication.SourceImageRef;
@@ -34,6 +36,9 @@ import com.pixflow.module.file.error.AssetIngestErrorMapper;
 import com.pixflow.module.file.internal.deletion.AssetCleanupIntentMapper;
 import com.pixflow.module.file.internal.deletion.AssetReferenceTombstoneMapper;
 import com.pixflow.module.file.internal.deletion.DefaultAssetDeletionService;
+import com.pixflow.module.file.internal.output.GeneratedOutputContextMapper;
+import com.pixflow.module.file.output.OutputConversationSort;
+import com.pixflow.module.file.output.OutputQueryService;
 import java.io.ByteArrayInputStream;
 import java.time.Clock;
 import java.time.Instant;
@@ -111,6 +116,8 @@ class GeneratedImagePublicationIntegrationTest {
 
   @Autowired AssetCleanupIntentMapper cleanupIntents;
 
+  @Autowired GeneratedOutputContextMapper outputContexts;
+
   @Autowired PlatformTransactionManager transactionManager;
 
   @BeforeAll
@@ -152,6 +159,7 @@ class GeneratedImagePublicationIntegrationTest {
     cleanupIntents.delete(new QueryWrapper<>());
     tombstones.delete(new QueryWrapper<>());
     packages.delete(new QueryWrapper<>());
+    outputContexts.deleteAll();
   }
 
   @Test
@@ -277,6 +285,41 @@ class GeneratedImagePublicationIntegrationTest {
   }
 
   @Test
+  void outputsRemainQueryableWithoutAnyTaskExecutionTable() {
+    var command = command(21L, 22L, List.of(new SourceImageRef("61")));
+    putCandidate(command);
+    PublishedImage published = publisher(images, storage).publish(command);
+    outputContexts.markFinished("21", NOW.plusSeconds(30));
+    OutputQueryService outputs = new OutputQueryService(
+        outputContexts,
+        images,
+        storage,
+        new CanonicalAssetReferenceCodec(),
+        deletionService(),
+        CLOCK);
+
+    assertThat(outputs.conversations(1, 20, null, OutputConversationSort.LATEST_OUTPUT_DESC).records())
+        .singleElement()
+        .satisfies(group -> {
+          assertThat(group.conversationId()).isEqualTo("conversation-1");
+          assertThat(group.generatedImageCount()).isEqualTo(1L);
+        });
+    assertThat(outputs.tasks("conversation-1", 1, 20).records())
+        .singleElement()
+        .satisfies(group -> {
+          assertThat(group.taskId()).isEqualTo("21");
+          assertThat(group.finishedAt()).isEqualTo(NOW.plusSeconds(30));
+        });
+    assertThat(outputs.images("21", 1, 50).records())
+        .singleElement()
+        .satisfies(image -> {
+          assertThat(image.imageId()).isEqualTo(Long.toString(published.imageId()));
+          assertThat(image.referenceKey()).isEqualTo(published.referenceKey());
+          assertThat(image.conversationId()).isEqualTo("conversation-1");
+        });
+  }
+
+  @Test
   void packageDeletionRemovesOriginalsButPreservesGeneratedImage() {
     AssetPackage assetPackage = new AssetPackage();
     assetPackage.setName("summer.zip");
@@ -336,6 +379,7 @@ class GeneratedImagePublicationIntegrationTest {
     return new DefaultGeneratedImagePublisher(
         imageMapper,
         lineage,
+        outputContexts,
         objectStorage,
         new CanonicalAssetReferenceCodec(),
         new TransactionTemplate(transactionManager),
@@ -360,7 +404,9 @@ class GeneratedImagePublicationIntegrationTest {
         GeneratedImageKind.DETERMINISTIC,
         sources,
         new GeneratedImageProducer(
-            GeneratedImageKind.DETERMINISTIC, null, null, "dag-pipeline", "front"));
+            GeneratedImageKind.DETERMINISTIC, null, null, "dag-pipeline", "front"),
+        new GeneratedOutputContext(
+            "conversation-1", "Campaign", Long.toString(taskId), OutputTaskType.IMAGE_PROCESS, NOW));
   }
 
   private static void putCandidate(PublishGeneratedImage command) {

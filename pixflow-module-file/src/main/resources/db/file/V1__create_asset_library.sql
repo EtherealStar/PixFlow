@@ -32,6 +32,8 @@ CREATE TABLE IF NOT EXISTS asset_image (
     stable_bucket VARCHAR(32),
     content_type VARCHAR(128),
     byte_size BIGINT,
+    width INT,
+    height INT,
     content_hash CHAR(64),
     source_task_id BIGINT,
     source_result_id BIGINT,
@@ -60,6 +62,19 @@ CREATE INDEX idx_asset_image_publication_recovery
     ON asset_image (publication_status, publication_updated_at);
 CREATE INDEX idx_asset_image_cleanup_recovery
     ON asset_image (cleanup_status, publication_updated_at);
+
+CREATE TABLE IF NOT EXISTS generated_output_context (
+    task_id BIGINT PRIMARY KEY,
+    conversation_id VARCHAR(64) NOT NULL,
+    conversation_title_snapshot VARCHAR(255) NOT NULL,
+    task_type VARCHAR(32) NOT NULL,
+    task_created_at TIMESTAMP NOT NULL,
+    task_finished_at TIMESTAMP NULL,
+    created_at TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP NOT NULL
+);
+CREATE INDEX idx_generated_output_conversation
+    ON generated_output_context (conversation_id, task_created_at, task_id);
 
 CREATE TABLE IF NOT EXISTS asset_visual_input_outbox (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,

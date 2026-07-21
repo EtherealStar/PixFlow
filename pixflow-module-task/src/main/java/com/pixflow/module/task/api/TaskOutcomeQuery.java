@@ -25,6 +25,8 @@ public interface TaskOutcomeQuery {
       long generatedImageId,
       String referenceKey,
       long bytesOut,
+      String producerProvider,
+      String producerModel,
       Instant completedAt) { }
 
   record CopyResultSnapshot(
@@ -40,6 +42,7 @@ public interface TaskOutcomeQuery {
       String taskType,
       String conversationId,
       Long packageId,
+      String confirmedProposal,
       String dagSnapshot,
       String decisionRevision,
       String schemaVersion,

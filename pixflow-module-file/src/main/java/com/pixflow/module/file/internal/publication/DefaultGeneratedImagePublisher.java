@@ -13,6 +13,8 @@ import com.pixflow.module.file.api.publication.PublishGeneratedImage;
 import com.pixflow.module.file.api.publication.PublishedImage;
 import com.pixflow.module.file.image.AssetImage;
 import com.pixflow.module.file.image.AssetImageMapper;
+import com.pixflow.module.file.internal.output.GeneratedOutputContextMapper;
+import com.pixflow.module.file.internal.output.GeneratedOutputContextRow;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
@@ -32,6 +34,8 @@ public final class DefaultGeneratedImagePublisher implements GeneratedImagePubli
 
   private final AssetImageLineageSourceMapper lineageMapper;
 
+  private final GeneratedOutputContextMapper outputContextMapper;
+
   private final ObjectStorage objectStorage;
 
   private final CanonicalAssetReferenceCodec codec;
@@ -43,12 +47,14 @@ public final class DefaultGeneratedImagePublisher implements GeneratedImagePubli
   public DefaultGeneratedImagePublisher(
       AssetImageMapper imageMapper,
       AssetImageLineageSourceMapper lineageMapper,
+      GeneratedOutputContextMapper outputContextMapper,
       ObjectStorage objectStorage,
       CanonicalAssetReferenceCodec codec,
       TransactionTemplate transactions,
       Clock clock) {
     this.imageMapper = imageMapper;
     this.lineageMapper = lineageMapper;
+    this.outputContextMapper = outputContextMapper;
     this.objectStorage = objectStorage;
     this.codec = codec;
     this.transactions = transactions;
@@ -94,6 +100,7 @@ public final class DefaultGeneratedImagePublisher implements GeneratedImagePubli
   }
 
   private AssetImage insertReservation(PublishGeneratedImage command) {
+    ensureOutputContext(command);
     AssetImage image = new AssetImage();
     image.setPackageId(command.packageId());
     image.setSourceType("GENERATED");
@@ -109,6 +116,11 @@ public final class DefaultGeneratedImagePublisher implements GeneratedImagePubli
     image.setSourceRunEpoch(command.sourceRunEpoch());
     image.setSourceImageId(
         command.sourceImages().size() == 1 ? command.sourceImages().getFirst().imageId() : null);
+    AssetImage primarySource = imageMapper.selectById(Long.parseLong(command.sourceImages().getFirst().imageId()));
+    if (primarySource != null) {
+      image.setSkuId(primarySource.getSkuId());
+      image.setDisplayName("generated-" + primarySource.getDisplayName());
+    }
     image.setProducerKind(command.kind().name());
     image.setProducerProvider(command.producer().provider());
     image.setProducerModel(command.producer().model());
@@ -198,6 +210,7 @@ public final class DefaultGeneratedImagePublisher implements GeneratedImagePubli
   }
 
   private void verifyIdempotency(AssetImage image, PublishGeneratedImage command) {
+    ensureOutputContext(command);
     List<String> lineage =
         lineageMapper.findByImageId(image.getId()).stream()
             .map(AssetImageLineageSource::getSourceImageId)
@@ -222,6 +235,28 @@ public final class DefaultGeneratedImagePublisher implements GeneratedImagePubli
     if (!matches) {
       throw new IllegalStateException("source result idempotency conflict");
     }
+  }
+
+  private void ensureOutputContext(PublishGeneratedImage command) {
+    Instant now = clock.instant();
+    outputContextMapper.insertIfAbsent(command.outputContext(), now);
+    GeneratedOutputContextRow current = outputContextMapper.find(command.outputContext().taskId());
+    boolean matches = current != null
+        && Objects.equals(current.conversationId(), command.outputContext().conversationId())
+        && Objects.equals(current.conversationTitleSnapshot(), command.outputContext().conversationTitleSnapshot())
+        && Objects.equals(current.taskType(), command.outputContext().taskType().name())
+        && Objects.equals(current.taskCreatedAt(), command.outputContext().taskCreatedAt());
+    if (!matches) {
+      throw new IllegalStateException("output context idempotency conflict");
+    }
+  }
+
+  @Override
+  public void markTaskFinished(long taskId, Instant finishedAt) {
+    if (taskId <= 0 || finishedAt == null) {
+      throw new IllegalArgumentException("taskId and finishedAt are required");
+    }
+    outputContextMapper.markFinished(Long.toString(taskId), finishedAt);
   }
 
   private PublishedImage published(AssetImage image, ObjectLocation stable) {

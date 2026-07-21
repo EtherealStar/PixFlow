@@ -42,7 +42,7 @@ class DefaultAssetReferenceCatalogTest {
         when(images.listReadyOriginalSkus(7L, List.of("B"), 0, 2))
                 .thenReturn(List.of("A", "C"));
 
-        var page = catalog.list(AssetReferenceSource.MATERIALS, "package:7", null,
+        var page = catalog.list(null, "package:7", null,
                 1, 2, List.of("package:7/sku:B"));
 
         assertThat(page.records()).extracting(item -> item.referenceKey())
@@ -52,10 +52,18 @@ class DefaultAssetReferenceCatalogTest {
 
     @Test
     void imageCannotBeUsedAsBrowseParent() {
-        assertThatThrownBy(() -> catalog.list(AssetReferenceSource.MATERIALS,
+        assertThatThrownBy(() -> catalog.list(null,
                 "package:7/image:9", null, 1, 50, List.of()))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("cannot be a parent");
+    }
+
+    @Test
+    void rejectsConflictingBrowseSelectors() {
+        assertThatThrownBy(() -> catalog.list(
+                AssetReferenceSource.MATERIALS, "package:7", null, 1, 50, List.of()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("exactly one");
     }
 
     @Test
@@ -96,7 +104,7 @@ class DefaultAssetReferenceCatalogTest {
         assertThat(result.records()).singleElement().satisfies(candidate -> {
             assertThat(candidate.referenceKey()).isEqualTo("package:7/image:19");
             assertThat(candidate.sourceType()).isEqualTo(AssetSourceType.GENERATED);
-            assertThat(candidate.sourceGroup()).isEqualTo(AssetReferenceSource.OUTPUTS);
+            assertThat(candidate.sourceGroup()).isNull();
             assertThat(candidate.displayPath()).isEqualTo("summer.zip / SKU-A / result.png");
         });
     }

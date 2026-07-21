@@ -11,6 +11,7 @@ import com.pixflow.module.file.api.publication.GeneratedImageKind;
 import com.pixflow.module.file.api.publication.GeneratedImagePublisher;
 import com.pixflow.module.file.api.publication.PublishGeneratedImage;
 import com.pixflow.module.file.api.publication.PublishedImage;
+import com.pixflow.module.conversation.app.ConversationTitleQuery;
 import com.pixflow.module.task.api.publication.CandidateKind;
 import com.pixflow.module.task.api.publication.GeneratedAssetCandidate;
 import com.pixflow.module.task.api.publication.ProducerIdentity;
@@ -26,12 +27,17 @@ class TaskGeneratedAssetPublicationAdapterTest {
     ObjectLocation candidate = ObjectLocation.of(BucketType.TMP, "generated/9/output.png");
     when(publisher.publish(org.mockito.ArgumentMatchers.any()))
         .thenReturn(new PublishedImage(31L, "package:7/image:31"));
-    var adapter = new TaskGeneratedAssetPublicationAdapter(publisher);
+    ConversationTitleQuery titles = mock(ConversationTitleQuery.class);
+    when(titles.titleSnapshot("conversation-1")).thenReturn("Campaign");
+    var adapter = new TaskGeneratedAssetPublicationAdapter(publisher, titles);
 
     var published =
         adapter.publish(
             new GeneratedAssetCandidate(
                 9L,
+                "conversation-1",
+                "IMAGE_PROCESS",
+                java.time.Instant.parse("2026-07-18T00:00:00Z"),
                 21L,
                 "GENERATIVE:11:branch-a",
                 4L,

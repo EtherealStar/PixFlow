@@ -152,6 +152,7 @@ public final class ArchiveEntryProcessor {
             try {
                 ParsedName parsed = fileNameParser.parse(relativePath);
                 AssetImage image = new AssetImage();
+            var dimensions = com.pixflow.module.file.image.ImageDimensionsProbe.require(bytes);
             image.setPackageId(packageId);
             image.setSkuId(parsed.skuId());
             image.setGroupKey(parsed.groupKey());
@@ -163,6 +164,8 @@ public final class ArchiveEntryProcessor {
             image.setStableBucket("PACKAGES");
             image.setContentType(contentType);
             image.setByteSize((long) bytes.length);
+            image.setWidth(dimensions.width());
+            image.setHeight(dimensions.height());
             image.setContentHash(sha256(bytes));
             image.setCreatedAt(clock.instant());
             image.setUpdatedAt(image.getCreatedAt());
