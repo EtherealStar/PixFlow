@@ -126,6 +126,12 @@ public final class SseTurnSession {
     }
 
     void cancelByCaller() {
+        if (state.get() != State.RUNNING) {
+            return;
+        }
+        if (!sink.sendCompleted(null, true)) {
+            return;
+        }
         cancel(CancellationReason.CALLER_ABORTED, SseTerminationReason.USER_STOPPED);
     }
 

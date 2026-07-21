@@ -2,6 +2,8 @@ package com.pixflow.app.web.conversation;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -23,8 +25,8 @@ class MessageControllerLifecycleTest {
     void preparationFailureEscapesBeforeAnEmitterIsReturned() {
         TurnPreparationService preparation = mock(TurnPreparationService.class);
         SseTurnSessionFactory factory = mock(SseTurnSessionFactory.class);
-        MessageSubmitRequest request = new MessageSubmitRequest("q", List.of());
-        when(preparation.prepare(principal(), "missing", request)).thenThrow(
+        MessageController.MessageCommand request = new MessageController.MessageCommand("q", List.of());
+        when(preparation.prepare(any(AuthPrincipal.class), eq("missing"), any(MessageSubmitRequest.class))).thenThrow(
                 new PixFlowException(ConversationErrorCode.CONVERSATION_NOT_FOUND, "missing"));
         MessageController controller = new MessageController(preparation, factory);
 
@@ -41,8 +43,9 @@ class MessageControllerLifecycleTest {
         PreparedTurn prepared = mock(PreparedTurn.class);
         SseTurnSession session = mock(SseTurnSession.class);
         SseEmitter emitter = new SseEmitter();
-        MessageSubmitRequest request = new MessageSubmitRequest("q", List.of());
-        when(preparation.prepare(principal(), "conv-1", request)).thenReturn(prepared);
+        MessageController.MessageCommand request = new MessageController.MessageCommand("q", List.of());
+        when(preparation.prepare(any(AuthPrincipal.class), eq("conv-1"), any(MessageSubmitRequest.class)))
+                .thenReturn(prepared);
         when(factory.create(prepared)).thenReturn(session);
         when(session.emitter()).thenReturn(emitter);
         MessageController controller = new MessageController(preparation, factory);

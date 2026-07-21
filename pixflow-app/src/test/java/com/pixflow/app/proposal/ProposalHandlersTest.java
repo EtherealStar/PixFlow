@@ -53,6 +53,8 @@ class ProposalHandlersTest {
 
         assertThat(output.content()).contains("\"payloadHash\":\"dag-hash\"");
         assertThat(output.metadata()).containsEntry("payloadHash", "dag-hash");
+        assertThat(output.metadata().get(ProposalReadyEvent.METADATA_KEY))
+                .isInstanceOf(ProposalReadyEvent.class);
         assertThat(handler.submitImagePlanDescriptor().inputSchema().toString())
                 .contains("referenceKeys")
                 .doesNotContain("imageIds");
@@ -80,6 +82,10 @@ class ProposalHandlersTest {
                 .isEqualTo(objectMapper.readTree(first.content()).path("proposalId").asText());
         assertThat(first.metadata()).containsEntry("payloadHash", "redraw-hash");
         assertThat(replay.metadata()).containsEntry("payloadHash", "redraw-hash");
+        assertThat(first.metadata().get(ProposalReadyEvent.METADATA_KEY))
+                .isInstanceOf(ProposalReadyEvent.class);
+        assertThat(replay.metadata().get(ProposalReadyEvent.METADATA_KEY))
+                .isInstanceOf(ProposalReadyEvent.class);
         assertThat(handler.submitImagegenPlanDescriptor().inputSchema().toString())
                 .contains("referenceKey")
                 .doesNotContain("source_image_ids");

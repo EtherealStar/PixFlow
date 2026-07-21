@@ -1,10 +1,12 @@
 package com.pixflow.app.web.activity;
 
 import com.pixflow.app.activity.ActivityCommandRouter;
+import com.pixflow.app.activity.ActivityCommandTarget;
 import com.pixflow.app.activity.ActivityKind;
 import com.pixflow.app.activity.ActivityProjectionRepository.ActivityFilter;
 import com.pixflow.app.activity.ActivityProjectionRepository.ActivityPage;
 import com.pixflow.app.activity.ActivityProjectionService;
+import com.pixflow.app.activity.ActivityRetryResult;
 import com.pixflow.app.activity.ActivityStatus;
 import com.pixflow.app.activity.ActivityView;
 import com.pixflow.common.error.CommonErrorCode;
@@ -52,22 +54,32 @@ public final class ActivityController {
     @PostMapping("/api/activities/{activityId}/cancel")
     public ApiResponse<Void> cancel(
             @CurrentUser AuthPrincipal principal, @PathVariable String activityId) {
-        commands.cancel(requireActivity(principal, activityId), principal);
+        commands.cancel(requireCommandTarget(principal, activityId), principal);
         return ApiResponse.ok(null);
+    }
+
+    @PostMapping("/api/activities/{activityId}/retry-failed")
+    public ApiResponse<ActivityRetryResult> retryFailed(
+            @CurrentUser AuthPrincipal principal, @PathVariable String activityId) {
+        return ApiResponse.ok(commands.retryFailed(requireCommandTarget(principal, activityId), principal));
     }
 
     @DeleteMapping("/api/activities/{activityId}")
     public ApiResponse<Void> clear(
             @CurrentUser AuthPrincipal principal, @PathVariable String activityId) {
-        ActivityView activity = requireActivity(principal, activityId);
-        commands.clear(activity, principal);
-        ActivitySource source = source(activity);
-        activities.remove(principal.userId(), source.kind(), source.id());
+        ActivityCommandTarget target = requireCommandTarget(principal, activityId);
+        commands.clear(target, principal);
+        activities.remove(principal.userId(), target.sourceKind(), target.sourceId());
         return ApiResponse.ok(null);
     }
 
     private ActivityView requireActivity(AuthPrincipal principal, String activityId) {
         return activities.get(principal.userId(), activityId).orElseThrow(() ->
+                new PixFlowException(CommonErrorCode.RESOURCE_NOT_FOUND, "activity not found"));
+    }
+
+    private ActivityCommandTarget requireCommandTarget(AuthPrincipal principal, String activityId) {
+        return activities.getCommandTarget(principal.userId(), activityId).orElseThrow(() ->
                 new PixFlowException(CommonErrorCode.RESOURCE_NOT_FOUND, "activity not found"));
     }
 
@@ -82,23 +94,4 @@ public final class ActivityController {
         }
     }
 
-    private static ActivitySource source(ActivityView activity) {
-        if (activity.taskId() != null) {
-            return new ActivitySource(com.pixflow.app.activity.ActivitySourceKind.TASK, activity.taskId());
-        }
-        int separator = activity.activityId().indexOf(':');
-        if (separator < 1 || separator == activity.activityId().length() - 1) {
-            throw new IllegalStateException("invalid activity identity");
-        }
-        String prefix = activity.activityId().substring(0, separator);
-        com.pixflow.app.activity.ActivitySourceKind kind = switch (prefix) {
-            case "upload" -> com.pixflow.app.activity.ActivitySourceKind.UPLOAD;
-            case "package" -> com.pixflow.app.activity.ActivitySourceKind.PACKAGE;
-            default -> throw new IllegalStateException("unknown activity identity");
-        };
-        return new ActivitySource(kind, activity.activityId().substring(separator + 1));
-    }
-
-    private record ActivitySource(com.pixflow.app.activity.ActivitySourceKind kind, String id) {
-    }
 }

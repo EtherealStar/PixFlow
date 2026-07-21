@@ -40,6 +40,10 @@ public final class ActivityProjectionService {
         return repository.get(administratorId, activityId);
     }
 
+    public Optional<ActivityCommandTarget> getCommandTarget(long administratorId, String activityId) {
+        return repository.getCommandTarget(administratorId, activityId);
+    }
+
     public ActivityPage list(long administratorId, ActivityFilter filter, int page, int size) {
         if (page < 1) {
             throw new IllegalArgumentException("page must be 1-based");

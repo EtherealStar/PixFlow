@@ -8,6 +8,7 @@ import com.pixflow.infra.auth.context.CurrentUser;
 import com.pixflow.module.conversation.app.ConversationService;
 import com.pixflow.module.conversation.app.ConversationView;
 import com.pixflow.module.conversation.app.CreateConversationRequest;
+import java.time.Instant;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -27,34 +28,53 @@ public final class ConversationController {
     }
 
     @PostMapping
-    public ApiResponse<ConversationView> create(
+    public ApiResponse<ConversationResponse> create(
             @CurrentUser AuthPrincipal principal,
-            @RequestBody(required = false) CreateConversationRequest request) {
-        return ApiResponse.ok(conversations.create(principal.userId(), request));
+            @RequestBody(required = false) CreateCommand request) {
+        CreateConversationRequest ownerRequest = new CreateConversationRequest(request == null ? null : request.title());
+        return ApiResponse.ok(ConversationResponse.from(conversations.create(principal.userId(), ownerRequest)));
     }
 
     @GetMapping
-    public ApiResponse<PageResponse<ConversationView>> list(
+    public ApiResponse<PageResponse<ConversationResponse>> list(
             @CurrentUser AuthPrincipal principal,
             @RequestParam(required = false) Long page,
             @RequestParam(required = false) Long size) {
         Pagination pagination = Pagination.of(page, size);
-        return ApiResponse.ok(conversations.list(
-                principal.userId(), pagination.page(), pagination.size(), false));
+        PageResponse<ConversationView> result = conversations.list(
+                principal.userId(), pagination.page(), pagination.size());
+        return ApiResponse.ok(PageResponse.of(
+                result.records().stream().map(ConversationResponse::from).toList(),
+                result.total(), result.page(), result.size()));
     }
 
     @GetMapping("/{conversationId}")
-    public ApiResponse<ConversationView> detail(
+    public ApiResponse<ConversationResponse> detail(
             @CurrentUser AuthPrincipal principal,
             @PathVariable String conversationId) {
-        return ApiResponse.ok(conversations.detail(principal.userId(), conversationId));
+        return ApiResponse.ok(ConversationResponse.from(
+                conversations.detail(principal.userId(), conversationId)));
     }
 
     @DeleteMapping("/{conversationId}")
     public ApiResponse<Void> delete(
             @CurrentUser AuthPrincipal principal,
             @PathVariable String conversationId) {
-        conversations.archive(principal.userId(), conversationId);
+        conversations.delete(principal.userId(), conversationId);
         return ApiResponse.ok(null);
+    }
+
+    public record CreateCommand(String title) {
+    }
+
+    public record ConversationResponse(
+            String conversationId,
+            String title,
+            Instant createdAt,
+            Instant updatedAt) {
+        static ConversationResponse from(ConversationView view) {
+            return new ConversationResponse(
+                    view.conversationId(), view.title(), view.createdAt(), view.updatedAt());
+        }
     }
 }

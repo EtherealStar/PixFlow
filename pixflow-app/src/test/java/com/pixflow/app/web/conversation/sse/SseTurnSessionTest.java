@@ -153,6 +153,33 @@ class SseTurnSessionTest {
         executor.shutdownNow();
     }
 
+    @Test
+    void callerStopEmitsStoppedCompletionBeforeCancellingTransport() throws Exception {
+        PreparedTurn prepared = mock(PreparedTurn.class);
+        when(prepared.conversationId()).thenReturn("conv-1");
+        when(prepared.ownerUserId()).thenReturn(7L);
+        CountDownLatch entered = new CountDownLatch(1);
+        doAnswer(invocation -> {
+            entered.countDown();
+            while (true) {
+                invocation.getArgument(1, com.pixflow.common.concurrent.CancellationToken.class)
+                        .throwIfCancellationRequested();
+                Thread.onSpinWait();
+            }
+        }).when(prepared).execute(any(), any());
+        FakeEmitter emitter = new FakeEmitter();
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        SseTurnSession session = session(prepared, emitter, executor);
+
+        session.start();
+        assertThat(entered.await(1, TimeUnit.SECONDS)).isTrue();
+        session.cancelByCaller();
+
+        assertThat(emitter.sendCount.get()).isEqualTo(1);
+        verify(prepared, timeout(1000).times(1)).close();
+        executor.shutdownNow();
+    }
+
     private PreparedTurn prepared(String result) {
         PreparedTurn prepared = mock(PreparedTurn.class);
         when(prepared.conversationId()).thenReturn("conv-1");

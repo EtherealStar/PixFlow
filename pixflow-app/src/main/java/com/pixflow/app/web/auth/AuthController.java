@@ -9,7 +9,6 @@ import com.pixflow.infra.auth.filter.JwtAuthenticationFilter;
 import com.pixflow.infra.auth.service.AuthService;
 import com.pixflow.infra.auth.service.AuthTokenResponse;
 import com.pixflow.infra.auth.service.LoginRequest;
-import com.pixflow.infra.auth.service.UserView;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
@@ -37,10 +36,11 @@ public class AuthController {
 
     @PostMapping("/login")
     public ApiResponse<AuthTokenPayload> login(
-            @Valid @RequestBody LoginRequest request,
+            @Valid @RequestBody LoginCommand request,
             HttpServletRequest servletRequest,
             HttpServletResponse response) {
-        AuthTokenResponse tokenResponse = authService.login(request, clientIp(servletRequest));
+        AuthTokenResponse tokenResponse = authService.login(
+                new LoginRequest(request.username(), request.password()), clientIp(servletRequest));
         setRefreshCookie(response, tokenResponse);
         return ApiResponse.ok(AuthTokenPayload.from(tokenResponse));
     }
@@ -69,8 +69,17 @@ public class AuthController {
     }
 
     @GetMapping("/me")
-    public ApiResponse<UserView> me(@CurrentUser AuthPrincipal principal) {
-        return ApiResponse.ok(UserView.from(principal));
+    public ApiResponse<AuthTokenPayload.AuthUserPayload> me(@CurrentUser AuthPrincipal principal) {
+        return ApiResponse.ok(AuthTokenPayload.AuthUserPayload.from(principal));
+    }
+
+    public record LoginCommand(
+            @jakarta.validation.constraints.NotBlank String username,
+            @jakarta.validation.constraints.NotBlank String password) {
+        @Override
+        public String toString() {
+            return "LoginCommand[username=" + username + ", password=<redacted>]";
+        }
     }
 
     private void setRefreshCookie(HttpServletResponse response, AuthTokenResponse tokenResponse) {

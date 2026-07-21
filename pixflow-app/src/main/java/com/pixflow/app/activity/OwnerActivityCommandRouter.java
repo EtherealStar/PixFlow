@@ -8,6 +8,9 @@ import com.pixflow.module.file.api.activity.FileActivitySourceKind;
 import com.pixflow.module.task.api.TaskCommandService;
 import com.pixflow.module.task.api.command.CancelTaskCommand;
 import com.pixflow.module.task.api.command.ClearTaskCommand;
+import com.pixflow.module.task.api.command.RetryFailedTaskCommand;
+import com.pixflow.module.task.api.command.RetryTaskResponse;
+import com.pixflow.module.task.api.command.TaskId;
 import java.util.Objects;
 
 public final class OwnerActivityCommandRouter implements ActivityCommandRouter {
@@ -21,7 +24,25 @@ public final class OwnerActivityCommandRouter implements ActivityCommandRouter {
     }
 
     @Override
-    public void cancel(ActivityView activity, AuthPrincipal principal) {
+    public ActivityRetryResult retryFailed(ActivityCommandTarget target, AuthPrincipal principal) {
+        ActivityView activity = target.view();
+        if (!activity.allowedActions().retryFailed() || activity.taskId() == null
+                || target.sourceKind() != ActivitySourceKind.TASK) {
+            throw rejected("activity cannot retry failed work units");
+        }
+        RetryTaskResponse retried = tasks.retryFailed(
+                new RetryFailedTaskCommand(new TaskId(activity.taskId())));
+        // activityId 是 App 的 opaque identity；前端不需要知道其 task: 前缀规则。
+        return new ActivityRetryResult(
+                activity.activityId(),
+                "task:" + retried.taskId(),
+                retried.taskId(),
+                retried.retryOfTaskId());
+    }
+
+    @Override
+    public void cancel(ActivityCommandTarget target, AuthPrincipal principal) {
+        ActivityView activity = target.view();
         if (!activity.allowedActions().cancel()) {
             throw rejected("activity cannot be cancelled");
         }
@@ -34,12 +55,12 @@ public final class OwnerActivityCommandRouter implements ActivityCommandRouter {
             }
             return;
         }
-        ActivitySource source = fileSource(activity);
-        files.cancel(source.kind(), source.id());
+        files.cancel(fileKind(target.sourceKind()), target.sourceId());
     }
 
     @Override
-    public void clear(ActivityView activity, AuthPrincipal principal) {
+    public void clear(ActivityCommandTarget target, AuthPrincipal principal) {
+        ActivityView activity = target.view();
         if (!activity.allowedActions().clear()) {
             throw rejected("activity cannot be cleared");
         }
@@ -51,27 +72,19 @@ public final class OwnerActivityCommandRouter implements ActivityCommandRouter {
             }
             return;
         }
-        ActivitySource source = fileSource(activity);
-        files.clear(source.kind(), source.id());
+        files.clear(fileKind(target.sourceKind()), target.sourceId());
     }
 
-    private static ActivitySource fileSource(ActivityView activity) {
-        int separator = activity.activityId().indexOf(':');
-        if (separator < 1 || separator == activity.activityId().length() - 1) {
-            throw rejected("invalid file activity identity");
-        }
-        FileActivitySourceKind kind = switch (activity.activityId().substring(0, separator)) {
-            case "upload" -> FileActivitySourceKind.UPLOAD;
-            case "package" -> FileActivitySourceKind.PACKAGE;
-            default -> throw rejected("unknown file activity identity");
+    private static FileActivitySourceKind fileKind(ActivitySourceKind sourceKind) {
+        return switch (sourceKind) {
+            case UPLOAD -> FileActivitySourceKind.UPLOAD;
+            case PACKAGE -> FileActivitySourceKind.PACKAGE;
+            case TASK -> throw rejected("task activity is missing task identity");
         };
-        return new ActivitySource(kind, activity.activityId().substring(separator + 1));
     }
 
     private static PixFlowException rejected(String message) {
         return new PixFlowException(CommonErrorCode.BUSINESS_RULE_VIOLATION, message);
     }
 
-    private record ActivitySource(FileActivitySourceKind kind, String id) {
-    }
 }

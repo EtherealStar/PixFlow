@@ -6,11 +6,14 @@ import com.pixflow.module.file.FileService;
 import com.pixflow.module.file.api.AssetReferenceCandidate;
 import com.pixflow.module.file.api.AssetReferenceCatalog;
 import com.pixflow.module.file.api.AssetReferenceSource;
-import com.pixflow.module.file.error.AssetIngestError;
+import com.pixflow.module.file.error.MaterialIngestErrorView;
 import com.pixflow.module.file.image.AssetImageDetailView;
 import com.pixflow.module.file.image.AssetImageView;
 import com.pixflow.module.file.image.AssetSkuView;
-import com.pixflow.module.file.pkg.AssetPackage;
+import com.pixflow.module.file.pkg.MaterialPackageView;
+import com.pixflow.module.file.pkg.MaterialPackageSort;
+import com.pixflow.module.file.image.OriginalImageSort;
+import com.pixflow.common.web.Pagination;
 import com.pixflow.module.file.upload.CancelUploadResponse;
 import com.pixflow.module.file.upload.CompleteUploadRequest;
 import com.pixflow.module.file.upload.CompleteUploadResponse;
@@ -99,31 +102,37 @@ public final class FileController {
     }
 
     @GetMapping("/api/files/packages/{packageId}")
-    public ApiResponse<AssetPackage> detail(@PathVariable long packageId) {
+    public ApiResponse<MaterialPackageView> detail(@PathVariable long packageId) {
         return ApiResponse.ok(files.detail(packageId));
     }
 
     @GetMapping("/api/files/packages")
-    public ApiResponse<PageResponse<AssetPackage>> list(
-            @RequestParam(defaultValue = "1") long page,
-            @RequestParam(defaultValue = "20") long size) {
-        return ApiResponse.ok(files.list(page, size));
+    public ApiResponse<PageResponse<MaterialPackageView>> list(
+            @RequestParam(required = false) Long page,
+            @RequestParam(required = false) Long size,
+            @RequestParam(required = false) String query,
+            @RequestParam(required = false) MaterialPackageSort sort) {
+        Pagination pagination = Pagination.of(page, size);
+        return ApiResponse.ok(files.list(
+                pagination.page(), pagination.size(), query, sort));
     }
 
     @GetMapping("/api/files/packages/{packageId}/errors")
-    public ApiResponse<PageResponse<AssetIngestError>> errors(
+    public ApiResponse<PageResponse<MaterialIngestErrorView>> errors(
             @PathVariable long packageId,
-            @RequestParam(defaultValue = "1") long page,
-            @RequestParam(defaultValue = "20") long size) {
-        return ApiResponse.ok(files.errors(packageId, page, size));
+            @RequestParam(required = false) Long page,
+            @RequestParam(required = false) Long size) {
+        Pagination pagination = Pagination.of(page, size);
+        return ApiResponse.ok(files.errors(packageId, pagination.page(), pagination.size()));
     }
 
     @GetMapping("/api/files/packages/{packageId}/skus")
     public ApiResponse<PageResponse<AssetSkuView>> skus(
             @PathVariable long packageId,
-            @RequestParam(defaultValue = "1") long page,
-            @RequestParam(defaultValue = "50") long size) {
-        return ApiResponse.ok(files.skus(packageId, page, size));
+            @RequestParam(required = false) Long page,
+            @RequestParam(required = false) Long size) {
+        Pagination pagination = Pagination.of(page, size == null ? 50L : size);
+        return ApiResponse.ok(files.skus(packageId, pagination.page(), pagination.size()));
     }
 
     @GetMapping("/api/files/images")
@@ -131,17 +140,25 @@ public final class FileController {
             @RequestParam(required = false) Long packageId,
             @RequestParam(required = false) String skuId,
             @RequestParam(required = false) String query,
-            @RequestParam(defaultValue = "1") long page,
-            @RequestParam(defaultValue = "50") long size) {
-        return ApiResponse.ok(files.globalImages(packageId, skuId, query, page, size));
+            @RequestParam(required = false) OriginalImageSort sort,
+            @RequestParam(required = false) Long page,
+            @RequestParam(required = false) Long size) {
+        Pagination pagination = Pagination.of(page, size == null ? 50L : size);
+        return ApiResponse.ok(files.globalImages(
+                packageId, skuId, query, pagination.page(), pagination.size(), sort));
     }
 
     @GetMapping("/api/files/packages/{packageId}/images")
     public ApiResponse<PageResponse<AssetImageView>> images(
             @PathVariable long packageId,
-            @RequestParam(defaultValue = "1") long page,
-            @RequestParam(defaultValue = "50") long size) {
-        return ApiResponse.ok(files.images(packageId, page, size));
+            @RequestParam(required = false) String skuId,
+            @RequestParam(required = false) String query,
+            @RequestParam(required = false) OriginalImageSort sort,
+            @RequestParam(required = false) Long page,
+            @RequestParam(required = false) Long size) {
+        Pagination pagination = Pagination.of(page, size == null ? 50L : size);
+        return ApiResponse.ok(files.images(
+                packageId, skuId, query, pagination.page(), pagination.size(), sort));
     }
 
     @GetMapping("/api/files/packages/{packageId}/images/{imageId}")
@@ -165,7 +182,7 @@ public final class FileController {
     }
 
     @PatchMapping("/api/files/packages/{packageId}")
-    public ApiResponse<AssetPackage> renamePackage(
+    public ApiResponse<MaterialPackageView> renamePackage(
             @PathVariable long packageId, @RequestBody RenameRequest request) {
         return ApiResponse.ok(files.renamePackage(packageId, request.displayName()));
     }

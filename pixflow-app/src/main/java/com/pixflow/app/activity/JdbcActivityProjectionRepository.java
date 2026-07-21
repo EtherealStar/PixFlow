@@ -90,6 +90,21 @@ public final class JdbcActivityProjectionRepository implements ActivityProjectio
     }
 
     @Override
+    public Optional<ActivityCommandTarget> getCommandTarget(long administratorId, String activityId) {
+        List<ActivityCommandTarget> rows = jdbc.query(
+                """
+                select source_kind, source_id, view_json from app_activity_projection
+                where administrator_id = ? and activity_id = ? and removed = false
+                """,
+                (resultSet, rowNumber) -> new ActivityCommandTarget(
+                        ActivitySourceKind.valueOf(resultSet.getString("source_kind")),
+                        resultSet.getString("source_id"),
+                        readView(resultSet.getString("view_json"))),
+                administratorId, activityId);
+        return rows.stream().findFirst();
+    }
+
+    @Override
     public ActivityPage list(long administratorId, ActivityFilter filter, int page, int size) {
         StringBuilder where = new StringBuilder(" where administrator_id = ? and removed = false");
         List<Object> arguments = new ArrayList<>();

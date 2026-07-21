@@ -120,6 +120,14 @@ public final class SubmitImagegenPlanHandler {
                     1,
                     referenceKeys,
                     clock.instant()));
+            ProposalReadyEvent readyEvent = new ProposalReadyEvent(
+                    proposal.proposalId(),
+                    invocation.conversationId(),
+                    "IMAGEGEN",
+                    "生成图片",
+                    "单图重绘方案已准备完成",
+                    List.of("已选择 1 项素材"),
+                    clock.instant());
             Map<String, Object> result = new LinkedHashMap<>();
             result.put("proposalId", proposal.proposalId());
             result.put("payloadHash", proposal.payloadHash());
@@ -128,7 +136,9 @@ public final class SubmitImagegenPlanHandler {
             // trace 只持久化受控 metadata；显式携带 owner hash，供离线评估绑定确认决定。
             return new ToolHandlerOutput(
                     objectMapper.writeValueAsString(result),
-                    Map.of("payloadHash", proposal.payloadHash()));
+                    Map.of(
+                            "payloadHash", proposal.payloadHash(),
+                            ProposalReadyEvent.METADATA_KEY, readyEvent));
         } catch (PixFlowException exception) {
             return error(exception.code().code(), exception.getMessage());
         } catch (Exception exception) {

@@ -12,6 +12,8 @@ public interface ActivityProjectionRepository {
 
     Optional<ActivityView> get(long administratorId, String activityId);
 
+    Optional<ActivityCommandTarget> getCommandTarget(long administratorId, String activityId);
+
     ActivityPage list(long administratorId, ActivityFilter filter, int page, int size);
 
     List<StoredSource> currentSources(long administratorId, ActivitySourceKind sourceKind);

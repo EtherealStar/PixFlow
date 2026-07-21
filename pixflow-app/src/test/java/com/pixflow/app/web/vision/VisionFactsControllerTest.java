@@ -44,6 +44,18 @@ class VisionFactsControllerTest {
     }
 
     @Test
+    void projectsRecoveryOnlyExpiredStatusToPending() throws Exception {
+        when(service.get(7L, "SKU-1")).thenReturn(new VisualFactsView(
+                7L, "SKU-1", AnalysisStatus.EXPIRED, 2L, null, 0L, null,
+                Instant.parse("2026-07-19T10:00:00Z"), "provider-secret"));
+
+        mockMvc.perform(get("/api/vision/packages/7/skus/SKU-1/facts"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.analysisStatus").value("PENDING"))
+                .andExpect(jsonPath("$.data.failureCode").doesNotExist());
+    }
+
+    @Test
     void projectsReplaceAndReanalyzeCommands() throws Exception {
         when(service.replace(any(Long.class), any(String.class), any(ReplaceVisualFactsCommand.class)))
                 .thenReturn(view());

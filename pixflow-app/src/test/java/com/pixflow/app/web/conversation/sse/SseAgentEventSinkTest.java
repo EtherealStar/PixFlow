@@ -2,146 +2,107 @@ package com.pixflow.app.web.conversation.sse;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pixflow.common.error.PixFlowException;
+import com.pixflow.harness.loop.TransitionReason;
 import com.pixflow.harness.loop.event.AgentEvent;
-import com.pixflow.infra.ai.error.AiErrorCode;
 import com.pixflow.harness.tools.ToolCall;
 import com.pixflow.harness.tools.ToolExecutionResult;
+import com.pixflow.infra.ai.error.AiErrorCode;
+import com.pixflow.app.proposal.ProposalReadyEvent;
+import java.time.Instant;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 class SseAgentEventSinkTest {
-    @SuppressWarnings("unchecked")
+    private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
+
     @Test
-    void projectsRecordToolCallPayload() {
+    void hidesToolIdentityAndArgumentsBehindSafeStatus() throws Exception {
         AgentEvent event = AgentEvent.toolCallReady(new ToolCall(
-                "call-1",
-                "search",
-                Map.of("query", "sku"),
-                "c1",
-                1,
-                "trace-1",
-                null,
-                Map.of()),
-                Map.of("assistantCallId", "a1", "modelTurnIndex", 1, "iteration", 1, "traceId", "trace-1", "turnNo", 7));
+                "call-1", "search_assets", Map.of("query", "secret"), "c1", 1,
+                "trace-1", null, Map.of()), Map.of("providerPrompt", "secret"));
 
-        Map<String, Object> payload = SseAgentEventSink.toPayload(event);
+        Object payload = SseAgentEventSink.toPayload(event);
+        String json = objectMapper.writeValueAsString(payload);
 
-        assertThat(SseAgentEventSink.eventName(event)).isEqualTo("tool_call_ready");
-        assertThat(payload).containsEntry("toolName", "search");
-        assertThat(payload).containsEntry("toolCallId", "call-1");
-        assertThat(payload).containsEntry("assistantCallId", "a1");
-        assertThat(payload).containsEntry("modelTurnIndex", 1);
-        assertThat(payload).containsEntry("traceId", "trace-1");
-        assertThat(payload).containsEntry("turnNo", 7);
-        assertThat((Map<String, Object>) payload.get("toolInput")).containsEntry("query", "sku");
+        assertThat(SseAgentEventSink.eventName(event)).isEqualTo("tool_status");
+        assertThat(json).isEqualTo("{\"label\":\"正在查找相关信息\",\"state\":\"QUEUED\"}");
+        assertThat(json).doesNotContain("toolName", "call-1", "secret", "trace-1");
     }
 
     @Test
-    void projectsRecordToolResultPayloadAndMetadataExternalized() {
+    void projectsToolCompletionWithoutResultContent() throws Exception {
         AgentEvent event = AgentEvent.toolResult(ToolExecutionResult.success(
-                "call-2",
-                "read",
-                "ok",
-                Map.of("externalized", true)),
-                Map.of("assistantCallId", "a1", "modelTurnIndex", 1, "traceId", "trace-1", "turnNo", 7));
+                "call-2", "read_asset", "objectKey=private", Map.of("provider", "private")), Map.of());
 
-        Map<String, Object> payload = SseAgentEventSink.toPayload(event);
+        String json = objectMapper.writeValueAsString(SseAgentEventSink.toPayload(event));
 
-        assertThat(SseAgentEventSink.eventName(event)).isEqualTo("tool_result");
-        assertThat(payload).containsEntry("toolCallId", "call-2");
-        assertThat(payload).containsEntry("toolName", "read");
-        assertThat(payload).containsEntry("content", "ok");
-        assertThat(payload).containsEntry("externalized", true);
-        assertThat(payload).containsEntry("error", false);
-        assertThat(payload).containsEntry("assistantCallId", "a1");
-        assertThat(payload).containsEntry("modelTurnIndex", 1);
+        assertThat(json).isEqualTo("{\"label\":\"正在读取素材\",\"state\":\"SUCCEEDED\"}");
+        assertThat(json).doesNotContain("objectKey", "provider", "call-2");
     }
 
     @Test
-    void projectsStringAssistantCompletedFinalText() {
-        AgentEvent event = AgentEvent.assistantCompleted("final answer", "ignored payload", Map.of("traceId", "t1", "turnNo", 3));
+    void emitsTypedProposalAfterSafeToolStatus() {
+        CountingEmitter emitter = new CountingEmitter();
+        SseAgentEventSink sink = new SseAgentEventSink(emitter, objectMapper);
+        ProposalReadyEvent proposal = new ProposalReadyEvent(
+                "proposal-1", "conversation-1", "IMAGE_PROCESS", "处理素材",
+                "方案已准备完成", java.util.List.of("已选择 2 项素材"),
+                Instant.parse("2026-07-21T00:00:00Z"));
 
-        Map<String, Object> payload = SseAgentEventSink.toPayload(event);
+        sink.emit(AgentEvent.toolResult(ToolExecutionResult.success(
+                "call-2", "submit_image_plan", "private tool result",
+                Map.of(ProposalReadyEvent.METADATA_KEY, proposal)), Map.of()));
 
-        assertThat(SseAgentEventSink.eventName(event)).isEqualTo("assistant_message_completed");
-        assertThat(payload).containsEntry("finalText", "final answer");
-        assertThat(payload).containsEntry("traceId", "t1");
-        assertThat(payload).containsEntry("turnNo", 3);
+        assertThat(emitter.sendCount).isEqualTo(2);
     }
 
     @Test
-    void projectsAssistantDeltaAndCompletedAttribution() {
-        AgentEvent delta = AgentEvent.delta("你", Map.of(
-                "assistantCallId", "a1",
-                "modelTurnIndex", 1,
-                "iteration", 1,
-                "traceId", "t1",
-                "turnNo", 3));
-        AgentEvent completed = AgentEvent.completed("你好", Map.of(
-                "assistantCallId", "a1",
-                "modelTurnIndex", 1,
-                "iteration", 1,
-                "traceId", "t1",
-                "turnNo", 3));
+    void projectsAssistantEventsWithOnlyPublicFields() throws Exception {
+        AgentEvent completed = AgentEvent.assistantCompleted(
+                "final answer", "message-1", Map.of("traceId", "private", "turnNo", 3));
 
-        Map<String, Object> deltaPayload = SseAgentEventSink.toPayload(delta);
-        Map<String, Object> completedPayload = SseAgentEventSink.toPayload(completed);
+        String json = objectMapper.writeValueAsString(SseAgentEventSink.toPayload(completed));
 
-        assertThat(deltaPayload)
-                .containsEntry("text", "你")
-                .containsEntry("assistantCallId", "a1")
-                .containsEntry("modelTurnIndex", 1);
-        assertThat(completedPayload)
-                .containsEntry("finalText", "你好")
-                .containsEntry("assistantCallId", "a1")
-                .containsEntry("modelTurnIndex", 1)
-                .containsEntry("traceId", "t1")
-                .containsEntry("turnNo", 3);
+        assertThat(SseAgentEventSink.eventName(completed)).isEqualTo("assistant_message_completed");
+        assertThat(json).isEqualTo("{\"messageId\":\"message-1\",\"finalText\":\"final answer\"}");
     }
 
     @Test
-    void projectsRetryTransitionMetadata() {
+    void projectsTransitionAsSafeProductLanguage() throws Exception {
         AgentEvent event = AgentEvent.transition(
-                com.pixflow.harness.loop.TransitionReason.RATE_LIMIT_RETRY,
-                Map.of(
-                        "assistantCallId", "a1",
-                        "modelTurnIndex", 1,
-                        "traceId", "trace-1",
-                        "turnNo", 7,
-                        "attempt", 2,
-                        "retriesRemaining", 9,
-                        "errorCode", "MODEL_PROVIDER_ERROR",
-                        "message", "model stream interrupted",
-                        "retrying", true));
+                TransitionReason.RATE_LIMIT_RETRY,
+                Map.of("attempt", 2, "retriesRemaining", 9, "providerPrompt", "secret"));
 
-        Map<String, Object> payload = SseAgentEventSink.toPayload(event);
+        String json = objectMapper.writeValueAsString(SseAgentEventSink.toPayload(event));
 
-        assertThat(SseAgentEventSink.eventName(event)).isEqualTo("transition");
-        assertThat(payload)
-                .containsEntry("reason", "RATE_LIMIT_RETRY")
-                .containsEntry("attempt", 2)
-                .containsEntry("retriesRemaining", 9)
-                .containsEntry("errorCode", "MODEL_PROVIDER_ERROR")
-                .containsEntry("message", "model stream interrupted")
-                .containsEntry("retrying", true)
-                .containsEntry("assistantCallId", "a1")
-                .containsEntry("modelTurnIndex", 1)
-                .containsEntry("traceId", "trace-1")
-                .containsEntry("turnNo", 7);
+        assertThat(json).isEqualTo("{\"label\":\"服务繁忙，正在重试\",\"state\":\"RUNNING\"}");
+        assertThat(json).doesNotContain("attempt", "retriesRemaining", "providerPrompt");
     }
 
     @Test
-    void rendersTerminalErrorPayloadWithErrorCodeAndSafeMessage() {
+    void rendersTerminalErrorWithStableContractNames() throws Exception {
         PixFlowException error = new PixFlowException(
                 AiErrorCode.MODEL_PROVIDER_ERROR,
                 "provider failed api_key=secret-value").withTraceId("trace-1");
 
-        Map<String, Object> payload = SseAgentEventSink.errorPayload(error);
+        String json = objectMapper.writeValueAsString(SseAgentEventSink.errorPayload(error));
 
-        assertThat(payload)
-                .containsEntry("errorCode", "MODEL_PROVIDER_ERROR")
-                .containsEntry("traceId", "trace-1");
-        assertThat(String.valueOf(payload.get("message"))).contains("api_key=***");
+        assertThat(json).contains("\"code\":\"MODEL_PROVIDER_ERROR\"")
+                .contains("\"traceId\":\"trace-1\"")
+                .contains("api_key=***")
+                .doesNotContain("errorCode", "secret-value");
+    }
+
+
+    private static final class CountingEmitter
+            extends org.springframework.web.servlet.mvc.method.annotation.SseEmitter {
+        private int sendCount;
+
+        @Override
+        public void send(SseEventBuilder builder) {
+            sendCount++;
+        }
     }
 }
