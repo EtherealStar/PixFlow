@@ -7,7 +7,7 @@
 | Document | Authority |
 |---|---|
 | `product.md` | User-visible information architecture, workflows, queueing, mentions, proposals, uploads, Activity, responsive behavior, and authentication. |
-| `api.md` | Target frontend-facing REST, SSE, and activity-event contract. |
+| `api.md` | Target frontend-facing REST, SSE, and activity-event contract, including public request/response DTOs, errors, pagination, and removed routes. |
 | `shell-routing-auth.md` | Application shell, routes, responsive panels, and in-memory access-token lifecycle. |
 | `chat.md` | History, streaming timeline, per-conversation queues, mentions, and Proposal interaction. |
 | `files.md` | Separate Materials and Outputs pages, image detail navigation, Product Visual Analysis editing, deletion, naming, and pagination. |

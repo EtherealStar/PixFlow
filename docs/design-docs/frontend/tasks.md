@@ -24,6 +24,13 @@ The panel never auto-expands. Collapsed badges summarize running, succeeded, and
 
 Card details expose Cancel only while the backend accepts it. Retry failed items creates a derived retry and never reopens the terminal source task. Conversation, package, and output links are explicit actions.
 
+The Web addresses Cancel, Retry failed items, and Clear to an `activityId`
+through the Activity endpoints in `api.md`. It does not call Task-specific
+command URLs or infer a command from `taskId`. App routes the Activity Command
+to File or Task, and the owner rechecks state, authorization, and idempotency.
+This keeps one frontend command surface without moving Task retry semantics into
+the Activity projection.
+
 Clearing successful activity deletes its Activity and execution history but never successful output images. Clearing a failed task immediately removes its activity, execution data, temporary objects, and failed artifacts. Otherwise failed task data expires after 24 hours. Cancelling removes only objects produced by that task and never source packages, source images, or another task's outputs.
 
 The derived-retry business key is `retry-failed:{sourceTaskId}`. Repeated actions for the same direct source snapshot resolve to the same child task.

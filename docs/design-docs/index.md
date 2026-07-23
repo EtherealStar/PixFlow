@@ -5,7 +5,7 @@ This directory contains the production-grade design documents for PixFlow. Use t
 ## Root Documents
 
 - `design.md`: The overall PixFlow system design. It defines the target architecture, major runtime layers, technology choices, module boundaries, data model, asynchronous execution flow, and known risks.
-- `frontend/api.md`: 当前面向前端的 REST、SSE、WebSocket/STOMP 接口摘要。根级旧 `api.md` 已删除，不应恢复为权威来源；详细语义同时以对应 module/harness 设计为准。
+- `frontend/api.md`: 面向前端重构的权威目标 wire contract，包含 REST、SSE、WebSocket/STOMP 路由、公开 DTO、分页、错误、安全投影和已删除接口。它不描述当前过渡实现；根级旧 `api.md` 已删除，不应恢复。业务语义同时以对应 frontend/module/harness 设计为准。
 - `frontend/README.md`: Vue 3 前端设计索引。`frontend/product.md`、模块文档与 `frontend/api.md` 共同构成前端权威规范。
 - `web.md`: 旧的前端总文档兼容入口；不再承载独立状态机或接口定义，内容以 `frontend/` 为准。
 - `index.md`: This index. It explains what belongs in each design-document folder.

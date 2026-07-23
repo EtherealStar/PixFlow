@@ -15,6 +15,17 @@
         <property name="file" value="${checkstyle.suppressions.file}"/>
     </module>
 
+    <!-- Spring AOP uses subclass proxies in this application; a final target cannot be proxied. -->
+    <module name="RegexpMultiline">
+        <property name="id" value="FinalAopProxiedClass"/>
+        <property name="fileExtensions" value="java"/>
+        <property name="format"
+                  value="(?s)\bfinal\s+class\b.{0,20000}?@(Transactional|Async|Scheduled|Cacheable|CacheEvict|CachePut|Caching|Validated|Retryable|CircuitBreaker|RateLimiter|TimeLimiter|Bulkhead|PreAuthorize|PostAuthorize|PreFilter|PostFilter|Secured|RolesAllowed)\b"/>
+        <property name="maximum" value="0"/>
+        <property name="message"
+                  value="A final class must not declare an AOP-triggering annotation; Spring cannot create its CGLIB proxy."/>
+    </module>
+
     <module name="TreeWalker">
         <!-- 阿里规范：类、方法、变量和常量使用可读且一致的 Java 命名。 -->
         <module name="TypeName"/>

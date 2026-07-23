@@ -38,6 +38,10 @@ This ExecPlan is a living document. The sections `Progress`, `Surprises & Discov
 - [x] (2026-07-20) Proposal tools 删除 handler 同时充当 `@Component`/Bean factory 的隐式装配，改由 `ProposalToolConfiguration` 显式组装；两个 descriptor 使用真实输入校验器，不再调用 `ToolInputValidator.noop()`。
 - [x] (2026-07-20) 按前端目标设计补全 `frontend/api.md` 的 envelope、公开 DTO、Materials 图片详情、Outputs、Product Visual Analysis、Activity snapshot/frame/commands 与 removed-routes 清单；统一 Cancel/Retry failed/Clear 只经 Activity Command 进入前端合同。本项只冻结目标文档，当前旧 Task 路由和 Web 调用仍由 Milestone 3/父计划 Milestone 7 删除。
 - [ ] (2026-07-20) 下一批仍未闭环：其余持久 owner 的独立目标 baseline、完整 App wiring contract/negative context、MySQL 8.4 空库启动、真实依赖故障矩阵和端到端验收尚未完成。Milestone 0、1、2、3、4、5、6 均保持未完成。
+- [x] (2026-07-21) 修复 Conversation 核心应用 Bean 被 `@ConditionalOnBean` 按自动配置评估时序静默跳过的问题；`MessageReferenceValidator`、`TurnPreparationService`、`ConversationPermissionProofs`、`ConfirmationService` 和 `CancellationService` 现在通过直接参数依赖 fail fast。Conversation 31 项测试、App Conversation controller 6 项定向测试和 Conversation lint/static 均通过；真实 App 启动不再失败于 Message/Proposal controller，继续推进后暴露 Vision `VisualFactsAdministrationService` 缺失，因此不宣称完整 App 启动完成。
+- [x] (2026-07-21) 修复 Vision 持久化与核心服务被条件评估时序静默跳过的问题：`VisionPersistenceConfiguration` 无条件注册 owner mapper，`MybatisVisionStateStore` 同时公开 `VisionStateStore`/`VisionInputStateStore`，Vision 核心 Bean 改为直接参数依赖 fail fast；生产式 MyBatis 装配回归由红转绿，Vision lint/static 与 30 项完整测试通过。真实 App 启动不再失败于 `VisualFactsAdministrationService`，继续推进后暴露独立的 Agent `skill` 表缺失，因此不宣称完整 App 启动完成。
+- [x] (2026-07-22) 修复 State 自动配置评估时序：`RunStateRefStore` 改由 `CacheStore` 参数直接 fail fast，State 声明在 Cache 之后，Task 从合法依赖方向声明在 State 之前；新增真实 Cache 自动配置和顺序合同回归。State 19 项完整测试、静态门禁与真实 App 启动通过，`/actuator/health` 返回 200；当前开发库仍缺 `user_account`、`rubrics_run` 等独立 owner baseline 表，因此不宣称 Milestone 1/6 完成。
+- [x] (2026-07-22) 将 Auth、Commerce、Memory、Conversation、Session、Vision、Rubrics 的 target baseline 纳入 App 的独立 Flyway owner；所有 owner 使用唯一 `db/<owner>` classpath location 和独立 history table，删除 Vision 的重复生产 `schema.sql`，并将 Commerce/Memory 的唯一 production schema source 转为 V1 migration。App 全 reactor 定向迁移配置测试通过；真实空 MySQL 启动与端到端验收仍属于 Milestone 1/6 的后续工作。
 
 ## Surprises & Discoveries
 
@@ -83,6 +87,18 @@ This ExecPlan is a living document. The sections `Progress`, `Surprises & Discov
 - Observation: Conversation 的 SSE session/sink/heartbeat 与 controller 一样属于 App transport；迁移后 Conversation 业务模块无需 Spring Web、Validation 或 Micrometer transport 依赖。
   Evidence: SSE 六个实现类及测试已迁入 `pixflow-app/src/main/java/com/pixflow/app/web/conversation/sse`，由 `ConversationSseConfiguration` 显式装配；clean test compilation 后 Conversation production 只编译业务类。
 
+- Observation: Conversation 的核心应用 Bean 使用 `@ConditionalOnBean` 时会受跨自动配置评估顺序影响，即使 File 的 `AssetReferenceResolver` 和 Permission 的 `PermissionPolicy` 最终都会创建，Conversation 仍可能先行判定缺失并永久跳过 validator、turn preparation 和 confirmation 链。
+  Evidence: 真实 App 条件报告显示 File `assetReferenceService` 与 Permission `permissionPolicy` 均 matched，但 `messageReferenceValidator` 在评估时未找到 `AssetReferenceResolver`；移除核心 Bean 条件后，原 `MessageController` 与后续 `ProposalController` 注入失败均消失，启动继续到独立的 Vision wiring 缺口。
+
+- Observation: Vision 的 `@ConditionalOnBean(SqlSessionFactory.class)` 位于被自动配置导入的 persistence 配置上时，会在生产 MyBatis Bean 定义可见之前跳过整个 mapper scan；同一自动配置内的条件链又会把这个缺口扩散为管理服务、lookup、worker 和 consumer 全部缺装。
+  Evidence: 真实条件报告显示 `VisionStateMapper`、`VisionStateStore` 和 `VisualFactsAdministrationService` 依次缺失；生产式 `ApplicationContextRunner` 在修复前找不到 `MybatisVisionStateStore`，移除 persistence 配置条件并改为核心 Bean 直接依赖后转绿，真实启动继续到独立的 Agent `skill` 表缺失。
+
+- Observation: State 同时消费低层 Cache Bean 和由高层 Task 实现的倒置端口，若不声明自动配置顺序，方法级 `@ConditionalOnBean` 会在提供方 Bean 定义出现前把运行态引用及恢复服务永久跳过。
+  Evidence: 最小 `ApplicationContextRunner` 在最终已有 `CacheStore` 时仍缺 `RunStateRefStore`；修复首个缺口后真实 App 又在 `TaskAutoConfiguration#taskWorker` 缺 `RecoveryCoordinator`。移除运行态引用条件并声明 Cache/Task 在 State 之前后，最终 App 在 18.98 秒启动且健康端点返回 200。
+
+- Observation: Auth、Conversation、Session、Vision、Rubrics 都把 V1 放在共享 `db/migration` 位置，单个 Flyway scan 无法区分这些 owner；Commerce 与 Memory 仍以裸 `schema.sql` 维护生产表。
+  Evidence: 变更前的 migration 盘点同时列出五个 `db/migration/V1__*.sql` 和两个生产 `schema.sql`；Flyway 的版本号在单一 location 内必须唯一。
+
 ## Decision Log
 
 - Decision: 前端 Cancel、Retry failed items 和 Clear 全部使用 opaque `activityId` 调用 Activity Command；App 只负责按 typed source 路由，File/Task owner 继续拥有状态、授权和幂等规则。直接 `/api/tasks/**` 不属于前端合同。
@@ -92,6 +108,10 @@ This ExecPlan is a living document. The sections `Progress`, `Surprises & Discov
 - Decision: App 只拥有进程入口、传输适配、跨上下文 adapter、进程配置和应用级 read model，不拥有 Asset、Task、Conversation、Vision、Proposal 或 Rubrics 业务规则。
   Rationale: 组合根可以同时依赖多个模块来接线，但业务规则留在 owner 深模块才能保持依赖单向并可独立测试。
   Date/Author: 2026-07-19 / Codex
+
+- Decision: 每个 MySQL schema owner 的目标 V1 baseline 均存放在 `db/<owner>`，由 `pixflow-app` 用独立 Flyway history table 执行；不在共享 `db/migration` 扫描多个 owner，也不保留生产 `schema.sql` 双源。
+  Rationale: 每个 owner 都可独立从 V1 开始演进，同时避免同版本迁移的 classpath 冲突和 schema 定义漂移。
+  Date/Author: 2026-07-22 / Codex
 
 - Decision: 所有前端 REST/SSE/STOMP controller 物理归属 `pixflow-app`；业务模块删除自身 Web controller，只暴露 application API、command/query service、事件和 owner-defined ports。
   Rationale: `frontend/api.md` 是一个进程级契约，统一入口便于认证、分页、错误 envelope、泄密过滤和路由负面测试；这也落实父计划“App 提供 HTTP/SSE/STOMP controllers”的约束。
@@ -404,3 +424,7 @@ Task/File publication、Vision bridge 与 Proposal adapter 继续遵守父计划
 2026-07-20 / Codex: 记录当前切片完成事实。App-owned Activity 核心模型、source revision 去重、JDBC projection/outbox 持久化、`db/app-activity` Flyway location、管理员 snapshot/detail/cancel/clear REST 合同和 `/user/queue/activity` STOMP dispatcher 已完成；生产 generic progress notifier 及 Conversation/Task progress bridge 已删除。Task/File public Activity snapshot 与 cleanup API 已接入工作树，Task cleanup 保留 File-owned Generated Image。当前唯一已知红灯是 `DefaultFileActivitySource.find/listCurrent` 对静态 `upload` 方法使用了实例方法引用，导致 `mvn -pl pixflow-app -am -DskipTests test-compile` 在该文件失败；尚未宣称 Activity owner 对账、完整 wiring/Flyway 基线或端到端验收完成。按用户要求不修改前端、不以全仓测试结果阻断推进，也未提交或暂存。
 
 2026-07-19 / Codex: 创建本计划。基于当前活动后端总计划 Milestone 7、App 源码/测试、权威前端 API、Context Map 与 ADR 完成现状审计；固定 App 为唯一传输与组合根，明确不保留旧代码兼容，新增 Activity 持久投影、目标数据库基线、owner public API、fail-fast wiring 和 lint-before-test 顺序。按用户要求，Checkstyle 只记录且由独立 Lint 计划负责修复。
+
+2026-07-22 / Codex: 修复 State 自动配置时序导致 DAG `RunStateRefStore` 和 Task `RecoveryCoordinator` 被静默跳过的问题。`RunStateRefStore` 删除 `@ConditionalOnBean(CacheStore.class)`，State 声明在 Cache 之后，Task 从合法依赖方向声明在 State 之前，并新增真实 Cache 组合与顺序合同测试。State 定向 5 项、完整 19 项、Task 配置 3 项和 16 模块 lint/static 通过；真实 App 启动与健康检查通过，随后仅观察到当前开发库缺 owner baseline 表的独立调度日志，故不更新里程碑完成状态。
+
+2026-07-22 / Codex: 将所有剩余持久 owner 的表接入 App Flyway。Auth、Commerce、Memory、Conversation、Session、Vision、Rubrics 迁移资源重定位至唯一 `db/<owner>` location，Commerce/Memory 从生产 `schema.sql` 收敛为 V1 baseline，Vision 删除重复 schema source。App 为七个 owner 新增独立 history table，配置测试同时验证严格选项和所有 migration resource 的运行时 classpath 可见性；完整依赖 reactor 定向测试通过。

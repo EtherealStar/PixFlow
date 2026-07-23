@@ -9,8 +9,11 @@ The first profile covers:
 - layout: 120-character lines, braces, whitespace, empty-line separation, and one statement per line;
 - declarations: modifier order, redundant modifiers, and one variable declaration per statement;
 - correctness-adjacent source rules: explicit switch fall-through and paired `equals`/`hashCode` implementations.
+- Spring proxy safety: a `final` class may not declare an AOP-triggering annotation such as `@Transactional`, `@Validated`, caching, async, method-security, or Resilience4j annotations.
 
 The first adoption deliberately postpones broad Javadoc coverage, mandatory `final`, complexity/file-size thresholds, package architecture, and semantic rules that Checkstyle cannot model without fragile regular expressions.
+
+The Spring proxy safety check is the deliberate exception: it uses a bounded, file-local multiline regular expression because standard Checkstyle checks cannot correlate class modifiers with method annotations. Keep its annotation list aligned with the AOP libraries used by the project.
 
 `suppressions.xml` is the reviewed production-source baseline from 2026-07-16. Every entry is limited to one file, one check, and explicit line numbers. Do not add module-, package-, file-, or check-wide exclusions. When touched code removes a violation, delete its stale suppression; use the audit profile to review rule upgrades before changing the baseline.
 

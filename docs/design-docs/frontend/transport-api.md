@@ -20,7 +20,15 @@ The turn runtime owns the AbortController and reducer. A stream ending before `c
 
 ## Activity STOMP
 
-One authenticated STOMP connection subscribes to `/user/queue/activity`. Activity runtime is mounted at application scope. It reconnects with bounded backoff, reloads a REST snapshot, and applies only frames newer than the snapshot cursor.
+One authenticated STOMP connection opens `/ws/activity`, sends the in-memory
+access token as `Authorization: Bearer <token>` on CONNECT, and subscribes only
+to `/user/queue/activity`. Activity runtime is mounted at application scope. It
+reconnects with bounded backoff, reloads a REST snapshot, and applies only
+frames newer than the snapshot cursor.
+
+Cancel, Retry failed items, and Clear call the Activity Command endpoints using
+the opaque `activityId`. The transport never calls direct Task command URLs;
+App routes the command to the owning File or Task context.
 
 Task- and package-specific topics are backend-internal compatibility details and are not used by the new frontend Activity model.
 
