@@ -6,7 +6,7 @@ import java.util.Objects;
 import org.springframework.transaction.annotation.Transactional;
 
 /** Conversation owner 发起真实删除时使用的窄生命周期出口。 */
-public final class TranscriptDeletionService {
+public class TranscriptDeletionService {
     private final TranscriptDeletionMapper deletionMapper;
 
     private final TranscriptBuffer buffer;
