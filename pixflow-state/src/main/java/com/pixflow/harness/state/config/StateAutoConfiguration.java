@@ -15,6 +15,7 @@ import com.pixflow.harness.state.runtime.DefaultProgressReader;
 import com.pixflow.harness.state.runtime.DefaultRunStateRefStore;
 import com.pixflow.harness.state.runtime.ProgressReader;
 import com.pixflow.harness.state.runtime.RunStateRefStore;
+import com.pixflow.infra.cache.config.CacheAutoConfiguration;
 import com.pixflow.infra.cache.counter.AtomicCounter;
 import com.pixflow.infra.cache.store.CacheStore;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -25,7 +26,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 
-@AutoConfiguration
+@AutoConfiguration(after = CacheAutoConfiguration.class)
 @EnableConfigurationProperties(StateProperties.class)
 public class StateAutoConfiguration {
 
@@ -44,7 +45,6 @@ public class StateAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    @ConditionalOnBean(CacheStore.class)
     public RunStateRefStore runStateRefStore(CacheStore cacheStore) {
         return new DefaultRunStateRefStore(cacheStore);
     }
