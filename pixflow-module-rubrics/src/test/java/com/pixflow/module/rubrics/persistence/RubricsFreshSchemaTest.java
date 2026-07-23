@@ -11,7 +11,7 @@ class RubricsFreshSchemaTest {
     void baselineContainsOnlyEvidenceGroundedEvaluationFacts() throws Exception {
         String schema;
         try (var stream = getClass().getResourceAsStream(
-                "/db/migration/V1__create_rubrics_evaluation_facts.sql")) {
+                "/db/rubrics/V1__create_rubrics_evaluation_facts.sql")) {
             assertThat(stream).isNotNull();
             schema = new String(stream.readAllBytes(), StandardCharsets.UTF_8);
         }

@@ -810,7 +810,7 @@ class RubricsEvaluationServiceIntegrationTest {
     private void applySchema() throws Exception {
         String schema;
         try (var stream = getClass().getResourceAsStream(
-                "/db/migration/V1__create_rubrics_evaluation_facts.sql")) {
+                "/db/rubrics/V1__create_rubrics_evaluation_facts.sql")) {
             if (stream == null) {
                 throw new IllegalStateException("rubrics schema resource is missing");
             }

@@ -12,7 +12,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 
 /** 从 MySQL run facts 恢复未完成评估，进程内队列不承担持久性。 */
-public final class RubricsRecoveryScheduler {
+public class RubricsRecoveryScheduler {
     private static final Logger LOGGER = LoggerFactory.getLogger(RubricsRecoveryScheduler.class);
 
     private final RubricsEvaluationService evaluations;

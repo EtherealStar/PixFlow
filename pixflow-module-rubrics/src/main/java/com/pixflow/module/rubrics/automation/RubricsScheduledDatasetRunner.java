@@ -21,7 +21,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 
 /** 只运行显式绑定模板版本与 Dataset 版本的离线日批。 */
-public final class RubricsScheduledDatasetRunner {
+public class RubricsScheduledDatasetRunner {
     private static final Logger LOGGER = LoggerFactory.getLogger(RubricsScheduledDatasetRunner.class);
 
     private final RubricsEvaluationService evaluations;
