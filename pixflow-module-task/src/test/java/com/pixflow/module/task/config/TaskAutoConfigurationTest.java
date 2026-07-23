@@ -2,8 +2,10 @@ package com.pixflow.module.task.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.pixflow.harness.state.config.StateAutoConfiguration;
 import java.util.Arrays;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
@@ -32,5 +34,14 @@ class TaskAutoConfigurationTest {
     assertThat(beanMethods)
         .as("task 生产执行链缺少依赖时必须启动失败")
         .allMatch(method -> !method.isAnnotationPresent(ConditionalOnBean.class));
+  }
+
+  @Test
+  void taskAutoConfigurationRunsBeforeStatePortConsumers() {
+    AutoConfiguration autoConfiguration =
+        TaskAutoConfiguration.class.getAnnotation(AutoConfiguration.class);
+
+    assertThat(Arrays.asList(autoConfiguration.before()))
+        .contains(StateAutoConfiguration.class);
   }
 }

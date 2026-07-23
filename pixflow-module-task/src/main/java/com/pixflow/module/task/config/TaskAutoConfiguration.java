@@ -2,6 +2,7 @@ package com.pixflow.module.task.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pixflow.common.error.ErrorNormalizer;
+import com.pixflow.harness.state.config.StateAutoConfiguration;
 import com.pixflow.harness.state.recovery.RecoveryCoordinator;
 import com.pixflow.infra.cache.counter.AtomicCounter;
 import com.pixflow.infra.cache.key.CacheNamespace;
@@ -44,6 +45,7 @@ import com.pixflow.module.task.infra.persistence.ProcessResultMapper;
 import com.pixflow.module.task.infra.persistence.ProcessResultMemberMapper;
 import com.pixflow.module.task.infra.persistence.ProcessTaskMapper;
 import com.pixflow.module.task.internal.cancel.CancellationService;
+import com.pixflow.module.task.internal.cleanup.DefaultTaskCleanupService;
 import com.pixflow.module.task.internal.cleanup.TaskCleanupService;
 import com.pixflow.module.task.internal.create.CreateTaskServiceImpl;
 import com.pixflow.module.task.internal.create.PendingTaskEnqueuer;
@@ -80,7 +82,7 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Bean;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
-@AutoConfiguration
+@AutoConfiguration(before = StateAutoConfiguration.class)
 @EnableScheduling
 @EnableConfigurationProperties(TaskProperties.class)
 @MapperScan(value = "com.pixflow.module.task.infra.persistence", annotationClass = Mapper.class)
@@ -187,7 +189,7 @@ public class TaskAutoConfiguration {
       ProcessResultMapper resultMapper,
       ProcessResultMemberMapper memberMapper,
       ObjectStorage storage) {
-    return new TaskCleanupService(taskMapper, resultMapper, memberMapper, storage);
+    return new DefaultTaskCleanupService(taskMapper, resultMapper, memberMapper, storage);
   }
 
   @Bean
