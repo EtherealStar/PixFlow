@@ -27,6 +27,7 @@ import jakarta.servlet.DispatcherType;
 import java.time.Clock;
 import org.apache.ibatis.annotations.Mapper;
 import org.mybatis.spring.annotation.MapperScan;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.AutoConfigureAfter;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -152,7 +153,8 @@ public class AuthAutoConfiguration {
             HttpSecurity http,
             JwtAuthenticationFilter jwtAuthenticationFilter,
             SecurityErrorWriter errorWriter,
-            RequestMappingHandlerMapping handlerMappings) throws Exception {
+            @Qualifier("requestMappingHandlerMapping") RequestMappingHandlerMapping handlerMappings)
+            throws Exception {
         RouteAwareAuthenticationEntryPoint entryPoint =
                 new RouteAwareAuthenticationEntryPoint(handlerMappings, errorWriter);
         AccessDeniedHandler deniedHandler = (request, response, accessDeniedException) ->
