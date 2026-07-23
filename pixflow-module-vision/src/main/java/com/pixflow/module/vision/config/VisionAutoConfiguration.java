@@ -6,17 +6,16 @@ import com.pixflow.module.vision.api.VisualFactsAdministrationService;
 import com.pixflow.module.vision.application.DefaultVisualFactsAdministrationService;
 import com.pixflow.module.vision.domain.ProductVisualFactsNormalizer;
 import com.pixflow.module.vision.domain.VisionStateStore;
+import com.pixflow.module.vision.domain.VisionInputStateStore;
 import com.pixflow.module.vision.persistence.MybatisVisionStateStore;
 import com.pixflow.module.vision.persistence.VisionPersistenceConfiguration;
 import com.pixflow.module.vision.persistence.VisionStateMapper;
 import java.time.Clock;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
-import com.pixflow.module.vision.domain.VisionInputStateStore;
 
 @AutoConfiguration
 @Import(VisionPersistenceConfiguration.class)
@@ -34,15 +33,13 @@ public class VisionAutoConfiguration {
     }
 
     @Bean
-    @ConditionalOnMissingBean
-    @ConditionalOnBean(VisionStateMapper.class)
-    public VisionStateStore visionStateStore(VisionStateMapper mapper) {
+    @ConditionalOnMissingBean({VisionStateStore.class, VisionInputStateStore.class})
+    public MybatisVisionStateStore visionStateStore(VisionStateMapper mapper) {
         return new MybatisVisionStateStore(mapper);
     }
 
     @Bean
     @ConditionalOnMissingBean
-    @ConditionalOnBean(VisionStateMapper.class)
     public com.pixflow.module.vision.execution.VisionExecutionStore visionExecutionStore(
             VisionStateMapper mapper) {
         return new com.pixflow.module.vision.persistence.MybatisVisionExecutionStore(mapper);
@@ -50,7 +47,6 @@ public class VisionAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    @ConditionalOnBean(com.pixflow.infra.mq.MessagePublisher.class)
     public com.pixflow.module.vision.execution.VisionWorkPublisher visionWorkPublisher(
             com.pixflow.infra.mq.MessagePublisher publisher) {
         return new com.pixflow.module.vision.execution.RocketVisionWorkPublisher(publisher);
@@ -58,7 +54,6 @@ public class VisionAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    @ConditionalOnBean(com.pixflow.infra.mq.MessagePublisher.class)
     public com.pixflow.module.vision.api.VisionTriggerPublisher visionTriggerPublisher(
             com.pixflow.infra.mq.MessagePublisher publisher) {
         return new com.pixflow.module.vision.execution.RocketVisionTriggerPublisher(publisher);
@@ -66,11 +61,6 @@ public class VisionAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    @ConditionalOnBean({
-        VisualAssetReader.class,
-        VisionInputStateStore.class,
-        com.pixflow.module.vision.execution.VisionWorkPublisher.class
-    })
     public com.pixflow.module.vision.application.VisionAnalysisJobCoordinator visionAnalysisJobCoordinator(
             VisualAssetReader assetReader, VisionInputStateStore inputStore,
             com.pixflow.module.vision.execution.VisionWorkPublisher publisher, Clock clock) {
@@ -80,10 +70,6 @@ public class VisionAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    @ConditionalOnBean({
-        com.pixflow.module.vision.execution.VisionExecutionStore.class,
-        org.springframework.scheduling.TaskScheduler.class
-    })
     public com.pixflow.module.vision.execution.VisionHeartbeat visionHeartbeat(
             com.pixflow.module.vision.execution.VisionExecutionStore store,
             org.springframework.scheduling.TaskScheduler scheduler, Clock clock) {
@@ -92,14 +78,6 @@ public class VisionAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    @ConditionalOnBean({
-        com.pixflow.module.vision.execution.VisionExecutionStore.class,
-        VisualAssetReader.class,
-        com.pixflow.infra.cache.lock.LockTemplate.class,
-        com.pixflow.infra.ai.vision.VisionModelClient.class,
-        com.pixflow.infra.image.pipeline.ImagePipeline.class,
-        com.pixflow.module.vision.execution.VisionHeartbeat.class
-    })
     public com.pixflow.module.vision.execution.VisionFactsWorker visionFactsWorker(
             com.pixflow.module.vision.execution.VisionExecutionStore store,
             VisualAssetReader assetReader,
@@ -116,10 +94,6 @@ public class VisionAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    @ConditionalOnBean({
-        com.pixflow.module.vision.execution.VisionExecutionStore.class,
-        com.pixflow.module.vision.execution.VisionWorkPublisher.class
-    })
     public com.pixflow.module.vision.execution.VisionRecoveryScanner visionRecoveryScanner(
             com.pixflow.module.vision.execution.VisionExecutionStore store,
             com.pixflow.module.vision.execution.VisionWorkPublisher publisher, Clock clock) {
@@ -128,10 +102,6 @@ public class VisionAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    @ConditionalOnBean({
-        com.pixflow.module.vision.application.VisionAnalysisJobCoordinator.class,
-        com.pixflow.module.vision.execution.VisionFactsWorker.class
-    })
     public com.pixflow.module.vision.execution.VisionMessageHandlers visionMessageHandlers(
             com.pixflow.module.vision.application.VisionAnalysisJobCoordinator coordinator,
             com.pixflow.module.vision.execution.VisionFactsWorker worker) {
@@ -140,12 +110,6 @@ public class VisionAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    @ConditionalOnBean({
-        VisionStateStore.class,
-        VisionInputStateStore.class,
-        VisualAssetReader.class,
-        com.pixflow.module.vision.application.FocusedImageAnalysis.class
-    })
     public com.pixflow.module.vision.api.ProductVisualFactsLookup productVisualFactsLookup(
             VisionStateStore stateStore, VisionInputStateStore inputStore,
             VisualAssetReader assetReader, ProductVisualFactsNormalizer normalizer,
@@ -157,10 +121,6 @@ public class VisionAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    @ConditionalOnBean({
-        com.pixflow.module.vision.execution.VisionExecutionStore.class,
-        com.pixflow.module.vision.execution.VisionFactsWorker.class
-    })
     public com.pixflow.module.vision.application.FocusedImageAnalysis focusedImageAnalysis(
             com.pixflow.module.vision.execution.VisionExecutionStore store,
             com.pixflow.module.vision.execution.VisionFactsWorker worker,
@@ -171,7 +131,6 @@ public class VisionAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean(name = "productVisualFactsToolDescriptor")
-    @ConditionalOnBean(com.pixflow.module.vision.api.ProductVisualFactsLookup.class)
     public com.pixflow.harness.tools.ToolDescriptor productVisualFactsToolDescriptor(
             com.pixflow.module.vision.api.ProductVisualFactsLookup lookup, ObjectMapper objectMapper) {
         return com.pixflow.module.vision.tool.ProductVisualFactsTool.descriptor(lookup, objectMapper);
@@ -179,7 +138,6 @@ public class VisionAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    @ConditionalOnBean({VisionStateStore.class, VisualAssetReader.class})
     public VisualFactsAdministrationService visualFactsAdministrationService(
             VisionStateStore stateStore,
             VisualAssetReader assetReader,
@@ -195,7 +153,6 @@ public class VisionAutoConfiguration {
     }
 
     @Bean
-    @ConditionalOnBean(com.pixflow.infra.mq.destination.DestinationRegistrar.class)
     public Object visionDestinationRegistration(
             com.pixflow.infra.mq.destination.DestinationRegistrar registrar) {
         registrar.register(com.pixflow.module.vision.execution.VisionMqDestination.packageDestination());
@@ -208,10 +165,6 @@ public class VisionAutoConfiguration {
     }
 
     @Bean
-    @ConditionalOnBean({
-        com.pixflow.infra.mq.consumer.ManagedListenerContainerFactory.class,
-        com.pixflow.module.vision.execution.VisionMessageHandlers.class
-    })
     public com.pixflow.infra.mq.consumer.ManagedMessageContainer visionPackageMessageContainer(
             com.pixflow.infra.mq.consumer.ManagedListenerContainerFactory factory,
             com.pixflow.module.vision.execution.VisionMessageHandlers handlers,
@@ -224,10 +177,6 @@ public class VisionAutoConfiguration {
     }
 
     @Bean
-    @ConditionalOnBean({
-        com.pixflow.infra.mq.consumer.ManagedListenerContainerFactory.class,
-        com.pixflow.module.vision.execution.VisionMessageHandlers.class
-    })
     public com.pixflow.infra.mq.consumer.ManagedMessageContainer visionSkuMessageContainer(
             com.pixflow.infra.mq.consumer.ManagedListenerContainerFactory factory,
             com.pixflow.module.vision.execution.VisionMessageHandlers handlers,
@@ -240,10 +189,6 @@ public class VisionAutoConfiguration {
     }
 
     @Bean
-    @ConditionalOnBean({
-        com.pixflow.infra.mq.consumer.ManagedListenerContainerFactory.class,
-        com.pixflow.module.vision.execution.VisionMessageHandlers.class
-    })
     public com.pixflow.infra.mq.consumer.ManagedMessageContainer visionItemMessageContainer(
             com.pixflow.infra.mq.consumer.ManagedListenerContainerFactory factory,
             com.pixflow.module.vision.execution.VisionMessageHandlers handlers,

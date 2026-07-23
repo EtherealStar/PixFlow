@@ -9,7 +9,7 @@ import java.util.Objects;
 import com.pixflow.module.vision.api.VisualAsset;
 import org.springframework.transaction.annotation.Transactional;
 
-public final class MybatisVisionExecutionStore implements VisionExecutionStore {
+public class MybatisVisionExecutionStore implements VisionExecutionStore {
     private final VisionStateMapper mapper;
 
     public MybatisVisionExecutionStore(VisionStateMapper mapper) {

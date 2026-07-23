@@ -4,7 +4,7 @@ import java.time.Clock;
 import java.time.Duration;
 import org.springframework.scheduling.annotation.Scheduled;
 
-public final class VisionRecoveryScanner {
+public class VisionRecoveryScanner {
     private final VisionExecutionStore store;
 
     private final VisionWorkPublisher publisher;
