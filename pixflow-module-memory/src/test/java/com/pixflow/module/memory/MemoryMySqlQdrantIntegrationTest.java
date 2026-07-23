@@ -62,7 +62,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
         classes = MemoryMySqlQdrantIntegrationTest.TestApp.class,
         properties = {
                 "spring.sql.init.mode=always",
-                "spring.sql.init.schema-locations=classpath:schema.sql",
+                "spring.sql.init.schema-locations=classpath:db/memory/V1__create_memory_tables.sql",
                 "pixflow.memory.insight.collection=memory_it_analysis_insight",
                 "pixflow.memory.insight.expected-dimension=3",
                 "pixflow.memory.insight.recall.min-final-score=0",
