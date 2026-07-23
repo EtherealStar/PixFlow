@@ -8,7 +8,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.List;
 import org.springframework.scheduling.annotation.Scheduled;
 
-public final class TraceRetentionJob {
+public class TraceRetentionJob {
     private final EvalProperties properties;
 
     private final AgentTraceRepository repository;
