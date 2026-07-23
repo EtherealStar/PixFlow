@@ -31,7 +31,8 @@ public final class ConversationController {
     public ApiResponse<ConversationResponse> create(
             @CurrentUser AuthPrincipal principal,
             @RequestBody(required = false) CreateCommand request) {
-        CreateConversationRequest ownerRequest = new CreateConversationRequest(request == null ? null : request.title());
+        String title = request == null ? null : request.title();
+        CreateConversationRequest ownerRequest = new CreateConversationRequest(title);
         return ApiResponse.ok(ConversationResponse.from(conversations.create(principal.userId(), ownerRequest)));
     }
 

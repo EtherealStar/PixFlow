@@ -6,7 +6,7 @@ import java.util.Objects;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 
-public final class ActivityEventDispatcher {
+public class ActivityEventDispatcher {
     private static final int DEFAULT_BATCH_SIZE = 100;
 
     private final ActivityProjectionRepository repository;

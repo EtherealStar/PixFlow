@@ -1,3 +1,5 @@
 spring:
   application:
     name: pixflow
+  profiles:
+    active: dev

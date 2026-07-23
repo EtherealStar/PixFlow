@@ -11,7 +11,7 @@ import java.util.List;
 import java.util.Objects;
 import org.springframework.scheduling.annotation.Scheduled;
 
-public final class FileActivityProjector {
+public class FileActivityProjector {
     private static final int RECONCILIATION_PAGE_SIZE = 100;
 
     private final FileActivitySource source;

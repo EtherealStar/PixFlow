@@ -16,7 +16,7 @@ import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
 import org.springframework.transaction.annotation.Transactional;
 
-public final class JdbcActivityProjectionRepository implements ActivityProjectionRepository {
+public class JdbcActivityProjectionRepository implements ActivityProjectionRepository {
     private final JdbcTemplate jdbc;
 
     private final ObjectMapper objectMapper;

@@ -41,7 +41,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 @Validated
 @RestController
-public final class FileController {
+public class FileController {
     private final FileService files;
 
     private final UploadSessionService uploads;

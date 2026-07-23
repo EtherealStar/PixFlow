@@ -16,7 +16,7 @@ import java.util.Objects;
 import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
 
-public final class TaskActivityProjector {
+public class TaskActivityProjector {
     private static final int RECONCILIATION_PAGE_SIZE = 100;
 
     private final TaskActivitySource source;
