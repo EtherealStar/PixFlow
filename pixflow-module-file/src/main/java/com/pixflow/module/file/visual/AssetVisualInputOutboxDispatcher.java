@@ -8,7 +8,7 @@ import java.time.Duration;
 import java.util.Objects;
 import org.springframework.scheduling.annotation.Scheduled;
 
-public final class AssetVisualInputOutboxDispatcher {
+public class AssetVisualInputOutboxDispatcher {
     private final AssetVisualInputOutboxMapper mapper;
 
     private final AssetVisualInputEventSink sink;

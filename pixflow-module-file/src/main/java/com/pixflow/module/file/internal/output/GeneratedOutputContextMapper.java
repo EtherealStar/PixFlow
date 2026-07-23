@@ -16,6 +16,7 @@ import com.pixflow.module.file.output.OutputTaskView;
 public interface GeneratedOutputContextMapper {
     @Delete("delete from generated_output_context")
     int deleteAll();
+
     @Insert("""
             insert ignore into generated_output_context (
                 task_id, conversation_id, conversation_title_snapshot, task_type,

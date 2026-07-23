@@ -5,7 +5,7 @@ import com.pixflow.infra.storage.ObjectStorage;
 import java.time.Clock;
 import org.springframework.scheduling.annotation.Scheduled;
 
-public final class UploadOrphanCleanup {
+public class UploadOrphanCleanup {
     private static final int BATCH_SIZE = 100;
 
     private final UploadSessionStore store;

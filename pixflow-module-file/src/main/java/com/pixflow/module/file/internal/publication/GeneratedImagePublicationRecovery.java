@@ -6,7 +6,7 @@ import java.time.Duration;
 import org.springframework.scheduling.annotation.Scheduled;
 
 /** 有界重放 PUBLISHING 和 READY 后未完成的 candidate 清理。 */
-public final class GeneratedImagePublicationRecovery {
+public class GeneratedImagePublicationRecovery {
   private static final int BATCH_SIZE = 50;
 
   private static final Duration CLAIM_TIMEOUT = Duration.ofMinutes(1);
