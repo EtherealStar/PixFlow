@@ -1,17 +1,14 @@
 import { request } from './client'
+import { z } from 'zod'
 import type {
   CompleteUploadResponse,
   InitUploadResponse,
-  PackageDetail,
-  AssetImageView,
   PutChunkResponse,
   UploadSessionState,
-  WholeFileUploadResponse
 } from '@/types/upload'
-import type { Page } from '@/types/api'
 
 /**
- * 素材包分片上传 + 整文件上传兼容 + 包查询/删除。
+ * 素材包分片上传与包查询/删除。
  * 见 api.md `Asset Package API`。
  */
 
@@ -22,27 +19,48 @@ export interface InitUploadRequest {
   chunkSize: number
 }
 
-export function initUpload(req: InitUploadRequest, signal?: AbortSignal): Promise<InitUploadResponse> {
-  return request<InitUploadResponse>('/api/files/packages/init', {
+const initUploadResponseSchema = z.discriminatedUnion('mode', [
+  z.strictObject({ mode: z.literal('UPLOAD'), uploadId: z.string().min(1), packageId: z.null(), status: z.null(), chunkSize: z.number().int().positive(), expectedChunks: z.number().int().positive(), uploadedChunks: z.array(z.number().int().nonnegative()) }),
+  z.strictObject({ mode: z.literal('RESUME'), uploadId: z.string().min(1), packageId: z.null(), status: z.literal('UPLOADING'), chunkSize: z.number().int().positive(), expectedChunks: z.number().int().positive(), uploadedChunks: z.array(z.number().int().nonnegative()) }),
+  z.strictObject({ mode: z.literal('DEDUP'), uploadId: z.null(), packageId: z.number().int().positive(), status: z.literal('READY'), chunkSize: z.literal(0), expectedChunks: z.literal(0), uploadedChunks: z.tuple([]) })
+])
+
+const uploadSessionSchema = z.strictObject({
+  uploadId: z.string().min(1), fileHash: z.string().min(1), size: z.number().int().nonnegative(),
+  chunkSize: z.number().int().positive(), expectedChunks: z.number().int().positive(),
+  uploadedChunks: z.array(z.number().int().nonnegative()), failedChunks: z.array(z.number().int().nonnegative()),
+  status: z.enum(['UPLOADING', 'READY', 'EXPIRED', 'CANCELLED']), packageId: z.number().int().positive().nullable()
+})
+
+const putChunkResponseSchema = z.strictObject({
+  uploadId: z.string().min(1), index: z.number().int().nonnegative(),
+  status: z.enum(['ACCEPTED', 'ALREADY_EXISTS']), uploadedChunks: z.array(z.number().int().nonnegative())
+})
+
+const completeUploadResponseSchema = z.strictObject({ packageId: z.number().int().positive(), status: z.literal('UPLOADED') })
+const cancelUploadResponseSchema = z.strictObject({ uploadId: z.string().min(1), status: z.literal('CANCELLED') })
+
+export async function initUpload(req: InitUploadRequest, signal?: AbortSignal): Promise<InitUploadResponse> {
+  return initUploadResponseSchema.parse(await request<unknown>('/api/files/packages/init', {
     method: 'POST',
     body: req,
     noRetry: true,
     signal
-  })
+  }))
 }
 
-export function getSession(uploadId: string, signal?: AbortSignal): Promise<UploadSessionState> {
-  return request<UploadSessionState>(`/api/files/packages/sessions/${encodeURIComponent(uploadId)}`, { signal })
+export async function getSession(uploadId: string, signal?: AbortSignal): Promise<UploadSessionState> {
+  return uploadSessionSchema.parse(await request<unknown>(`/api/files/packages/sessions/${encodeURIComponent(uploadId)}`, { signal }))
 }
 
-export function putChunk(
+export async function putChunk(
   uploadId: string,
   index: number,
   chunk: Blob,
   chunkHash: string,
   signal?: AbortSignal
 ): Promise<PutChunkResponse> {
-  return request<PutChunkResponse>(
+  return putChunkResponseSchema.parse(await request<unknown>(
     `/api/files/packages/sessions/${encodeURIComponent(uploadId)}/chunks/${index}`,
     {
       method: 'PUT',
@@ -56,116 +74,19 @@ export function putChunk(
       signal,
       skipInFlight: true // worker 池限流
     }
-  )
+  ))
 }
 
-export function completeUpload(uploadId: string, fileHash?: string, signal?: AbortSignal): Promise<CompleteUploadResponse> {
-  return request<CompleteUploadResponse>(
+export async function completeUpload(uploadId: string, fileHash?: string, signal?: AbortSignal): Promise<CompleteUploadResponse> {
+  return completeUploadResponseSchema.parse(await request<unknown>(
     `/api/files/packages/sessions/${encodeURIComponent(uploadId)}/complete`,
     { method: 'POST', body: fileHash ? { fileHash } : {}, noRetry: true, signal }
-  )
+  ))
 }
 
-export function deleteSession(uploadId: string): Promise<{ uploadId: string; status: 'CANCELLED' }> {
-  return request<{ uploadId: string; status: 'CANCELLED' }>(
+export async function deleteSession(uploadId: string): Promise<{ uploadId: string; status: 'CANCELLED' }> {
+  return cancelUploadResponseSchema.parse(await request<unknown>(
     `/api/files/packages/sessions/${encodeURIComponent(uploadId)}`,
     { method: 'DELETE', noRetry: true, skipInFlight: true }
-  )
-}
-
-export function uploadWholeFile(zip: File, doc?: File): Promise<WholeFileUploadResponse> {
-  const form = new FormData()
-  form.append('zip', zip)
-  if (doc) form.append('doc', doc)
-  return request<WholeFileUploadResponse>('/api/files/packages', {
-    method: 'POST',
-    multipart: true,
-    body: form,
-    noRetry: true
-  })
-}
-
-interface BackendPackageDetail extends Omit<Partial<PackageDetail>, 'packageId'> {
-  id?: number
-  packageId?: number
-}
-
-function normalizePackage(raw: BackendPackageDetail): PackageDetail {
-  // 后端 AssetPackage 序列化主键为 id；页面统一使用 packageId。
-  const packageId = raw.packageId ?? raw.id
-  if (packageId === null || packageId === undefined) {
-    throw new Error('素材包响应缺少 id/packageId')
-  }
-  return {
-    ...raw,
-    packageId,
-    name: raw.name ?? `package-${packageId}`,
-    status: raw.status ?? 'UPLOADED'
-  }
-}
-
-function normalizePackagePage(page: Page<BackendPackageDetail>): Page<PackageDetail> {
-  const items = (page.items ?? page.records ?? []).map(normalizePackage)
-  return { ...page, items, records: items }
-}
-
-function assertNumericPathId(name: string, value: number | string): string {
-  const text = String(value)
-  if (!/^\d+$/.test(text)) {
-    throw new Error(`${name} 必须是数字 ID`)
-  }
-  return text
-}
-
-export async function getPackage(packageId: number): Promise<PackageDetail> {
-  const raw = await request<BackendPackageDetail>(`/api/files/packages/${packageId}`)
-  return normalizePackage(raw)
-}
-
-export async function listPackages(params: { page?: number; size?: number } = {}): Promise<Page<PackageDetail>> {
-  const q = new URLSearchParams()
-  if (params.page !== undefined) q.set('page', String(params.page))
-  if (params.size !== undefined) q.set('size', String(params.size))
-  const qs = q.toString()
-  const page = await request<Page<BackendPackageDetail>>(`/api/files/packages${qs ? `?${qs}` : ''}`)
-  return normalizePackagePage(page)
-}
-
-export function listPackageImages(packageId: number, params: { page?: number; size?: number } = {}): Promise<Page<AssetImageView>> {
-  const q = new URLSearchParams()
-  if (params.page !== undefined) q.set('page', String(params.page))
-  if (params.size !== undefined) q.set('size', String(params.size))
-  const qs = q.toString()
-  return request<Page<AssetImageView>>(`/api/files/packages/${packageId}/images${qs ? `?${qs}` : ''}`)
-}
-
-export function deletePackage(packageId: number): Promise<void> {
-  return request<void>(`/api/files/packages/${packageId}`, { method: 'DELETE', noRetry: true })
-}
-
-export function deletePackageImage(packageId: number, imageId: string): Promise<void> {
-  const numericImageId = assertNumericPathId('imageId', imageId)
-  return request<void>(`/api/files/packages/${packageId}/images/${encodeURIComponent(numericImageId)}`, {
-    method: 'DELETE',
-    noRetry: true
-  })
-}
-
-export function renamePackageImage(packageId: number, imageId: string, displayName: string): Promise<AssetImageView> {
-  const numericImageId = assertNumericPathId('imageId', imageId)
-  return request<AssetImageView>(`/api/files/packages/${packageId}/images/${encodeURIComponent(numericImageId)}`, {
-    method: 'PATCH',
-    body: { displayName },
-    noRetry: true
-  })
-}
-
-export function getPackageErrors(packageId: number, params: { page?: number; size?: number } = {}): Promise<Page<{ originalPath: string; stage: string; code: string; message: string; createdAt: string }>> {
-  const q = new URLSearchParams()
-  if (params.page !== undefined) q.set('page', String(params.page))
-  if (params.size !== undefined) q.set('size', String(params.size))
-  const qs = q.toString()
-  return request<Page<{ originalPath: string; stage: string; code: string; message: string; createdAt: string }>>(
-    `/api/files/packages/${packageId}/errors${qs ? `?${qs}` : ''}`
-  )
+  ))
 }

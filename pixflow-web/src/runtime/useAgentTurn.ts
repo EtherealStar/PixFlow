@@ -1,567 +1,356 @@
-import { computed, ref, type Ref } from 'vue'
+import { computed, ref } from 'vue'
 import { z } from 'zod'
-import { createSseClient } from '@/transport/sse'
 import { confirm as confirmProposal, reject as rejectProposal } from '@/api/confirm'
-import { newId } from '@/utils/id'
+import { getHistory, stopTurn, type HistoryMessage, type MessageReference } from '@/api/messages'
+import { createSseClient } from '@/transport/sse'
 import { ApiError } from '@/types/api'
-import type { MessageReference } from '@/api/messages'
-import type {
-  AgentEvent,
-  AgentEventAttribution,
-  AgentTurnPhase,
-  AgentTurnSummary,
-  AssistantDeltaPayload,
-  AssistantMessageCompletedPayload,
-  CompletedPayload,
-  ErrorEventPayload,
-  Proposal,
-  TimelineItem,
-  ToolCallReadyPayload,
-  ToolResultPayload,
-  ToolStartedPayload,
-  TransitionPayload
-} from '@/types/agent'
-
-/**
- * Agent 回合状态机。
- * 见 web.md §八。
- *
- *  - timeline 维护在 composable 内的 ref<TimelineItem[]>（不入 Pinia）
- *  - Proposal 仅通过 proposalId 直接确认，不在浏览器保存授权凭据
- *  - 多回合并发：同 conversationId 不允许两个 active 回合
- */
-
-interface PendingProposal {
-  proposal: Proposal
-}
+import type { AgentEventName, AgentTurnPhase, AgentTurnSummary, Proposal, TimelineItem, ToolStatus } from '@/types/agent'
 
 interface QueuedTurn {
+  id: string
   prompt: string
   references: MessageReference[]
+  editing: boolean
   resolve: () => void
   reject: (error: ApiError) => void
 }
 
-export interface ConfirmResult {
-  taskId: string
+export interface ConfirmResult { taskId: string }
+export interface QueuedMessageView {
+  id: string
+  prompt: string
+  references: MessageReference[]
+  editing: boolean
 }
 
+const payloadSchemas = {
+  assistant_delta: z.strictObject({ text: z.string() }),
+  assistant_message_completed: z.strictObject({ messageId: z.string().min(1), finalText: z.string() }),
+  tool_status: z.strictObject({ label: z.string().min(1), state: z.enum(['QUEUED', 'RUNNING', 'SUCCEEDED', 'FAILED']) }),
+  transition: z.strictObject({ label: z.string().min(1), state: z.string().optional() }),
+  proposal_ready: z.strictObject({
+    proposalId: z.string().min(1),
+    conversationId: z.string().min(1),
+    proposalType: z.enum(['IMAGE_PROCESS', 'IMAGEGEN']),
+    title: z.string(),
+    summary: z.string(),
+    referenceSummaries: z.array(z.string()),
+    createdAt: z.string().min(1)
+  }),
+  completed: z.strictObject({ messageId: z.string().min(1).nullable().optional(), stopped: z.boolean() }),
+  error: z.strictObject({ code: z.string().optional(), message: z.string(), traceId: z.string().optional() })
+} as const
+
 export function createAgentTurn(opts: { conversationId: string }) {
-  const phase = ref<AgentTurnPhase>('idle')
-  const summary: Ref<AgentTurnSummary> = ref({
-    conversationId: opts.conversationId,
-    phase: 'idle'
-  })
+  const summary = ref<AgentTurnSummary>({ conversationId: opts.conversationId, phase: 'idle', queuedCount: 0 })
   const timeline = ref<TimelineItem[]>([])
   const proposals = ref<Proposal[]>([])
-  const queuedTurns = ref<QueuedTurn[]>([])
-  const queuedCount = computed(() => queuedTurns.value.length)
+  const queue = ref<QueuedTurn[]>([])
+  const userMessages = ref<Array<{ id: string; text: string; references: MessageReference[] }>>([])
+  const draft = ref('')
+  const draftReferences = ref<MessageReference[]>([])
+  const phase = computed(() => summary.value.phase)
+  const queuedCount = computed(() => queue.value.length)
+  const queuedMessages = computed<QueuedMessageView[]>(() => queue.value.map(({ id, prompt, references, editing }) => ({
+    id,
+    prompt,
+    references: [...references],
+    editing
+  })))
+  const queuePaused = ref(false)
+  let active: QueuedTurn | null = null
+  let stream: { close: () => void } | null = null
+  let sequence = 0
+  let userSequence = 0
+  let queueSequence = 0
+  let terminal = false
+  let reconcilingInterruption = false
+  let activeAssistantId: string | null = null
 
-  let localAssistantSeq = 0
-  let localTimelineSeq = 0
-  let activeAssistantItemId: string | null = null
-  let lastAssistantCallId: string | null = null
-  let abortController: AbortController | null = null
-  let activeSse: { close: () => void } | null = null
-  let activeTurn: Promise<void> | null = null
-  let failActiveTurn: ((error: ApiError) => void) | null = null
-  let pending: PendingProposal | null = null
-
-  function setPhase(p: AgentTurnPhase, partial: Partial<AgentTurnSummary> = {}): void {
-    phase.value = p
-    summary.value = { ...summary.value, phase: p, queuedCount: queuedTurns.value.length, ...partial }
+  function setPhase(next: AgentTurnPhase, error?: ApiError): void {
+    summary.value = { conversationId: opts.conversationId, phase: next, queuedCount: queue.value.length, ...(error ? { error } : {}) }
   }
 
-  function abort(): void {
-    const err = new ApiError({
-      status: 0,
-      errorCode: 'TURN_CANCELLED',
-      message: 'Agent 回合已取消',
-      traceId: ''
-    })
-    if (abortController) {
-      abortController.abort()
-      abortController = null
-    }
-    rejectQueuedTurns(err)
-    failActiveTurn?.(err)
-    activeSse?.close()
-    activeSse = null
-    if (phase.value !== 'idle' && phase.value !== 'completed') {
-      setPhase('cancelled')
-    }
-  }
-
-  async function send(prompt: string, references: MessageReference[] = []): Promise<void> {
+  function send(prompt: string, references: MessageReference[] = []): Promise<void> {
     return new Promise<void>((resolve, reject) => {
-      const item: QueuedTurn = { prompt, references: [...references], resolve, reject }
-      if (activeTurn || isActivePhase(phase.value)) {
-        queuedTurns.value = [...queuedTurns.value, item]
-        updateQueuedCount()
+      const turn = { id: `queued-${++queueSequence}`, prompt, references: [...references], editing: false, resolve, reject }
+      if (active || queuePaused.value || queue.value.length > 0) {
+        if (queue.value.length >= 5) {
+          reject(new ApiError({ status: 409, errorCode: 'TURN_QUEUE_FULL', message: '消息队列已满', traceId: '' }))
+          return
+        }
+        queue.value = [...queue.value, turn]
+        summary.value = { ...summary.value, queuedCount: queue.value.length }
         return
       }
-      startQueuedTurn(item)
+      userMessages.value = [...userMessages.value, {
+        id: `user-${++userSequence}`,
+        text: prompt,
+        references: [...references]
+      }]
+      start(turn)
     })
   }
 
-  function startQueuedTurn(item: QueuedTurn): void {
-    const turn = runSingleTurn(item.prompt, item.references)
-    activeTurn = turn
-    turn
-      .then(() => {
-        item.resolve()
-        activeTurn = null
-        startNextQueuedTurn()
-      })
-      .catch((error: unknown) => {
-        const apiError = toApiError(error)
-        item.reject(apiError)
-        activeTurn = null
-        rejectQueuedTurns(apiError)
-      })
-  }
-
-  function startNextQueuedTurn(): void {
-    if (activeTurn || queuedTurns.value.length === 0 || phase.value === 'error' || phase.value === 'cancelled') return
-    const [next, ...rest] = queuedTurns.value
-    queuedTurns.value = rest
-    updateQueuedCount()
-    if (next) startQueuedTurn(next)
-  }
-
-  function rejectQueuedTurns(error: ApiError): void {
-    const queued = queuedTurns.value
-    queuedTurns.value = []
-    updateQueuedCount()
-    queued.forEach((item) => item.reject(error))
-  }
-
-  function updateQueuedCount(): void {
-    summary.value = { ...summary.value, queuedCount: queuedTurns.value.length }
-  }
-
-  async function runSingleTurn(prompt: string, references: MessageReference[] = []): Promise<void> {
-    resetTimeline()
-    proposals.value = []
-    summary.value = {
-      conversationId: opts.conversationId,
-      phase: 'sending',
-      queuedCount: queuedTurns.value.length
-    }
+  function start(turn: QueuedTurn): void {
+    active = turn
+    terminal = false
+    activeAssistantId = null
+    userMessages.value = [...userMessages.value, {
+      id: `user-${++userSequence}`,
+      text: turn.prompt,
+      references: [...turn.references]
+    }]
     setPhase('sending')
-
-    const controller = new AbortController()
-    abortController = controller
-    const body = { prompt, references }
-    let sse: { close: () => void } | null = null
-    let receivedCompletion = false
-
-    return await new Promise<void>((resolve, reject) => {
-      let settled = false
-
-      function cleanup(): void {
-        if (activeSse === sse) activeSse = null
-        if (abortController === controller) abortController = null
-        if (failActiveTurn === fail) failActiveTurn = null
-        sse?.close()
+    stream = createSseClient({
+      url: `/api/conversations/${encodeURIComponent(opts.conversationId)}/messages`,
+      method: 'POST',
+      body: { prompt: turn.prompt, references: turn.references },
+      onOpen: () => setPhase('streaming'),
+      onEvent: ({ name, data, traceId }) => handleEvent(name, data, traceId),
+      onError: interruptActive,
+      onClose: () => {
+        if (!terminal) interruptActive(new ApiError({ status: 0, errorCode: 'STREAM_INTERRUPTED', message: '消息流意外中断', traceId: '' }))
       }
-
-      function succeed(): void {
-        if (settled) return
-        settled = true
-        cleanup()
-        resolve()
-      }
-
-      function fail(error: ApiError): void {
-        if (settled) return
-        settled = true
-        cleanup()
-        reject(error)
-      }
-
-      failActiveTurn = fail
-      setPhase('streaming')
-      sse = createSseClient({
-        url: `/api/conversations/${encodeURIComponent(opts.conversationId)}/messages`,
-        method: 'POST',
-        body,
-        signal: controller.signal,
-        onEvent: (ev) => {
-          reduceAgentEvent(ev as AgentEvent)
-          switch (ev.name) {
-            case 'assistant_delta': {
-              break
-            }
-            case 'assistant_message_completed': {
-              const p = ev.data as AssistantMessageCompletedPayload
-              // 后端会单独发消息完成事件；只记录可用元数据，不把它当成终态。
-              if (p.traceId) summary.value.traceId = p.traceId
-              break
-            }
-            case 'tool_call_ready': {
-              break
-            }
-            case 'tool_started': {
-              break
-            }
-            case 'tool_result': {
-              break
-            }
-            case 'transition': {
-              break
-            }
-            case 'completed': {
-              const p = ev.data as CompletedPayload
-              receivedCompletion = true
-              setPhase('completed', {})
-              if (p.traceId) summary.value.traceId = p.traceId
-              succeed()
-              break
-            }
-            case 'error': {
-              const p = ev.data as ErrorEventPayload
-              const err = new ApiError({
-                status: 0,
-                errorCode: p.errorCode ?? 'STREAM_ERROR',
-                message: p.message ?? 'agent stream error',
-                traceId: p.traceId ?? ''
-              })
-              setPhase('error', { error: err })
-              fail(err)
-              break
-            }
-            default: {
-              // unknown event name → ignore
-              break
-            }
-          }
-        },
-        onError: (err) => {
-          if (receivedCompletion) return
-          const apiError = toApiError(err)
-          setPhase('error', { error: apiError })
-          fail(apiError)
-        },
-        onClose: () => {
-          if (settled || receivedCompletion) return
-          const err = new ApiError({ status: 0, errorCode: 'STREAM_INTERRUPTED', message: 'SSE 关闭前未收到 completed 事件', traceId: '' })
-          setPhase('error', { error: err })
-          fail(err)
-        }
-      })
-      activeSse = sse
     })
   }
 
-  function resetTimeline(): void {
-    timeline.value = []
-    localAssistantSeq = 0
-    localTimelineSeq = 0
-    activeAssistantItemId = null
-    lastAssistantCallId = null
-  }
-
-  function reduceAgentEvent(event: AgentEvent): void {
-    switch (event.name) {
-      case 'assistant_delta':
-        appendAssistantDelta(event.data as AssistantDeltaPayload)
-        break
-      case 'assistant_message_completed':
-        completeAssistant(event.data as AssistantMessageCompletedPayload)
-        break
-      case 'tool_call_ready':
-        upsertTool(event.data as ToolCallReadyPayload, 'queued')
-        break
-      case 'tool_started':
-        upsertTool(event.data as ToolStartedPayload, 'running')
-        break
-      case 'tool_result':
-        applyToolResult(event.data as ToolResultPayload)
-        break
-      case 'transition':
-        applyTransitionEvent(event.data as TransitionPayload)
-        break
-      case 'error':
-        appendError(event.data as ErrorEventPayload)
-        break
-      case 'completed':
-        markStreamingAssistantCompleted()
-        break
-    }
-  }
-
-  function appendAssistantDelta(payload: AssistantDeltaPayload): void {
-    const attribution = resolveAttribution(payload)
-    const existingIndex = findAssistantIndex(attribution.assistantCallId)
-    if (existingIndex >= 0) {
-      const item = timeline.value[existingIndex]
-      if (item?.type !== 'assistant') return
-      const next = [...timeline.value]
-      next[existingIndex] = { ...item, text: item.text + (payload.text ?? ''), status: 'streaming' }
-      timeline.value = next
-      activeAssistantItemId = item.id
-      lastAssistantCallId = item.assistantCallId
+  function handleEvent(name: string, data: unknown, traceId?: string): void {
+    if (!(name in payloadSchemas)) return
+    const eventName = name as AgentEventName
+    const parsed = payloadSchemas[eventName].safeParse(data)
+    if (!parsed.success) {
+      failActive(new ApiError({ status: 0, errorCode: 'SSE_PAYLOAD_INVALID', message: 'Agent 事件格式无效', traceId: traceId ?? '' }))
       return
     }
-
-    const item: TimelineItem = {
-      id: nextTimelineId('assistant'),
-      type: 'assistant',
-      assistantCallId: attribution.assistantCallId,
-      modelTurnIndex: attribution.modelTurnIndex,
-      text: payload.text ?? '',
-      status: 'streaming',
-      traceId: payload.traceId,
-      turnNo: payload.turnNo
+    switch (eventName) {
+      case 'assistant_delta': appendDelta((parsed.data as { text: string }).text); break
+      case 'assistant_message_completed': completeAssistant(parsed.data as { messageId: string; finalText: string }); break
+      case 'tool_status': upsertTool(parsed.data as { label: string; state: ToolStatus }); break
+      case 'transition': appendTransition(parsed.data as { label: string; state?: string }); break
+      case 'proposal_ready': upsertProposal(parsed.data as Omit<Proposal, 'enabled' | 'rejected' | 'confirmedTaskId'>); break
+      case 'completed': completeActive((parsed.data as { stopped: boolean }).stopped); break
+      case 'error': {
+        const error = parsed.data as { code?: string; message: string; traceId?: string }
+        failActive(new ApiError({ status: 0, errorCode: error.code ?? 'AGENT_TURN_FAILED', message: error.message, traceId: error.traceId ?? traceId ?? '' }))
+        break
+      }
     }
-    timeline.value = [...timeline.value, item]
-    activeAssistantItemId = item.id
-    lastAssistantCallId = item.assistantCallId
   }
 
-  function completeAssistant(payload: AssistantMessageCompletedPayload): void {
-    const attribution = resolveAttribution(payload)
-    let index = findAssistantIndex(attribution.assistantCallId)
-    if (index < 0 && activeAssistantItemId) {
-      index = timeline.value.findIndex((item) => item.type === 'assistant' && item.id === activeAssistantItemId)
+  function appendDelta(text: string): void {
+    const current = activeAssistantId ? timeline.value.find((item) => item.id === activeAssistantId) : undefined
+    if (current?.type === 'assistant') {
+      timeline.value = timeline.value.map((item) => item.id === current.id ? { ...current, text: current.text + text } : item)
+      return
     }
-    if (index < 0) {
-      const item: TimelineItem = {
-        id: nextTimelineId('assistant'),
+    activeAssistantId = `assistant-${++sequence}`
+    timeline.value = [...timeline.value, { id: activeAssistantId, type: 'assistant', text, status: 'streaming' }]
+  }
+
+  function completeAssistant(payload: { messageId: string; finalText: string }): void {
+    const currentId = activeAssistantId
+    if (currentId) {
+      timeline.value = timeline.value.map((item) => item.id === currentId && item.type === 'assistant'
+        ? { ...item, text: payload.finalText, status: 'completed', messageId: payload.messageId }
+        : item)
+    } else {
+      timeline.value = [...timeline.value, {
+        id: `assistant-${++sequence}`,
         type: 'assistant',
-        assistantCallId: attribution.assistantCallId,
-        modelTurnIndex: attribution.modelTurnIndex,
-        text: payload.finalText ?? '',
+        text: payload.finalText,
         status: 'completed',
-        messageId: payload.messageId,
-        traceId: payload.traceId,
-        turnNo: payload.turnNo
-      }
-      timeline.value = [...timeline.value, item]
-      lastAssistantCallId = item.assistantCallId
-      activeAssistantItemId = null
+        messageId: payload.messageId
+      }]
+    }
+    activeAssistantId = null
+  }
+
+  function upsertTool(payload: { label: string; state: ToolStatus }): void {
+    const index = timeline.value.findIndex((item) => item.type === 'tool' && item.label === payload.label)
+    const item = { id: index >= 0 ? timeline.value[index]!.id : `tool-${++sequence}`, type: 'tool' as const, label: payload.label, status: payload.state }
+    timeline.value = index >= 0
+      ? timeline.value.map((current, currentIndex) => currentIndex === index ? item : current)
+      : [...timeline.value, item]
+  }
+
+  function appendTransition(payload: { label: string; state?: string }): void {
+    timeline.value = [...timeline.value, { id: `transition-${++sequence}`, type: 'transition', ...payload }]
+  }
+
+  function upsertProposal(payload: Omit<Proposal, 'enabled' | 'rejected' | 'confirmedTaskId'>): void {
+    const proposal: Proposal = { ...payload, enabled: false }
+    const index = proposals.value.findIndex((item) => item.proposalId === proposal.proposalId)
+    proposals.value = index >= 0
+      ? proposals.value.map((item, currentIndex) => currentIndex === index ? { ...item, ...proposal } : item)
+      : [...proposals.value, proposal]
+  }
+
+  function completeActive(stopped: boolean): void {
+    terminal = true
+    stream = null
+    proposals.value = proposals.value.map((proposal) => proposal.rejected || proposal.confirmedTaskId ? proposal : { ...proposal, enabled: true })
+    setPhase(stopped ? 'cancelled' : 'completed')
+    const completed = active
+    active = null
+    completed?.resolve()
+    drainQueue()
+  }
+
+  function failActive(error: ApiError): void {
+    if (terminal) return
+    terminal = true
+    const currentId = activeAssistantId
+    if (currentId) {
+      timeline.value = timeline.value.map((item) => item.id === currentId && item.type === 'assistant'
+        ? { ...item, status: 'interrupted' }
+        : item)
+    }
+    timeline.value = [...timeline.value, { id: `error-${++sequence}`, type: 'error', message: error.message, errorCode: error.errorCode, traceId: error.traceId }]
+    const failed = active
+    active = null
+    stream = null
+    queuePaused.value = queue.value.length > 0
+    setPhase('error', error)
+    failed?.reject(error)
+  }
+
+  function interruptActive(error: ApiError): void {
+    if (terminal || reconcilingInterruption) return
+    reconcilingInterruption = true
+    const interruptedTurn = active
+    void reconcileHistory(interruptedTurn).finally(() => {
+      reconcilingInterruption = false
+      if (active === interruptedTurn) failActive(error)
+    })
+  }
+
+  async function reconcileHistory(interruptedTurn: QueuedTurn | null): Promise<void> {
+    if (!interruptedTurn) return
+    try {
+      const history = await getHistory(opts.conversationId, { page: 1, size: 50 })
+      if (active !== interruptedTurn) return
+      const latestAssistant = history.records.filter((message) => message.role === 'ASSISTANT').at(-1)
+      if (latestAssistant) reconcileAssistant(latestAssistant)
+    } catch {
+      // 历史对账失败不覆盖原始 transport 错误，当前 partial 仍会标记为 interrupted。
+    }
+  }
+
+  function reconcileAssistant(message: HistoryMessage): void {
+    const existing = timeline.value.find((item) => item.type === 'assistant' && item.messageId === message.messageId)
+    if (existing?.type === 'assistant') {
+      timeline.value = timeline.value.map((item) => item.id === existing.id
+        ? { ...existing, text: message.content, status: 'completed' }
+        : item)
       return
     }
-
-    const item = timeline.value[index]
-    if (item?.type !== 'assistant') return
-    const next = [...timeline.value]
-    next[index] = {
-      ...item,
-      text: item.text || payload.finalText || '',
-      status: 'completed',
-      messageId: payload.messageId,
-      traceId: payload.traceId ?? item.traceId,
-      turnNo: payload.turnNo ?? item.turnNo
-    }
-    timeline.value = next
-    lastAssistantCallId = item.assistantCallId
-    activeAssistantItemId = null
+    completeAssistant({ messageId: message.messageId, finalText: message.content })
   }
 
-  function upsertTool(payload: ToolCallReadyPayload | ToolStartedPayload, status: 'queued' | 'running'): void {
-    const attribution = resolveAttribution(payload)
-    const toolCallId = payload.toolCallId || nextTimelineId('tool-call')
-    const index = timeline.value.findIndex((item) => item.type === 'tool' && item.toolCallId === toolCallId)
-    if (index >= 0) {
-      const item = timeline.value[index]
-      if (item?.type !== 'tool') return
-      const next = [...timeline.value]
-      next[index] = {
-        ...item,
-        status,
-        toolName: 'toolName' in payload && payload.toolName ? payload.toolName : item.toolName,
-        input: 'toolInput' in payload && payload.toolInput !== undefined ? payload.toolInput : item.input,
-        traceId: payload.traceId ?? item.traceId,
-        turnNo: payload.turnNo ?? item.turnNo
-      }
-      timeline.value = next
-      return
-    }
-
-    const toolName = 'toolName' in payload && payload.toolName ? payload.toolName : 'tool'
-    const input = 'toolInput' in payload ? payload.toolInput : undefined
-    const item: TimelineItem = {
-      id: nextTimelineId('tool'),
-      type: 'tool',
-      assistantCallId: attribution.assistantCallId,
-      modelTurnIndex: attribution.modelTurnIndex,
-      toolCallId,
-      toolName,
-      input,
-      status,
-      traceId: payload.traceId,
-      turnNo: payload.turnNo
-    }
-    timeline.value = [...timeline.value, item]
+  function drainQueue(): void {
+    if (active || queuePaused.value || hasPendingProposals()) return
+    const [next, ...rest] = queue.value
+    if (next?.editing) return
+    queue.value = rest
+    summary.value = { ...summary.value, queuedCount: rest.length }
+    if (next) start(next)
   }
 
-  function applyToolResult(payload: ToolResultPayload): void {
-    const attribution = resolveAttribution(payload)
-    const index = timeline.value.findIndex((item) => item.type === 'tool' && item.toolCallId === payload.toolCallId)
-    const status = payload.error ? 'error' : 'completed'
-    if (index >= 0) {
-      const item = timeline.value[index]
-      if (item?.type !== 'tool') return
-      const next = [...timeline.value]
-      next[index] = {
-        ...item,
-        status,
-        toolName: payload.toolName || item.toolName,
-        result: payload.content ?? '',
-        metadata: payload.metadata,
-        externalized: payload.externalized,
-        traceId: payload.traceId ?? item.traceId,
-        turnNo: payload.turnNo ?? item.turnNo
-      }
-      timeline.value = next
-      return
-    }
-
-    timeline.value = [...timeline.value, {
-      id: nextTimelineId('tool'),
-      type: 'tool',
-      assistantCallId: attribution.assistantCallId,
-      modelTurnIndex: attribution.modelTurnIndex,
-      toolCallId: payload.toolCallId,
-      toolName: payload.toolName || 'tool',
-      result: payload.content ?? '',
-      metadata: payload.metadata,
-      status,
-      externalized: payload.externalized,
-      traceId: payload.traceId,
-      turnNo: payload.turnNo
-    }]
+  function hasPendingProposals(): boolean {
+    return proposals.value.some((proposal) => proposal.enabled && !proposal.rejected && !proposal.confirmedTaskId)
   }
 
-  function applyTransitionEvent(payload: TransitionPayload): void {
-    if (payload.reason === 'TOOL_USE') {
-      // 工具续轮后下一段 assistant_delta 必须新建 assistant item，避免多轮文本混到同一条。
-      activeAssistantItemId = null
-      lastAssistantCallId = null
-      return
-    }
-    if (payload.reason === 'RATE_LIMIT_RETRY') {
-      const attribution = resolveAttribution(payload)
-      const index = timeline.value.findIndex((item) =>
-        item.type === 'transition' &&
-        item.reason === 'RATE_LIMIT_RETRY' &&
-        item.assistantCallId === attribution.assistantCallId
-      )
-      const retryItem: TimelineItem = {
-        id: index >= 0 ? timeline.value[index]!.id : nextTimelineId('transition'),
-        type: 'transition',
-        reason: payload.reason,
-        assistantCallId: attribution.assistantCallId,
-        modelTurnIndex: attribution.modelTurnIndex,
-        attempt: payload.attempt,
-        retriesRemaining: payload.retriesRemaining,
-        errorCode: payload.errorCode,
-        message: payload.message,
-        retrying: payload.retrying ?? true,
-        traceId: payload.traceId,
-        turnNo: payload.turnNo
-      }
-      // RATE_LIMIT_RETRY 是非终态提示，不能把当前回合切到 error。
-      if (index >= 0) {
-        const next = [...timeline.value]
-        next[index] = retryItem
-        timeline.value = next
-      } else {
-        timeline.value = [...timeline.value, retryItem]
-      }
-    }
+  function beginQueuedEdit(id: string): void {
+    queue.value = queue.value.map((item) => item.id === id ? { ...item, editing: true } : item)
   }
 
-  function appendError(payload: ErrorEventPayload): void {
-    timeline.value = [...timeline.value, {
-      id: nextTimelineId('error'),
-      type: 'error',
-      message: payload.message ?? 'agent stream error',
-      errorCode: payload.errorCode,
-      traceId: payload.traceId
-    }]
+  function saveQueuedEdit(id: string, prompt: string, references: MessageReference[]): void {
+    if (!prompt.trim() && references.length === 0) return
+    queue.value = queue.value.map((item) => item.id === id
+      ? { ...item, prompt: prompt.trim(), references: [...references], editing: false }
+      : item)
+    drainQueue()
   }
 
-  function markStreamingAssistantCompleted(): void {
-    if (!activeAssistantItemId) return
-    const index = timeline.value.findIndex((item) => item.type === 'assistant' && item.id === activeAssistantItemId)
-    if (index < 0) return
-    const item = timeline.value[index]
-    if (item?.type !== 'assistant') return
-    const next = [...timeline.value]
-    next[index] = { ...item, status: 'completed' }
-    timeline.value = next
-    activeAssistantItemId = null
+  function cancelQueuedEdit(id: string): void {
+    queue.value = queue.value.map((item) => item.id === id ? { ...item, editing: false } : item)
+    drainQueue()
   }
 
-  function findAssistantIndex(assistantCallId: string): number {
-    return timeline.value.findIndex((item) => item.type === 'assistant' && item.assistantCallId === assistantCallId)
+  function cancelQueued(id: string): void {
+    const cancelled = queue.value.find((item) => item.id === id)
+    if (!cancelled) return
+    queue.value = queue.value.filter((item) => item.id !== id)
+    summary.value = { ...summary.value, queuedCount: queue.value.length }
+    cancelled.reject(new ApiError({
+      status: 0,
+      errorCode: 'TURN_QUEUE_CANCELLED',
+      message: '已取消排队消息',
+      traceId: ''
+    }))
+    if (queue.value.length === 0) queuePaused.value = false
+    drainQueue()
   }
 
-  function resolveAttribution(payload: AgentEventAttribution): { assistantCallId: string; modelTurnIndex: number } {
-    const existing = payload.assistantCallId || lastAssistantCallId || assistantCallIdFromActive()
-    const assistantCallId = existing || `local-assistant-${++localAssistantSeq}`
-    const modelTurnIndex = typeof payload.modelTurnIndex === 'number' ? payload.modelTurnIndex : modelTurnIndexFromId(assistantCallId)
-    return { assistantCallId, modelTurnIndex }
-  }
-
-  function assistantCallIdFromActive(): string | null {
-    if (!activeAssistantItemId) return null
-    const item = timeline.value.find((entry) => entry.type === 'assistant' && entry.id === activeAssistantItemId)
-    return item?.type === 'assistant' ? item.assistantCallId : null
-  }
-
-  function modelTurnIndexFromId(assistantCallId: string): number {
-    const item = timeline.value.find((entry) => entry.type === 'assistant' && entry.assistantCallId === assistantCallId)
-    return item?.type === 'assistant' ? item.modelTurnIndex : localAssistantSeq || 1
-  }
-
-  function nextTimelineId(prefix: string): string {
-    localTimelineSeq += 1
-    return `${prefix}-${localTimelineSeq}`
-  }
-
-  function setProposal(p: Proposal): void {
-    proposals.value = [...proposals.value, p]
-    pending = { proposal: p }
-  }
-
-  async function reject(proposalId: string): Promise<void> {
-    const idx = proposals.value.findIndex((p) => p.proposalId === proposalId)
-    if (idx === -1) return
-    await rejectProposal(opts.conversationId, proposalId)
-    const next = proposals.value.slice()
-    const rejected: Proposal & { rejected?: true } = { ...next[idx]!, rejected: true }
-    next[idx] = rejected
-    proposals.value = next
-    if (pending?.proposal.proposalId === proposalId) {
-      pending = null
-    }
-    setPhase('completed')
+  function continueQueue(): void {
+    queuePaused.value = false
+    drainQueue()
   }
 
   async function confirm(proposalId: string): Promise<ConfirmResult> {
-    if (!pending || pending.proposal.proposalId !== proposalId) {
-      throw new ApiError({
-        status: 400,
-        errorCode: 'PROPOSAL_NOT_FOUND',
-        message: '本地无对应 proposal 状态',
+    const proposal = proposals.value.find((item) => item.proposalId === proposalId)
+    if (!proposal?.enabled) throw new ApiError({ status: 409, errorCode: 'PROPOSAL_NOT_READY', message: '方案尚不可操作', traceId: '' })
+    const response = await confirmProposal(opts.conversationId, proposalId)
+    proposals.value = proposals.value.map((item) => item.proposalId === proposalId ? { ...item, confirmedTaskId: response.taskId } : item)
+    drainQueue()
+    return { taskId: response.taskId }
+  }
+
+  async function reject(proposalId: string): Promise<void> {
+    const proposal = proposals.value.find((item) => item.proposalId === proposalId)
+    if (!proposal || proposal.rejected) return
+    await rejectProposal(opts.conversationId, proposalId)
+    proposals.value = proposals.value.map((item) => item.proposalId === proposalId ? { ...item, rejected: true } : item)
+    drainQueue()
+  }
+
+  function abort(): void {
+    if (!active) return
+    void stopTurn(opts.conversationId).catch((error: unknown) => {
+      failActive(ApiError.fromUnknown(error, {
+        status: 0,
+        errorCode: 'STOP_TURN_FAILED',
+        message: '停止失败',
         traceId: ''
-      })
-    }
-    setPhase('awaiting_confirm')
-    try {
-      const r = await confirmProposal(opts.conversationId, proposalId)
-      setPhase('completed', { taskId: r.taskId })
-      pending = null
-      return { taskId: r.taskId }
-    } catch (e: unknown) {
-      const err = toApiError(e)
-      setPhase('error', { error: err })
-      throw err
-    }
+      }))
+    })
+  }
+
+  function dispose(): void {
+    if (!active && queue.value.length === 0) return
+    const currentStream = stream
+    const error = new ApiError({
+      status: 401,
+      errorCode: 'AUTH_SESSION_ENDED',
+      message: '登录状态已结束',
+      traceId: ''
+    })
+    if (active) failActive(error)
+    const abandoned = queue.value
+    queue.value = []
+    queuePaused.value = false
+    summary.value = { ...summary.value, queuedCount: 0 }
+    for (const queued of abandoned) queued.reject(error)
+    currentStream?.close()
+  }
+
+  function setProposal(proposal: Proposal): void {
+    const normalized = { ...proposal, enabled: proposal.enabled ?? true }
+    const index = proposals.value.findIndex((item) => item.proposalId === proposal.proposalId)
+    proposals.value = index >= 0
+      ? proposals.value.map((item, currentIndex) => currentIndex === index ? normalized : item)
+      : [...proposals.value, normalized]
   }
 
   return {
@@ -569,85 +358,29 @@ export function createAgentTurn(opts: { conversationId: string }) {
     phase,
     timeline,
     proposals,
+    userMessages,
+    draft,
+    draftReferences,
+    queuedCount,
+    queuedMessages,
+    queuePaused,
     send,
     confirm,
     reject,
     abort,
+    beginQueuedEdit,
+    saveQueuedEdit,
+    cancelQueuedEdit,
+    cancelQueued,
+    continueQueue,
+    dispose,
     setProposal,
-    queuedCount,
-    /** 测试用：注入 proposal 状态 */
-    __setPendingProposal: (p: Proposal) => setProposal(p)
+    __setPendingProposal: setProposal
   }
-}
-
-function isActivePhase(phase: AgentTurnPhase): boolean {
-  return phase === 'sending' || phase === 'streaming' || phase === 'awaiting_confirm'
-}
-
-function toApiError(error: unknown): ApiError {
-  return ApiError.fromUnknown(error, {
-    status: 0,
-    errorCode: 'STREAM_ERROR',
-    message: 'agent stream error',
-    traceId: ''
-  })
 }
 
 export type AgentTurn = ReturnType<typeof createAgentTurn>
 
-/** 工具：从 SSE 事件负载 schema 校验（仅供测试 / 调试）。 */
-const attributionSchema = {
-  assistantCallId: z.string().optional(),
-  modelTurnIndex: z.number().optional(),
-  iteration: z.number().optional(),
-  traceId: z.string().optional(),
-  turnNo: z.number().optional()
+export function isRejected(proposal: Proposal): boolean {
+  return Boolean(proposal.rejected)
 }
-
-export const sseEventDataSchemas = {
-  assistant_delta: z.object({ ...attributionSchema, text: z.string() }),
-  assistant_message_completed: z.object({
-    ...attributionSchema,
-    finalText: z.string(),
-    messageId: z.string().optional()
-  }),
-  tool_call_ready: z.object({
-    ...attributionSchema,
-    toolName: z.string(),
-    toolCallId: z.string(),
-    toolInput: z.unknown().optional()
-  }),
-  tool_started: z.object({
-    ...attributionSchema,
-    toolCallId: z.string(),
-    toolName: z.string().optional()
-  }),
-  tool_result: z.object({
-    ...attributionSchema,
-    toolCallId: z.string(),
-    toolName: z.string().optional(),
-    content: z.string(),
-    metadata: z.record(z.string(), z.unknown()).optional(),
-    externalized: z.boolean(),
-    error: z.boolean().optional()
-  }),
-  transition: z.object({
-    ...attributionSchema,
-    reason: z.string(),
-    attempt: z.number().optional(),
-    retriesRemaining: z.number().optional(),
-    errorCode: z.string().optional(),
-    message: z.string().optional(),
-    retrying: z.boolean().optional()
-  }),
-  completed: z.object({ ...attributionSchema, finalText: z.string() }),
-  error: z.object({ message: z.string(), errorCode: z.string().optional(), traceId: z.string().optional() })
-}
-
-/** 内部使用：标记 proposal 接受（同 useAgentTurn.rejected 列表）。 */
-export function isRejected(p: Proposal & { rejected?: boolean }): boolean {
-  return Boolean(p.rejected)
-}
-
-/** 工具：导出 job id 生成（测试用）。 */
-export function generateJobId(): string { return newId() }

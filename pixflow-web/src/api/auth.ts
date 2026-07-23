@@ -1,4 +1,5 @@
 import { request } from './client'
+import { z } from 'zod'
 
 export interface AuthUser {
   userId: number
@@ -17,16 +18,28 @@ export interface LoginRequest {
   password: string
 }
 
-export function login(req: LoginRequest): Promise<AuthTokenPayload> {
-  return request<AuthTokenPayload>('/api/auth/login', { method: 'POST', body: req, noRetry: true, auth: false })
+const authUserSchema = z.strictObject({
+  userId: z.number().int().positive(),
+  username: z.string().min(1),
+  displayName: z.string().nullable().optional()
+})
+
+const authTokenPayloadSchema = z.strictObject({
+  accessToken: z.string().min(1),
+  accessTokenExpiresAt: z.string().min(1),
+  user: authUserSchema
+})
+
+export async function login(req: LoginRequest): Promise<AuthTokenPayload> {
+  return authTokenPayloadSchema.parse(await request<unknown>('/api/auth/login', { method: 'POST', body: req, noRetry: true, auth: false }))
 }
 
-export function refresh(): Promise<AuthTokenPayload> {
-  return request<AuthTokenPayload>('/api/auth/refresh', { method: 'POST', noRetry: true, auth: false })
+export async function refresh(): Promise<AuthTokenPayload> {
+  return authTokenPayloadSchema.parse(await request<unknown>('/api/auth/refresh', { method: 'POST', noRetry: true, auth: false }))
 }
 
-export function me(): Promise<AuthUser> {
-  return request<AuthUser>('/api/auth/me', { noRetry: true })
+export async function me(): Promise<AuthUser> {
+  return authUserSchema.parse(await request<unknown>('/api/auth/me', { noRetry: true }))
 }
 
 export function logout(): Promise<void> {

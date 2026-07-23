@@ -12,8 +12,8 @@ export const useConversationsStore = defineStore('conversations', () => {
   async function refresh(): Promise<void> {
     loading.value = true
     try {
-      const page = await api.listConversations({ includeArchived: false, page: 1, size: 50 })
-      items.value = page.items
+      const page = await api.listConversations({ page: 1, size: 50 })
+      items.value = page.records
     } finally {
       loading.value = false
     }
@@ -31,10 +31,10 @@ export const useConversationsStore = defineStore('conversations', () => {
     return c
   }
 
-  async function archive(id: string): Promise<void> {
-    await api.archiveConversation(id)
+  async function remove(id: string): Promise<void> {
+    await api.deleteConversation(id)
     items.value = items.value.filter((c) => c.conversationId !== id)
   }
 
-  return { items, currentId, current, loading, refresh, select, create, archive }
+  return { items, currentId, current, loading, refresh, select, create, remove }
 })

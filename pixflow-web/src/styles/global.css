@@ -80,22 +80,14 @@ button {
   outline-offset: 2px;
 }
 
-/*
- * 7. R1 过渡期：旧 CSS 变量别名（仅用于 AppLayout 等 R4 才重写的文件）。
- *    R4 阶段 AppLayout 重写后整段删除。
- *    唯一权威来源仍是 web.md §5.2 的 token（见 tokens.css）。
- */
-:root {
-  --color-bg: var(--bg-panel);
-  --color-bg-soft: var(--bg-sunken);
-  --color-bg-mute: var(--bg-sunken);
-  --color-border: var(--border);
-  --color-text: var(--fg-primary);
-  --color-text-mute: var(--fg-muted);
-  --color-primary: var(--accent);
-  --color-error: var(--danger);
-  --color-warning: var(--warning);
-  --color-success: var(--success);
-  --sidebar-width: 280px;
-  --header-height: 56px;
+/* 7. reduced-motion：所有动效必须有非动画备选（WCAG 2.1 AA） */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

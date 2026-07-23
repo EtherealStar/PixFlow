@@ -1,26 +1,11 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
-/**
- * 路由表（web.md §十一）
- *
- * 4 业务路由 + 2 占位 + 404：
- * - /                       → HomePage（概览 + 跳转入口）
- * - /chat/new 或 /chat/:cid → ChatPage
- * - /files?folder=:pid      → FilesPage（取代旧的 /packages 与 /packages/:pid）
- * - /tasks/:tid             → TaskDetailPage（取代旧的 /tasks）
- *
- * 占位路由（Wave 6 范畴）：
- * - /rubrics, /settings
- *
- * 鉴权守卫：未登录访问受保护页面时 redirect → /login。
- * 登录页 meta.standalone = true，App.vue 中全屏渲染不套三栏。
- */
 export const routes: RouteRecordRaw[] = [
   {
     path: '/',
-    name: 'home',
-    component: () => import('@/pages/HomePage.vue'),
+    redirect: '/chat/new',
+    meta: { requiresAuth: true },
   },
   {
     path: '/login',
@@ -29,36 +14,36 @@ export const routes: RouteRecordRaw[] = [
     meta: { standalone: true, public: true },
   },
   {
-    path: '/chat/:cid',
+    path: '/chat/new',
+    name: 'chat-new',
+    component: () => import('@/pages/ChatPage.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
+    path: '/chat/:conversationId',
     name: 'chat',
     component: () => import('@/pages/ChatPage.vue'),
     props: true,
     meta: { requiresAuth: true },
   },
   {
-    path: '/files',
-    name: 'files',
-    component: () => import('@/pages/FilesPage.vue'),
+    path: '/materials',
+    name: 'materials',
+    component: () => import('@/pages/MaterialsPage.vue'),
     meta: { requiresAuth: true },
   },
   {
-    path: '/tasks/:tid',
-    name: 'task-detail',
-    component: () => import('@/pages/TaskDetailPage.vue'),
+    path: '/materials/packages/:packageId/images/:imageId',
+    name: 'material-image-detail',
+    component: () => import('@/pages/MaterialImageDetailPage.vue'),
     props: true,
     meta: { requiresAuth: true },
   },
   {
-    path: '/rubrics',
-    name: 'rubrics',
-    component: () => import('@/pages/PlaceholderView.vue'),
-    meta: { placeholder: true, title: 'Rubrics (Wave 6 范畴)' },
-  },
-  {
-    path: '/settings',
-    name: 'settings',
-    component: () => import('@/pages/PlaceholderView.vue'),
-    meta: { placeholder: true, title: 'Settings (Wave 6 范畴)' },
+    path: '/outputs',
+    name: 'outputs',
+    component: () => import('@/pages/OutputsPage.vue'),
+    meta: { requiresAuth: true },
   },
   {
     path: '/:pathMatch(.*)*',
@@ -77,7 +62,7 @@ router.beforeEach(async (to) => {
   const auth = useAuthStore()
   if (to.name === 'login') {
     if (auth.isAuthenticated) {
-      const redirect = typeof to.query.redirect === 'string' ? to.query.redirect : '/'
+      const redirect = typeof to.query.redirect === 'string' ? to.query.redirect : '/chat/new'
       return redirect
     }
     return true

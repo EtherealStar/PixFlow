@@ -34,9 +34,6 @@ export { default as AppTabsPanel } from './AppTabsPanel.vue'
 export { default as AppAccordion } from './AppAccordion.vue'
 export { default as AppAccordionItem } from './AppAccordionItem.vue'
 
-// 浮窗
-export { default as TraceIdFloat } from './TraceIdFloat.vue'
-
 export const UI_COMPONENT_NAMES = [
   'AppButton', 'AppInput', 'AppTextarea', 'AppSelect', 'AppSwitch',
   'AppCard', 'AppBadge', 'AppAvatar', 'AppProgressBar', 'AppSegmented',
@@ -44,5 +41,4 @@ export const UI_COMPONENT_NAMES = [
   'AppDialog', 'AppTooltip', 'AppPopover', 'AppDropdownMenu',
   'AppDropdownMenuItem', 'AppDropdownMenuSeparator', 'AppToastProvider',
   'AppTabs', 'AppTabsTrigger', 'AppTabsPanel', 'AppAccordion', 'AppAccordionItem',
-  'TraceIdFloat',
 ] as const

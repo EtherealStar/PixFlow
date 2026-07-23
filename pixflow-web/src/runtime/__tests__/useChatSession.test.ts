@@ -8,7 +8,7 @@ vi.mock('@/api/conversations', () => ({
   createConversation: vi.fn(),
   getConversation: vi.fn(),
   listConversations: vi.fn(),
-  archiveConversation: vi.fn()
+  deleteConversation: vi.fn()
 }))
 
 describe('useChatSession', () => {
@@ -25,7 +25,7 @@ describe('useChatSession', () => {
 
   it('keeps the agent turn handle raw and exposes flat readable state', async () => {
     const route: ChatRouteLike = {
-      params: { cid: 'c1' },
+      params: { conversationId: 'c1' },
       query: {}
     }
     const router = {
@@ -41,6 +41,13 @@ describe('useChatSession', () => {
     expect(session.currentPhase.value).toBe('idle')
     expect(session.streamTimeline.value).toEqual([])
     expect(session.visibleProposals.value).toEqual([])
+
+    session.composerText.value = '保留的草稿'
+    const restored = useChatSession({ route, router: router as never })
+    await flushPromises()
+    await nextTick()
+
+    expect(restored.composerText.value).toBe('保留的草稿')
   })
 })
 

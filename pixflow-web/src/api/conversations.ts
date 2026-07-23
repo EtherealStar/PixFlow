@@ -1,74 +1,50 @@
+import { z } from 'zod'
 import { request } from './client'
-import type { Page } from '@/types/api'
-import type { PackageImageItem } from '@/types/upload'
 
-export interface ConversationSummary {
-  conversationId: string
-  title?: string
-  updatedAt: string
-  images?: PackageImageItem[]
-}
+export const conversationSchema = z.strictObject({
+  conversationId: z.string().min(1),
+  title: z.string(),
+  createdAt: z.string().min(1),
+  updatedAt: z.string().min(1)
+})
 
-export interface ConversationDetail {
-  conversationId: string
-  title?: string
-  createdAt: string
-  updatedAt: string
-  images?: PackageImageItem[]
-}
+const conversationPageSchema = z.strictObject({
+  records: z.array(conversationSchema),
+  total: z.number().int().nonnegative(),
+  page: z.number().int().positive(),
+  size: z.number().int().positive()
+})
 
-interface BackendConversationView {
-  id?: string | number
-  conversationId?: string | number
-  title?: string
-  createdAt?: string
-  updatedAt?: string
-  images?: PackageImageItem[]
-}
-
-function normalizeConversation(raw: BackendConversationView): ConversationDetail {
-  // 后端真实字段是 id；前端统一消费 conversationId，避免页面层兼容两套字段。
-  const conversationId = String(raw.conversationId ?? raw.id ?? '')
-  return {
-    conversationId,
-    title: raw.title,
-    createdAt: raw.createdAt ?? '',
-    updatedAt: raw.updatedAt ?? '',
-    images: raw.images
-  }
-}
-
-function normalizeConversationPage(page: Page<BackendConversationView>): Page<ConversationSummary> {
-  const items = (page.items ?? page.records ?? []).map(normalizeConversation)
-  return { ...page, items, records: items }
-}
+export type ConversationSummary = z.infer<typeof conversationSchema>
+export type ConversationDetail = ConversationSummary
 
 export async function createConversation(payload?: { title?: string }): Promise<ConversationDetail> {
-  const raw = await request<BackendConversationView>('/api/conversations', {
+  const raw = await request<unknown>('/api/conversations', {
     method: 'POST',
-    body: payload ?? {}
+    body: payload ?? {},
+    noRetry: true
   })
-  return normalizeConversation(raw)
+  return conversationSchema.parse(raw)
 }
 
 export async function listConversations(
-  params: { includeArchived?: boolean; archived?: boolean; page?: number; size?: number } = {}
-): Promise<Page<ConversationSummary>> {
-  const q = new URLSearchParams()
-  const includeArchived = params.includeArchived ?? params.archived
-  if (includeArchived !== undefined) q.set('includeArchived', String(includeArchived))
-  if (params.page !== undefined) q.set('page', String(params.page))
-  if (params.size !== undefined) q.set('size', String(params.size))
-  const qs = q.toString()
-  const page = await request<Page<BackendConversationView>>(`/api/conversations${qs ? `?${qs}` : ''}`)
-  return normalizeConversationPage(page)
+  params: { page?: number; size?: number } = {}
+): Promise<z.infer<typeof conversationPageSchema>> {
+  const query = new URLSearchParams()
+  if (params.page !== undefined) query.set('page', String(params.page))
+  if (params.size !== undefined) query.set('size', String(params.size))
+  const suffix = query.size > 0 ? `?${query.toString()}` : ''
+  return conversationPageSchema.parse(await request<unknown>(`/api/conversations${suffix}`))
 }
 
 export async function getConversation(conversationId: string): Promise<ConversationDetail> {
-  const raw = await request<BackendConversationView>(`/api/conversations/${encodeURIComponent(conversationId)}`)
-  return normalizeConversation(raw)
+  const raw = await request<unknown>(`/api/conversations/${encodeURIComponent(conversationId)}`)
+  return conversationSchema.parse(raw)
 }
 
-export function archiveConversation(conversationId: string): Promise<void> {
-  return request<void>(`/api/conversations/${encodeURIComponent(conversationId)}`, { method: 'DELETE' })
+export async function deleteConversation(conversationId: string): Promise<void> {
+  await request<unknown>(`/api/conversations/${encodeURIComponent(conversationId)}`, {
+    method: 'DELETE',
+    noRetry: true
+  })
 }

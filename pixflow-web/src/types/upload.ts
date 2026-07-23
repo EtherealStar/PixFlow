@@ -71,51 +71,5 @@ export interface CompleteUploadResponse {
   status: 'UPLOADED'
 }
 
-/** 整文件上传兼容响应。 */
-export interface WholeFileUploadResponse {
-  packageId: number
-  status: 'UPLOADED' | 'EXTRACTING' | 'READY' | 'PARTIAL' | 'FAILED'
-  messageConfirmed?: boolean
-}
-
-/** 素材包详情响应。 */
-export interface PackageDetail {
-  id?: number
-  packageId: number
-  name: string
-  status: 'UPLOADED' | 'EXTRACTING' | 'READY' | 'PARTIAL' | 'FAILED'
-  imageCount?: number
-  extractedCount?: number
-  errorSummary?: string
-  fileHash?: string
-  minioZipKey?: string
-  docKey?: string | null
-  deletedAt?: string | null
-  createdAt?: string
-  updatedAt?: string
-  images?: PackageImageItem[]
-}
-
-export interface PackageImageItem {
-  id: string
-  url: string
-  name: string
-  createdAt: string
-}
-
-export interface AssetImageView {
-  imageId: string
-  packageId: number
-  filename: string
-  displayName?: string | null
-  originalPath: string
-  skuId?: string | null
-  groupKey?: string | null
-  viewId?: string | null
-  size?: number | null
-  url: string
-  createdAt: string
-}
-
 export type ViewMode = 'folder' | 'flat'
 export type SortType = 'time' | 'name'

@@ -41,6 +41,7 @@ export { default as IconAlertCircle } from './IconAlertCircle.vue'
 export { default as IconLoader } from './IconLoader.vue'
 export { default as IconChevronDown } from './IconChevronDown.vue'
 export { default as IconChevronRight } from './IconChevronRight.vue'
+export { default as IconChevronLeft } from './IconChevronLeft.vue'
 export { default as IconPin } from './IconPin.vue'
 export { default as IconPinOff } from './IconPinOff.vue'
 
@@ -58,7 +59,7 @@ export const ICON_NAMES = [
   'IconDownload', 'IconTrash', 'IconEdit', 'IconEye', 'IconRefresh',
   'IconPlus', 'IconMinus', 'IconSearch', 'IconSend', 'IconPaperclip',
   'IconCopy', 'IconMoreHorizontal', 'IconExternalLink', 'IconAlertCircle',
-  'IconLoader', 'IconChevronDown', 'IconChevronRight', 'IconPin', 'IconPinOff',
+  'IconLoader', 'IconChevronDown', 'IconChevronRight', 'IconChevronLeft', 'IconPin', 'IconPinOff',
 ] as const
 
 export type IconName = (typeof ICON_NAMES)[number]

@@ -30,6 +30,10 @@
   --accent: #4f46e5;
   --accent-hover: #6366f1;
   --accent-soft: #eef2ff;
+  /* 焦点环：靛蓝 20% 透明（DESIGN.md focus-visible 规范） */
+  --accent-ring: rgba(79, 70, 229, 0.2);
+  /* 拖拽遮罩：accent-soft 的 72% 透明版本 */
+  --accent-soft-scrim: rgba(238, 242, 255, 0.72);
 
   /* 状态色 */
   --success: #10b981;
@@ -45,4 +49,19 @@
   --shadow-sm: 0 1px 2px rgba(28, 25, 23, 0.04), 0 1px 3px rgba(28, 25, 23, 0.06);
   --shadow-md: 0 4px 12px rgba(28, 25, 23, 0.06), 0 2px 4px rgba(28, 25, 23, 0.04);
   --shadow-lg: 0 12px 32px rgba(28, 25, 23, 0.08), 0 4px 8px rgba(28, 25, 23, 0.04);
+
+  /* 语义化层叠刻度：禁止散落的 z-999 类魔法数 */
+  --z-dropdown: 10;
+  --z-sticky: 20;
+  --z-drawer: 30;
+  --z-overlay: 40;
+  --z-modal: 50;
+  --z-toast: 60;
+  --z-tooltip: 70;
+
+  /* 动效：只传达状态，150–250ms，指数缓出 */
+  --dur-fast: 150ms;
+  --dur-med: 220ms;
+  --ease-out: cubic-bezier(0.25, 1, 0.5, 1);
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
 }

@@ -11,8 +11,8 @@ import { ICON_NAMES } from '../index'
  */
 describe('icons 统一出口', () => {
   it('导出 ICON_NAMES 数组中列出的所有图标', () => {
-    // 8 个自绘核心 + 19 个 lucide 转发 = 27 个（web.md §7.4 完整清单）
-    expect(ICON_NAMES.length).toBe(27)
+    // 8 个自绘核心 + 20 个 lucide 转发 = 28 个（web.md §7.4 清单 + IconChevronLeft 面板收起）
+    expect(ICON_NAMES.length).toBe(28)
     for (const name of ICON_NAMES) {
       expect(Icons).toHaveProperty(name)
       expect(Icons[name]).toBeDefined()

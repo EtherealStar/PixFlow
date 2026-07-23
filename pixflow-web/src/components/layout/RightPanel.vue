@@ -1,132 +1,117 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed } from 'vue'
 import { useUiStore } from '@/stores/ui'
-import { useTasksStore } from '@/stores/tasks'
+import { useActivitiesStore } from '@/stores/activities'
 import IconPin from '@/components/icons/IconPin.vue'
 import IconPinOff from '@/components/icons/IconPinOff.vue'
+import IconChevronLeft from '@/components/icons/IconChevronLeft.vue'
 import IconX from '@/components/icons/IconX.vue'
-import AppBadge from '@/components/ui/AppBadge.vue'
-import TaskPanel from '@/components/tasks/TaskPanel.vue'
+import ActivityPanel from '@/components/activity/ActivityPanel.vue'
 
 /**
- * RightPanel — 右侧任务面板（web.md §十）
+ * RightPanel — 右栏全局 Activity 面板（frontend/tasks.md / product.md）
  *
- * 状态机（与 useTask.TaskPhase 对齐，小写枚举）：
- * - 进行中：phase ∈ {queued, running}
- * - 已完成：phase = completed
- * - 失败：phase ∈ {failed, partial, cancelled}
+ * 铁律：面板默认收起，新活动永不自动展开；展开只由用户显式点击驱动。
  *
- * 收起态：8px 把手 + 3 枚垂直堆叠徽章
- * 展开态：360px 任务面板（TaskPanel）
- *
- * 触发规则（web.md §十 + auth 决策补充）：
- * - 默认收起；新任务产生时 autoExpand 6s 收回
- * - 钉住转常驻
- * - 未登录时不显示右栏
+ * 收起态：40px 导轨，垂直堆叠「进行中 / 已成功 / 已失败」计数徽章
+ * 展开态：360px 面板（钉住转常驻）
  */
 
 const ui = useUiStore()
-const tasks = useTasksStore()
+const activities = useActivitiesStore()
 
-// 状态统计
 const counts = computed(() => {
   let inProgress = 0
-  let completed = 0
+  let succeeded = 0
   let failed = 0
-  for (const t of tasks.items.values()) {
-    if (t.phase === 'queued' || t.phase === 'running') inProgress++
-    else if (t.phase === 'completed') completed++
-    else if (t.phase === 'failed' || t.phase === 'partial' || t.phase === 'cancelled') failed++
+  for (const activity of activities.items.values()) {
+    if (['UPLOADING', 'EXTRACTING', 'QUEUED', 'RUNNING'].includes(activity.status)) inProgress++
+    else if (activity.status === 'SUCCEEDED') succeeded++
+    else if (activity.status === 'FAILED' || activity.status === 'PARTIALLY_SUCCEEDED') failed++
   }
-  return { inProgress, completed, failed }
+  return { inProgress, succeeded, failed }
 })
 
-const totalCount = computed(() => counts.value.inProgress + counts.value.completed + counts.value.failed)
+const totalCount = computed(() => counts.value.inProgress + counts.value.succeeded + counts.value.failed)
 
-const hovering = ref(false)
-let hoverTimer: ReturnType<typeof setTimeout> | null = null
+const railTitle = computed(() => {
+  const parts: string[] = []
+  if (counts.value.inProgress > 0) parts.push(`进行中 ${counts.value.inProgress}`)
+  if (counts.value.succeeded > 0) parts.push(`已成功 ${counts.value.succeeded}`)
+  if (counts.value.failed > 0) parts.push(`已失败 ${counts.value.failed}`)
+  return parts.length > 0 ? `活动：${parts.join(' · ')}` : '活动'
+})
 
-function onEnter(): void {
-  if (ui.rightPanelPinned) return
-  hovering.value = true
-  if (hoverTimer) { clearTimeout(hoverTimer); hoverTimer = null }
-}
-function onLeave(): void {
-  if (ui.rightPanelPinned) return
-  hoverTimer = setTimeout(() => { hovering.value = false; hoverTimer = null }, 1500)
-}
-
-const effectiveExpanded = computed(() => ui.rightPanelPinned || ui.rightPanelExpanded || hovering.value)
+const expanded = computed(() => ui.rightPanelPinned || ui.rightPanelExpanded)
 </script>
 
 <template>
   <aside
     class="right-panel flex flex-col"
-    :class="{ collapsed: !effectiveExpanded }"
-    @mouseenter="onEnter"
-    @mouseleave="onLeave"
+    :class="{ collapsed: !expanded }"
   >
-    <!-- 把手 -->
-    <div
-      v-if="!effectiveExpanded"
+    <!-- 收起态：40px 计数导轨，点击展开 -->
+    <button
+      v-if="!expanded"
+      type="button"
       class="rail"
+      :aria-label="`展开活动面板，${railTitle}`"
+      :title="railTitle"
       @click="ui.setRightPanelExpanded(true)"
     >
-      <div class="rail-bar" />
-      <div class="badges">
-        <AppBadge
+      <span class="rail-expand">
+        <IconChevronLeft :size="15" />
+      </span>
+      <span class="rail-badges">
+        <span
           v-if="counts.inProgress > 0"
-          tone="info"
-          style="solid"
-        >
-          {{ counts.inProgress }}
-        </AppBadge>
-        <AppBadge
-          v-if="counts.completed > 0"
-          tone="success"
-          style="solid"
-        >
-          {{ counts.completed }}
-        </AppBadge>
-        <AppBadge
+          class="rail-count tone-info"
+        >{{ counts.inProgress }}</span>
+        <span
+          v-if="counts.succeeded > 0"
+          class="rail-count tone-success"
+        >{{ counts.succeeded }}</span>
+        <span
           v-if="counts.failed > 0"
-          tone="danger"
-          style="solid"
-        >
-          {{ counts.failed }}
-        </AppBadge>
-      </div>
-    </div>
+          class="rail-count tone-danger"
+        >{{ counts.failed }}</span>
+      </span>
+    </button>
 
-    <!-- 展开态 -->
+    <!-- 展开态：360px 面板 -->
     <div
-      v-show="effectiveExpanded"
-      class="panel-body flex flex-col h-full w-[360px]"
+      v-else
+      class="panel-body flex h-full w-[360px] flex-col"
     >
       <header class="panel-header">
-        <h3 class="panel-title">
-          任务 ({{ totalCount }})
-        </h3>
+        <h2 class="panel-title">
+          活动<span
+            v-if="totalCount > 0"
+            class="panel-count"
+          >{{ totalCount }}</span>
+        </h2>
         <div class="panel-actions">
           <button
             type="button"
-            class="action-btn"
+            class="icon-btn"
             :aria-label="ui.rightPanelPinned ? '取消钉住' : '钉住面板'"
+            :title="ui.rightPanelPinned ? '取消钉住' : '钉住面板'"
             @click="ui.toggleRightPanelPin()"
           >
-            <IconPin
-              v-if="!ui.rightPanelPinned"
+            <IconPinOff
+              v-if="ui.rightPanelPinned"
               :size="14"
             />
-            <IconPinOff
+            <IconPin
               v-else
               :size="14"
             />
           </button>
           <button
             type="button"
-            class="action-btn"
-            aria-label="关闭"
+            class="icon-btn"
+            aria-label="收起活动面板"
+            title="收起活动面板"
             @click="ui.setRightPanelExpanded(false)"
           >
             <IconX :size="14" />
@@ -134,7 +119,7 @@ const effectiveExpanded = computed(() => ui.rightPanelPinned || ui.rightPanelExp
         </div>
       </header>
       <div class="panel-content">
-        <TaskPanel />
+        <ActivityPanel />
       </div>
     </div>
   </aside>
@@ -143,89 +128,115 @@ const effectiveExpanded = computed(() => ui.rightPanelPinned || ui.rightPanelExp
 <style scoped>
 .right-panel {
   background: var(--bg-page);
-  border-left: 1px solid var(--border-strong);
+  border-left: 1px solid var(--border);
   width: 360px;
   flex-shrink: 0;
   height: 100%;
-  position: relative;
-  transition: width 0.15s ease;
-  z-index: 10;
 }
 .right-panel.collapsed {
-  width: 12px;
+  width: 40px;
+  border-left: none;
 }
 
-/* 把手 */
+/* 收起/展开切换：宽度瞬时切换（避免布局属性动画），内容淡入衔接 */
+.rail,
+.panel-body {
+  animation: panel-fade-in var(--dur-fast) var(--ease-out);
+}
+@keyframes panel-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* 收起态导轨 */
 .rail {
-  width: 12px;
+  width: 40px;
   height: 100%;
   background: var(--bg-sunken);
-  position: absolute;
-  top: 12px;
-  right: -10px;
-  width: 20px;
-  height: 40px;
-  border-radius: 4px;
-  background: var(--bg-panel);
-  border: 1px solid var(--border);
+  border: none;
+  border-left: 1px solid var(--border);
   cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 8px 0;
+  gap: 12px;
+  transition: background-color var(--dur-fast) var(--ease-out);
+}
+.rail:hover {
+  background: var(--border);
+}
+.rail-expand {
   display: flex;
   align-items: center;
   justify-content: center;
-  opacity: 0.5;
-  transition: opacity 0.15s;
+  width: 24px;
+  height: 24px;
+  color: var(--fg-muted);
 }
-.rail:hover .rail-toggle { opacity: 1; }
-.rail-bar {
-  display: block;
-  width: 2px;
-  height: 16px;
-  background: var(--fg-muted);
-  border-radius: 1px;
-}
-
-/* 徽章（垂直堆叠） */
-.badges {
-  position: absolute;
-  top: 60px;
-  right: -14px;
+.rail-badges {
   display: flex;
   flex-direction: column;
-  gap: 6px;
   align-items: center;
+  gap: 6px;
+}
+.rail-count {
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  border-radius: 9999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+}
+.rail-count.tone-info {
+  background: var(--info-soft);
+  color: var(--info);
+}
+.rail-count.tone-success {
+  background: var(--success-soft);
+  color: var(--success);
+}
+.rail-count.tone-danger {
+  background: var(--danger-soft);
+  color: var(--danger);
 }
 
 /* 展开态 */
-.panel-body {
-  width: 360px;
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  overflow: hidden;
-}
 .panel-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   height: 48px;
   padding: 0 12px;
-  background: var(--bg-panel);
   border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
 }
 .panel-title {
   font-size: 14px;
   font-weight: 600;
   color: var(--fg-primary);
   margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.panel-count {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--fg-muted);
 }
 .panel-actions {
   display: flex;
   gap: 4px;
 }
-.action-btn {
+.icon-btn {
   width: 28px;
   height: 28px;
-  border-radius: 4px;
+  border-radius: 6px;
   background: transparent;
   border: none;
   color: var(--fg-muted);
@@ -233,8 +244,9 @@ const effectiveExpanded = computed(() => ui.rightPanelPinned || ui.rightPanelExp
   display: flex;
   align-items: center;
   justify-content: center;
+  transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
 }
-.action-btn:hover {
+.icon-btn:hover {
   background: var(--bg-sunken);
   color: var(--fg-primary);
 }

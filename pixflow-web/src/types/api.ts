@@ -54,24 +54,13 @@ function stringValue(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined
 }
 
-/**
- * 幂等键。前端为 `/submit` 生成的 UUID，缓存在 sessionStorage。
- * 后端用来去重"用户重复点击 / 网络重试导致重复创建任务"。
- */
-export interface IdempotencyKey {
-  key: string
-  proposalId: string
-  savedAt: number
-}
-
 export interface TraceId {
   value: string
   source: 'request' | 'response' | 'sse-event' | 'ws-frame'
 }
 
 export interface Page<T> {
-  items: T[]
-  records?: T[]
+  records: T[]
   total: number
   page: number
   size: number

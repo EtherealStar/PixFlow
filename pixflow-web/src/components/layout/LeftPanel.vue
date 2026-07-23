@@ -1,54 +1,51 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import { useRouter, RouterLink } from 'vue-router'
+import { computed } from 'vue'
+import { useRoute, useRouter, RouterLink } from 'vue-router'
 import { useUiStore } from '@/stores/ui'
 import { useAuthStore } from '@/stores/auth'
 import { useToastStore } from '@/stores/toast'
-import IconPin from '@/components/icons/IconPin.vue'
 import IconPinOff from '@/components/icons/IconPinOff.vue'
+import IconChevronRight from '@/components/icons/IconChevronRight.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import IconPlus from '@/components/icons/IconPlus.vue'
 import IconImage from '@/components/icons/IconImage.vue'
 import IconChat from '@/components/icons/IconChat.vue'
 import IconPackage from '@/components/icons/IconPackage.vue'
-import IconCheck from '@/components/icons/IconCheck.vue'
 import IconMoreHorizontal from '@/components/icons/IconMoreHorizontal.vue'
 import AppAvatar from '@/components/ui/AppAvatar.vue'
 import AppDropdownMenu from '@/components/ui/AppDropdownMenu.vue'
 import AppDropdownMenuItem from '@/components/ui/AppDropdownMenuItem.vue'
-import AppDropdownMenuSeparator from '@/components/ui/AppDropdownMenuSeparator.vue'
 import HistoryList from '@/components/files/HistoryList.vue'
 
 /**
- * LeftPanel — 左栏
+ * LeftPanel — 左栏导航（frontend/shell-routing-auth.md / product.md）
+ *
+ * 三层地基：侧栏落 bg-sunken，导航项 hover 落 panel 白，active 落 accent-soft。
  *
  * 状态：
- * - leftPanelPinned: 钉住常驻（持久化）
- * - hover 时浮出 280px 浮层（仅未钉住时）
+ * - 钉住（默认）：280px 常驻
+ * - 未钉住：48px 图标导轨，导航仍可直达；点展开按钮恢复钉住
+ * - 无 hover 浮出：展开/收起只由显式点击驱动
  */
 
 const ui = useUiStore()
 const auth = useAuthStore()
 const toast = useToastStore()
 const router = useRouter()
-
-const hovering = ref(false)
-let hoverTimer: ReturnType<typeof setTimeout> | null = null
-
-function onEnter(): void {
-  if (ui.leftPanelPinned) return
-  hovering.value = true
-  if (hoverTimer) { clearTimeout(hoverTimer); hoverTimer = null }
-}
-function onLeave(): void {
-  if (ui.leftPanelPinned) return
-  hoverTimer = setTimeout(() => { hovering.value = false; hoverTimer = null }, 1500)
-}
-
-const effectiveExpanded = computed(() => ui.leftPanelPinned || hovering.value)
+const route = useRoute()
 
 const displayName = computed(() => auth.user?.displayName || auth.user?.username || '未登录')
 const userInitial = computed(() => displayName.value[0] ?? 'U')
+
+const navItems = [
+  { to: '/chat/new', label: '会话', icon: IconChat, match: (p: string) => p.startsWith('/chat') },
+  { to: '/materials', label: '素材', icon: IconPackage, match: (p: string) => p.startsWith('/materials') },
+  { to: '/outputs', label: '产物', icon: IconImage, match: (p: string) => p.startsWith('/outputs') },
+] as const
+
+function isActive(match: (p: string) => boolean): boolean {
+  return match(route.path)
+}
 
 async function handleLogout(): Promise<void> {
   await auth.logout()
@@ -56,11 +53,7 @@ async function handleLogout(): Promise<void> {
 }
 
 function startNewChat(): void {
-  void router.push('/').catch(showNavigationError)
-}
-
-function openSettings(): void {
-  void router.push('/settings').catch(showNavigationError)
+  void router.push('/chat/new').catch(showNavigationError)
 }
 
 function showNavigationError(error: unknown): void {
@@ -71,153 +64,148 @@ function showNavigationError(error: unknown): void {
 <template>
   <aside
     class="left-panel flex flex-col"
-    :class="{ collapsed: !effectiveExpanded }"
-    @mouseenter="onEnter"
-    @mouseleave="onLeave"
+    :class="{ collapsed: !ui.leftPanelPinned }"
   >
-    <!-- 把手 -->
+    <!-- 收起态：48px 图标导轨 -->
     <div
-      v-if="!effectiveExpanded"
-      class="rail"
+      v-if="!ui.leftPanelPinned"
+      class="rail flex flex-col items-center"
     >
       <button
         type="button"
-        class="rail-pin-btn"
-        :aria-label="ui.leftPanelPinned ? '取消钉住' : '钉住面板'"
+        class="rail-icon-btn mt-2"
+        aria-label="展开导航"
+        title="展开导航"
         @click="ui.toggleLeftPanelPin()"
       >
-        <IconPin
-          v-if="!ui.leftPanelPinned"
-          :size="20"
-        />
-        <IconPinOff
-          v-else
-          :size="20"
-        />
+        <IconChevronRight :size="16" />
       </button>
-    </div>
 
-    <!-- 展开态 -->
-    <div
-      v-show="effectiveExpanded"
-      class="panel-body flex flex-col h-full w-[300px]"
-    >
-      <!-- 品牌 Logo -->
-      <div class="px-4 pt-4 pb-2 flex items-center gap-2">
-        <IconPackage
-          :size="24"
-          class="text-accent"
-        />
-        <span class="text-md font-semibold text-fg-primary">PixFlow</span>
-      </div>
-
-      <!-- 顶部新对话按钮与钉住控制 -->
-      <div class="px-3 pt-2 pb-3 flex items-center justify-between">
-        <AppButton
-          variant="ghost"
-          class="new-chat-btn flex-1 justify-start border border-border bg-bg-panel hover:bg-bg-sunken shadow-sm rounded-md h-9"
-          @click="startNewChat"
-        >
-          <IconPlus
-            :size="16"
-            class="mr-2"
-          />
-          新对话
-        </AppButton>
-        <button
-          type="button"
-          class="pin-btn ml-2"
-          :aria-label="ui.leftPanelPinned ? '取消钉住' : '钉住面板'"
-          @click="ui.toggleLeftPanelPin()"
-        >
-          <IconPin
-            v-if="!ui.leftPanelPinned"
-            :size="16"
-          />
-          <IconPinOff
-            v-else
-            :size="16"
-          />
-        </button>
-      </div>
-
-      <!-- 主导航链接 -->
-      <nav class="main-nav px-3 flex flex-col gap-1 pb-2">
+      <nav class="mt-3 flex flex-col items-center gap-1">
         <RouterLink
-          to="/"
-          class="nav-link"
-          active-class="active"
-          exact
+          v-for="item in navItems"
+          :key="item.to"
+          :to="item.to"
+          class="rail-icon-btn"
+          :class="{ active: isActive(item.match) }"
+          :aria-label="item.label"
+          :title="item.label"
         >
-          <IconChat
+          <component
+            :is="item.icon"
             :size="16"
-            class="shrink-0"
           />
-          <span class="truncate">会话</span>
-        </RouterLink>
-        <RouterLink
-          to="/files"
-          class="nav-link"
-          active-class="active"
-          exact
-        >
-          <IconPackage
-            :size="16"
-            class="shrink-0"
-          />
-          <span class="truncate">素材</span>
-        </RouterLink>
-        <RouterLink
-          to="/files?focus=results"
-          class="nav-link"
-          active-class="active"
-          exact
-        >
-          <IconImage
-            :size="16"
-            class="shrink-0"
-          />
-          <span class="truncate">产物</span>
-        </RouterLink>
-        <RouterLink
-          to="/rubrics"
-          class="nav-link"
-          active-class="active"
-          exact
-        >
-          <IconCheck
-            :size="16"
-            class="shrink-0"
-          />
-          <span class="truncate">Rubric评估</span>
         </RouterLink>
       </nav>
 
-      <!-- 历史记录区域 -->
-      <div class="history-section flex-1 overflow-y-auto mt-2 pt-2 border-t border-border">
+      <div class="rail-footer mt-auto mb-2">
+        <AppDropdownMenu>
+          <template #trigger>
+            <button
+              type="button"
+              class="rail-avatar"
+              :aria-label="`${displayName} 的菜单`"
+              :title="displayName"
+            >
+              <AppAvatar
+                :text="userInitial"
+                :size="26"
+              />
+            </button>
+          </template>
+          <AppDropdownMenuItem
+            danger
+            @select="handleLogout"
+          >
+            退出登录
+          </AppDropdownMenuItem>
+        </AppDropdownMenu>
+      </div>
+    </div>
+
+    <!-- 展开态：280px 导航 -->
+    <div
+      v-else
+      class="panel-body flex h-full w-[280px] flex-col"
+    >
+      <!-- 品牌 + 钉住控制 -->
+      <div class="flex items-center justify-between px-4 pb-1 pt-3">
+        <div class="flex items-center gap-2">
+          <IconPackage
+            :size="20"
+            class="text-accent"
+          />
+          <span class="text-md font-semibold text-fg-primary">PixFlow</span>
+        </div>
+        <button
+          type="button"
+          class="icon-btn"
+          aria-label="收起导航"
+          title="收起导航"
+          @click="ui.toggleLeftPanelPin()"
+        >
+          <IconPinOff :size="15" />
+        </button>
+      </div>
+
+      <!-- 新对话 -->
+      <div class="px-3 pb-2 pt-2">
+        <AppButton
+          variant="secondary"
+          class="w-full justify-start"
+          @click="startNewChat"
+        >
+          <IconPlus :size="16" />
+          新对话
+        </AppButton>
+      </div>
+
+      <!-- 主导航 -->
+      <nav
+        class="flex flex-col gap-0.5 px-3 pb-2"
+        aria-label="主导航"
+      >
+        <RouterLink
+          v-for="item in navItems"
+          :key="item.to"
+          :to="item.to"
+          class="nav-link"
+          :class="{ active: isActive(item.match) }"
+        >
+          <component
+            :is="item.icon"
+            :size="16"
+            class="shrink-0"
+          />
+          <span class="truncate">{{ item.label }}</span>
+        </RouterLink>
+      </nav>
+
+      <!-- 会话历史 -->
+      <div class="history-section mt-1 flex-1 overflow-y-auto border-t border-border pt-2">
         <HistoryList />
       </div>
 
-      <!-- 底部用户菜单 -->
-      <div class="user-footer p-3 border-t border-border mt-auto">
+      <!-- 用户菜单 -->
+      <div class="mt-auto border-t border-border p-3">
         <AppDropdownMenu>
           <template #trigger>
-            <button class="user-trigger flex items-center gap-2 w-full px-2 py-2 rounded-md hover:bg-bg-sunken transition-colors">
+            <button
+              type="button"
+              class="user-trigger"
+              :aria-label="`${displayName} 的菜单`"
+            >
               <AppAvatar
                 :text="userInitial"
-                :size="30"
+                :size="28"
               />
-              <span class="flex-1 text-left text-sm font-medium text-fg-primary truncate">{{ displayName }}</span>
+              <span class="flex-1 truncate text-left text-sm font-medium text-fg-primary">{{ displayName }}</span>
               <IconMoreHorizontal
                 :size="16"
                 class="text-fg-muted"
               />
             </button>
           </template>
-          <AppDropdownMenuItem @select="openSettings">
-            设置
-          </AppDropdownMenuItem>
-          <AppDropdownMenuSeparator />
           <AppDropdownMenuItem
             danger
             @select="handleLogout"
@@ -232,50 +220,59 @@ function showNavigationError(error: unknown): void {
 
 <style scoped>
 .left-panel {
-  background: var(--bg-page);
-  border-right: 1px solid var(--border-strong);
-  width: 300px;
+  background: var(--bg-sunken);
+  border-right: 1px solid var(--border);
+  width: 280px;
   flex-shrink: 0;
   height: 100%;
-  position: relative;
-  transition: width 0.15s ease;
-  z-index: 10;
 }
 .left-panel.collapsed {
-  width: 12px;
+  width: 48px;
 }
 
-/* 折叠态把手 */
-.rail {
-  width: 12px;
-  height: 100%;
-  background: var(--bg-sunken);
-  cursor: pointer;
-  position: relative;
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding-top: 12px;
+/* 收起/展开切换：宽度瞬时切换（避免布局属性动画），内容淡入衔接 */
+.rail,
+.panel-body {
+  animation: panel-fade-in var(--dur-fast) var(--ease-out);
 }
-.rail-pin-btn {
-  position: absolute;
-  left: -12px;
-  top: 12px;
-  width: 30px;
-  height: 30px;
-  border-radius: 4px;
-  background: var(--bg-panel);
-  border: 1px solid var(--border);
-  color: var(--fg-muted);
+@keyframes panel-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* 收起态导轨 */
+.rail {
+  width: 48px;
+  height: 100%;
+}
+.rail-icon-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  background: transparent;
+  border: none;
+  color: var(--fg-secondary);
+  cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  cursor: pointer;
-  opacity: 0;
-  transition: opacity 0.15s;
+  transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
 }
-.rail:hover .rail-pin-btn {
-  opacity: 1;
+.rail-icon-btn:hover {
+  background: var(--bg-panel);
+  color: var(--fg-primary);
+}
+.rail-icon-btn.active {
+  background: var(--accent-soft);
+  color: var(--fg-primary);
+}
+.rail-avatar {
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  border-radius: 9999px;
+  display: flex;
 }
 
 /* 主导航链接 */
@@ -288,10 +285,10 @@ function showNavigationError(error: unknown): void {
   color: var(--fg-secondary);
   font-size: 14px;
   text-decoration: none;
-  transition: background-color 0.15s, color 0.15s;
+  transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
 }
 .nav-link:hover {
-  background-color: var(--bg-sunken);
+  background-color: var(--bg-panel);
   color: var(--fg-primary);
 }
 .nav-link.active {
@@ -300,10 +297,10 @@ function showNavigationError(error: unknown): void {
   font-weight: 500;
 }
 
-.pin-btn {
+.icon-btn {
   width: 28px;
   height: 28px;
-  border-radius: 4px;
+  border-radius: 6px;
   background: transparent;
   border: none;
   color: var(--fg-muted);
@@ -311,15 +308,26 @@ function showNavigationError(error: unknown): void {
   display: flex;
   align-items: center;
   justify-content: center;
-  flex-shrink: 0;
+  transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
 }
-.pin-btn:hover {
-  background: var(--bg-sunken);
+.icon-btn:hover {
+  background: var(--bg-panel);
   color: var(--fg-primary);
 }
 
-.new-chat-btn {
-  font-weight: 500;
-  font-size: 14px;
+.user-trigger {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease-out);
+}
+.user-trigger:hover {
+  background: var(--bg-panel);
 }
 </style>

@@ -1,13 +1,19 @@
 <script setup lang="ts">
 import { nextTick, ref, watch } from 'vue'
-import type { TimelineItem, ToolTimelineItem, TransitionTimelineItem } from '@/types/agent'
+import type { TimelineItem, ToolTimelineItem, TransitionTimelineItem, ErrorTimelineItem } from '@/types/agent'
 import ChatBubble from './ChatBubble.vue'
+import IconLoader from '@/components/icons/IconLoader.vue'
+import IconCheck from '@/components/icons/IconCheck.vue'
+import IconAlertCircle from '@/components/icons/IconAlertCircle.vue'
+import IconCopy from '@/components/icons/IconCopy.vue'
+import IconChevronRight from '@/components/icons/IconChevronRight.vue'
 
 /**
- * MessageStream — 消息流（web.md §7.3）
+ * MessageStream — 消息流（frontend/chat.md）
  *
- * - flex flex-col gap-3
- * - 自动滚到底（新增消息 / timeline 更新时）
+ * - 用户消息 + 助手时间线（文本 / 工具状态 / 关键转场 / 错误）
+ * - 工具事件只渲染产品语言摘要；原始工具名、参数、结果永不上界面
+ * - 错误可附可复制的错误编号（trace ID 唯一的合法曝光位）
  */
 const props = defineProps<{
   timeline: TimelineItem[]
@@ -25,44 +31,35 @@ async function scrollToBottom(): Promise<void> {
 watch(() => props.timeline, scrollToBottom, { deep: true })
 watch(() => props.userMessages?.length, scrollToBottom)
 
-function toolStatusText(status: ToolTimelineItem['status']): string {
-  switch (status) {
-    case 'queued': return '等待执行'
-    case 'running': return '执行中'
-    case 'completed': return '完成'
-    case 'error': return '失败'
-  }
-}
-
-function toolStatusClass(status: ToolTimelineItem['status']): string {
-  switch (status) {
-    case 'queued': return 'bg-bg-muted text-fg-secondary border-border'
-    case 'running': return 'bg-blue-50 text-blue-700 border-blue-200'
-    case 'completed': return 'bg-emerald-50 text-emerald-700 border-emerald-200'
-    case 'error': return 'bg-red-50 text-red-700 border-red-200'
-  }
-}
-
-function summarizeToolResult(item: ToolTimelineItem): string {
-  if (!item.result) return ''
-  return item.result.length <= 180 ? item.result : `${item.result.slice(0, 180)}...`
+const toolStatusText: Record<ToolTimelineItem['status'], string> = {
+  QUEUED: '排队中',
+  RUNNING: '处理中',
+  SUCCEEDED: '已成功',
+  FAILED: '已失败',
 }
 
 function transitionText(item: TransitionTimelineItem): string {
-  if (item.reason === 'RATE_LIMIT_RETRY') {
-    if (typeof item.attempt === 'number') {
-      return `模型连接中断，正在第 ${item.attempt} 次重试`
-    }
-    return '模型连接中断，正在重试'
+  return item.state ? `${item.label} · ${item.state}` : item.label
+}
+
+/* 错误编号复制 */
+const copiedId = ref<string | null>(null)
+async function copyErrorNumber(item: ErrorTimelineItem): Promise<void> {
+  if (!item.traceId) return
+  try {
+    await navigator.clipboard.writeText(item.traceId)
+    copiedId.value = item.id
+    setTimeout(() => { if (copiedId.value === item.id) copiedId.value = null }, 2000)
+  } catch {
+    // 剪贴板不可用时静默降级：编号仍可选择复制
   }
-  return item.reason
 }
 </script>
 
 <template>
   <div
     ref="containerRef"
-    class="message-stream flex flex-col gap-3 p-4 overflow-y-auto"
+    class="message-stream flex flex-col gap-4 px-6 py-6"
   >
     <ChatBubble
       v-for="m in userMessages ?? []"
@@ -79,49 +76,83 @@ function transitionText(item: TransitionTimelineItem): string {
         v-if="item.type === 'assistant' && item.text"
         role="assistant"
         :text="item.text"
+        :status="item.status"
       />
 
+      <!-- 工具状态：一行安静的状态摘要，不用卡片 -->
       <div
         v-else-if="item.type === 'tool'"
-        class="tool-item ml-2 max-w-[82%] rounded-lg border border-border bg-bg-panel px-3 py-2 text-sm shadow-sm"
+        class="tool-item"
+        :class="`tone-${item.status.toLowerCase()}`"
       >
-        <div class="flex items-center gap-2">
-          <span class="font-medium text-fg-primary">{{ item.toolName }}</span>
-          <span
-            class="rounded-full border px-2 py-0.5 text-xs"
-            :class="toolStatusClass(item.status)"
-          >
-            {{ toolStatusText(item.status) }}
-          </span>
-        </div>
-        <pre
-          v-if="item.input !== undefined"
-          class="mt-2 max-h-24 overflow-auto whitespace-pre-wrap rounded bg-bg-muted px-2 py-1 text-xs text-fg-secondary"
-        >{{ JSON.stringify(item.input, null, 2) }}</pre>
-        <p
-          v-if="summarizeToolResult(item)"
-          class="mt-2 whitespace-pre-wrap text-fg-secondary"
-        >
-          {{ summarizeToolResult(item) }}
-        </p>
-      </div>
-
-      <div
-        v-else-if="item.type === 'transition' && item.reason === 'RATE_LIMIT_RETRY'"
-        class="ml-2 max-w-[82%] rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800"
-      >
-        {{ transitionText(item) }}
+        <IconLoader
+          v-if="item.status === 'RUNNING'"
+          :size="13"
+          class="tool-icon spinning"
+        />
+        <IconCheck
+          v-else-if="item.status === 'SUCCEEDED'"
+          :size="13"
+          class="tool-icon"
+        />
+        <IconAlertCircle
+          v-else-if="item.status === 'FAILED'"
+          :size="13"
+          class="tool-icon"
+        />
         <span
-          v-if="item.errorCode"
-          class="ml-2 text-xs text-amber-700"
-        >{{ item.errorCode }}</span>
+          v-else
+          class="tool-dot"
+          aria-hidden="true"
+        />
+        <span class="tool-label">{{ item.label }}</span>
+        <span class="tool-status">{{ toolStatusText[item.status] }}</span>
       </div>
 
+      <!-- 关键转场：极轻的辅助行 -->
+      <div
+        v-else-if="item.type === 'transition'"
+        class="transition-item"
+      >
+        <IconChevronRight :size="12" />
+        <span>{{ transitionText(item) }}</span>
+      </div>
+
+      <!-- 错误：danger-soft + 可复制错误编号 -->
       <div
         v-else-if="item.type === 'error'"
-        class="max-w-[82%] rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
+        class="error-item"
+        role="alert"
       >
-        {{ item.message }}
+        <div class="error-main">
+          <IconAlertCircle
+            :size="14"
+            class="error-icon"
+          />
+          <span class="error-message">{{ item.message }}</span>
+        </div>
+        <div
+          v-if="item.traceId"
+          class="error-number"
+        >
+          <span class="error-number-label">错误编号：{{ item.traceId }}</span>
+          <button
+            type="button"
+            class="copy-btn"
+            :aria-label="copiedId === item.id ? '已复制' : '复制错误编号'"
+            @click="copyErrorNumber(item)"
+          >
+            <IconCheck
+              v-if="copiedId === item.id"
+              :size="12"
+            />
+            <IconCopy
+              v-else
+              :size="12"
+            />
+            {{ copiedId === item.id ? '已复制' : '复制' }}
+          </button>
+        </div>
       </div>
     </template>
   </div>
@@ -129,6 +160,121 @@ function transitionText(item: TransitionTimelineItem): string {
 
 <style scoped>
 .message-stream {
-  height: 100%;
+  width: 100%;
+  max-width: 768px;
+  margin: 0 auto;
+}
+
+/* 工具状态行 */
+.tool-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  font-size: 13px;
+  color: var(--fg-secondary);
+}
+.tool-icon {
+  flex-shrink: 0;
+}
+.tool-icon.spinning {
+  animation: tool-spin 1s linear infinite;
+}
+@keyframes tool-spin {
+  to { transform: rotate(360deg); }
+}
+.tool-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  background: var(--fg-muted);
+  flex-shrink: 0;
+  margin: 0 3.5px;
+}
+.tool-label {
+  font-weight: 500;
+  color: var(--fg-primary);
+}
+.tool-status {
+  color: var(--fg-muted);
+}
+.tool-item.tone-running .tool-icon,
+.tool-item.tone-running .tool-status {
+  color: var(--info);
+}
+.tool-item.tone-succeeded .tool-icon,
+.tool-item.tone-succeeded .tool-status {
+  color: var(--success);
+}
+.tool-item.tone-failed .tool-icon,
+.tool-item.tone-failed .tool-status {
+  color: var(--danger);
+}
+
+/* 转场辅助行 */
+.transition-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 10px;
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+
+/* 错误块 */
+.error-item {
+  max-width: 82%;
+  border-radius: 10px;
+  background: var(--danger-soft);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.error-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.error-icon {
+  color: var(--danger);
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.error-message {
+  font-size: 13px;
+  color: var(--fg-primary);
+  line-height: 1.5;
+}
+.error-number {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-left: 22px;
+}
+.error-number-label {
+  font-size: 12px;
+  color: var(--fg-secondary);
+  user-select: all;
+}
+.copy-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: transparent;
+  border: none;
+  padding: 2px 4px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--fg-secondary);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: color var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out);
+}
+.copy-btn:hover {
+  color: var(--fg-primary);
+  background: var(--bg-panel);
 }
 </style>

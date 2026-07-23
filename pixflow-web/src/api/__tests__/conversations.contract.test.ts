@@ -13,10 +13,15 @@ describe('conversation contract adapter', () => {
     vi.unstubAllGlobals()
   })
 
-  it('uses includeArchived/page=1 and maps backend id to conversationId', async () => {
+  it('uses the one-way conversationId/page contract', async () => {
     const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit) =>
       jsonResponse({
-        records: [{ id: 'c1', title: '会话', updatedAt: '2026-07-06T10:00:00Z' }],
+        records: [{
+          conversationId: 'c1',
+          title: '会话',
+          createdAt: '2026-07-06T09:00:00Z',
+          updatedAt: '2026-07-06T10:00:00Z'
+        }],
         total: 1,
         page: 1,
         size: 50
@@ -24,9 +29,26 @@ describe('conversation contract adapter', () => {
     )
     vi.stubGlobal('fetch', fetchMock)
 
-    const page = await listConversations({ includeArchived: false, page: 1, size: 50 })
+    const page = await listConversations({ page: 1, size: 50 })
 
-    expect(fetchMock.mock.calls[0]?.[0]).toBe('/api/conversations?includeArchived=false&page=1&size=50')
-    expect(page.items[0]).toMatchObject({ conversationId: 'c1', title: '会话' })
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('/api/conversations?page=1&size=50')
+    expect(page.records[0]).toMatchObject({ conversationId: 'c1', title: '会话' })
+  })
+
+  it('rejects legacy conversation fields instead of normalizing them', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({
+      records: [{
+        conversationId: 'c1',
+        title: '会话',
+        createdAt: '2026-07-06T09:00:00Z',
+        updatedAt: '2026-07-06T10:00:00Z',
+        archived: false
+      }],
+      total: 1,
+      page: 1,
+      size: 50
+    })))
+
+    await expect(listConversations()).rejects.toMatchObject({ name: 'ZodError' })
   })
 })

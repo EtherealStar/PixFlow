@@ -9,7 +9,7 @@ export function newId(): string {
   return Math.random().toString(36).slice(2, 14)
 }
 
-/** 标准 UUID v4（用于 Idempotency-Key）。 */
+/** 生成客户端请求身份。 */
 export function newUuid(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID()

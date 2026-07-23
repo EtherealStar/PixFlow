@@ -19,12 +19,8 @@ export interface RequestOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
   body?: unknown
   headers?: Record<string, string>
-  /** 调用方传入的 Idempotency-Key；不传则 client 不自动生成 */
-  idempotencyKey?: string
   /** 调用方传入的 traceId；不传则 client 生成 */
   traceId?: string
-  /** 强制 multipart（body 为 FormData 时由 fetch 推断） */
-  multipart?: boolean
   /** AbortSignal 透传 */
   signal?: AbortSignal
   /** 不走 GET 自动重试逻辑（默认 GET 自动重试 1 次） */
@@ -44,7 +40,6 @@ export interface RequestOptions {
 const DEFAULT_TIMEOUT = 30_000
 
 const TRACE_HEADER = 'X-Trace-Id'
-const IDEMPOTENCY_HEADER = 'Idempotency-Key'
 
 // ---- inFlight 信号量（§六 全局并发保护） ----
 class InFlightSemaphore {
@@ -120,7 +115,6 @@ export async function request<T = unknown>(path: string, opts: RequestOptions = 
     if (token && !headers.Authorization) {
       headers.Authorization = `Bearer ${token}`
     }
-    if (opts.idempotencyKey) headers[IDEMPOTENCY_HEADER] = opts.idempotencyKey
     return headers
   }
 
@@ -171,9 +165,9 @@ export async function request<T = unknown>(path: string, opts: RequestOptions = 
           if (envelope.success === false) {
             throw normalizeHttpError(res.status, envelope, responseTraceId)
           }
-          return normalizePayload(envelope.data) as T
+          return envelope.data as T
         }
-        return normalizePayload(json) as T
+        return json as T
       }
       return (await res.text()) as unknown as T
     } catch (e: unknown) {
@@ -228,14 +222,4 @@ async function shouldRefreshAndRetry(err: ApiError, opts: RequestOptions, allowA
   if (opts.auth === false || opts.authRefresh === false) return false
   if (err.status !== 401 || err.errorCode !== 'AUTH_TOKEN_EXPIRED') return false
   return await refreshAuthSessionOnce()
-}
-
-function normalizePayload(value: unknown): unknown {
-  if (value && typeof value === 'object') {
-    const obj = value as Record<string, unknown>
-    if (Array.isArray(obj.records) && obj.items === undefined) {
-      return { ...obj, items: obj.records }
-    }
-  }
-  return value
 }

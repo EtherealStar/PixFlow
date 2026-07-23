@@ -1,14 +1,15 @@
 <script setup lang="ts">
-import AppCard from '@/components/ui/AppCard.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppBadge from '@/components/ui/AppBadge.vue'
+import IconPackage from '@/components/icons/IconPackage.vue'
 import type { Proposal } from '@/types/agent'
 
 /**
- * ProposalCard — 提案卡片（web.md §7.3 / §二十一 HITL）
+ * ProposalCard — 提案卡片（frontend/chat.md / ui-visual.md）
  *
- * - AppCard + 摘要 + 数据支撑 + 双按钮（确认执行 primary / 拒绝 ghost）
- * - 选中边框 border-accent
+ * - 确认一键完成（后端以 proposalId 做幂等，前端不造挑战题）
+ * - 卡片可随流式出现，但本轮回答完成前操作保持禁用，并说明原因
+ * - 原始 proposalId 不上界面
  */
 defineProps<{
   proposal: Proposal
@@ -20,44 +21,143 @@ const emit = defineEmits<{
   confirm: []
   reject: []
 }>()
-
-function onConfirm(): void {
-  emit('confirm')
-}
 </script>
 
 <template>
-  <AppCard
-    bordered
-    class="proposal-card border-accent bg-accent-soft my-3"
-  >
-    <header class="flex items-center justify-between mb-2">
+  <article class="proposal-card">
+    <header class="card-head">
       <AppBadge
         tone="accent"
-        style="solid"
+        style="soft"
       >
-        {{ proposal.type }}
+        {{ proposal.proposalType === 'IMAGEGEN' ? '图片生成' : '图片处理' }}
       </AppBadge>
-      <span class="text-xs font-mono text-fg-muted">{{ proposal.proposalId.slice(0, 8) }}</span>
+      <span
+        v-if="proposal.confirmedTaskId"
+        class="confirmed-hint"
+      >已确认，任务进行中</span>
     </header>
-    <div class="text-base text-fg-primary mb-2">
-      {{ proposal.summary ?? '(无摘要)' }}
-    </div>
-    <div class="flex gap-2 justify-end">
-      <AppButton
-        variant="primary"
-        :disabled="busy"
-        @click="onConfirm"
+
+    <h3 class="card-title">
+      {{ proposal.title }}
+    </h3>
+    <p class="card-summary">
+      {{ proposal.summary }}
+    </p>
+
+    <ul
+      v-if="proposal.referenceSummaries.length"
+      class="card-refs"
+    >
+      <li
+        v-for="(refText, i) in proposal.referenceSummaries"
+        :key="i"
+        class="card-ref"
       >
-        确认执行
-      </AppButton>
-      <AppButton
-        variant="ghost"
-        :disabled="busy"
-        @click="emit('reject')"
-      >
-        拒绝
-      </AppButton>
-    </div>
-  </AppCard>
+        <IconPackage
+          :size="12"
+          class="shrink-0"
+        />
+        <span class="truncate">{{ refText }}</span>
+      </li>
+    </ul>
+
+    <!-- 已确认的提案为终态：头部展示状态，不再渲染操作 -->
+    <footer
+      v-if="!proposal.confirmedTaskId"
+      class="card-foot"
+    >
+      <span
+        v-if="!proposal.enabled"
+        class="disabled-hint"
+      >本轮回答完成后可确认</span>
+      <div class="card-actions">
+        <AppButton
+          variant="ghost"
+          size="sm"
+          :disabled="busy || !proposal.enabled"
+          @click="emit('reject')"
+        >
+          拒绝
+        </AppButton>
+        <AppButton
+          variant="primary"
+          size="sm"
+          :loading="busy"
+          :disabled="!proposal.enabled"
+          @click="emit('confirm')"
+        >
+          确认执行
+        </AppButton>
+      </div>
+    </footer>
+  </article>
 </template>
+
+<style scoped>
+.proposal-card {
+  width: 100%;
+  max-width: 768px;
+  margin: 0 auto;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 16px;
+  box-shadow: var(--shadow-sm);
+}
+.card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.confirmed-hint {
+  font-size: 12px;
+  color: var(--success);
+}
+.card-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fg-primary);
+  margin: 0;
+}
+.card-summary {
+  margin: 6px 0 0;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--fg-secondary);
+}
+.card-refs {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 8px 0 0;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.card-ref {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+.card-foot {
+  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.disabled-hint {
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+.card-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+</style>

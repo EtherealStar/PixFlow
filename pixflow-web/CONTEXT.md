@@ -31,3 +31,8 @@ _Avoid_: Proposal, task domain entity
 **Activity Record**:
 One removable item in Activity; its lifetime is independent of any successfully published Generated Image.
 _Avoid_: output asset
+
+**Activity Command**:
+A user action addressed to an Activity Record and routed to the context that
+owns the underlying work, such as Cancel, Retry failed items, or Clear.
+_Avoid_: direct Task API action, status-derived action

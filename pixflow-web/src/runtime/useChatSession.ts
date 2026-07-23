@@ -1,11 +1,12 @@
-import { computed, markRaw, ref, shallowRef, watch, type Ref } from 'vue'
+import { computed, ref, shallowRef, watch } from 'vue'
 import type { RouteLocationNormalizedLoaded, Router } from 'vue-router'
-import { createAgentTurn, isRejected, type AgentTurn } from '@/runtime/useAgentTurn'
+import { isRejected, type AgentTurn } from '@/runtime/useAgentTurn'
 import { useAgentTurnsStore } from '@/stores/agentTurns'
 import { useConversationsStore } from '@/stores/conversations'
 import { useToastStore } from '@/stores/toast'
 import { ApiError } from '@/types/api'
 import type { Proposal, TimelineItem } from '@/types/agent'
+import type { MessageReference } from '@/api/messages'
 
 export interface ChatRouteLike {
   params: RouteLocationNormalizedLoaded['params']
@@ -23,19 +24,27 @@ export function useChatSession(opts: ChatSessionOptions) {
   const toast = useToastStore()
 
   const sending = ref(false)
-  const composerText = ref('')
-  const userMessages = ref<Array<{ id: string; text: string }>>([])
-  const taskRefs = ref<Array<{ taskId: string; conversationId: string }>>([])
   const activeConversationId = ref<string | null>(null)
   const turnRef = shallowRef<AgentTurn | null>(null)
   const bootstrapping = ref(false)
   let lastAutoSendKey = ''
 
-  const cid = computed(() => (opts.route.params.cid as string) || 'new')
+  const cid = computed(() => (opts.route.params.conversationId as string) || 'new')
   const streamTimeline = computed<TimelineItem[]>(() => turnRef.value?.timeline.value ?? [])
   const currentPhase = computed(() => turnRef.value?.phase.value ?? 'idle')
   const queuedCount = computed(() => turnRef.value?.queuedCount.value ?? 0)
+  const queuedMessages = computed(() => turnRef.value?.queuedMessages.value ?? [])
+  const queuePaused = computed(() => turnRef.value?.queuePaused.value ?? false)
   const turnError = computed(() => turnRef.value?.state.value.error ?? null)
+  const composerText = computed({
+    get: () => turnRef.value?.draft.value ?? '',
+    set: (value: string) => { if (turnRef.value) turnRef.value.draft.value = value }
+  })
+  const composerReferences = computed({
+    get: () => turnRef.value?.draftReferences.value ?? [],
+    set: (value: MessageReference[]) => { if (turnRef.value) turnRef.value.draftReferences.value = value }
+  })
+  const userMessages = computed(() => turnRef.value?.userMessages.value ?? [])
   const visibleProposals = computed(() => {
     const list = turnRef.value?.proposals.value ?? []
     return list.filter((p) => !isRejected(p))
@@ -68,9 +77,8 @@ export function useChatSession(opts: ChatSessionOptions) {
         await conversations.select(conversationId)
       }
       if (activeConversationId.value !== conversationId || !turnRef.value) {
-        turnRef.value?.abort()
         activeConversationId.value = conversationId
-        turnRef.value = markRaw(createAgentTurn({ conversationId }))
+        turnRef.value = agentTurns.getOrCreateRuntime(conversationId)
       }
       const q = typeof opts.route.query.q === 'string' ? opts.route.query.q.trim() : ''
       if (q) {
@@ -78,7 +86,7 @@ export function useChatSession(opts: ChatSessionOptions) {
         if (lastAutoSendKey !== key) {
           lastAutoSendKey = key
           await opts.router.replace({ path: `/chat/${conversationId}` })
-          await sendText(q)
+          sendText(q)
         }
       }
     } finally {
@@ -86,18 +94,17 @@ export function useChatSession(opts: ChatSessionOptions) {
     }
   }
 
-  async function sendText(text: string): Promise<void> {
-    if (!text.trim() || !turnRef.value || !activeConversationId.value) return
+  function sendText(text: string, references: MessageReference[] = []): void {
+    if ((!text.trim() && references.length === 0) || !turnRef.value || !activeConversationId.value) return
     const sentText = text.trim()
     sending.value = true
-    userMessages.value.push({ id: `u-${Date.now()}`, text: sentText })
     try {
-      // 完整 structured mention picker 由后续 File/Web 里程碑提供；当前不伪造 referenceKey。
-      await turnRef.value.send(sentText, [])
-      attachTaskIfPresent(turnRef, taskRefs, activeConversationId.value)
-    } catch (e: unknown) {
-      const err = ApiError.fromUnknown(e, { status: 0, errorCode: 'STREAM_ERROR', message: '发送失败', traceId: '' })
-      toast.push({ variant: 'danger', message: err.message })
+      void turnRef.value.send(sentText, references).catch((e: unknown) => {
+        const err = ApiError.fromUnknown(e, { status: 0, errorCode: 'STREAM_ERROR', message: '发送失败', traceId: '' })
+        if (err.errorCode !== 'TURN_QUEUE_CANCELLED') {
+          toast.push({ variant: 'danger', message: err.message })
+        }
+      })
     } finally {
       sending.value = false
     }
@@ -105,9 +112,11 @@ export function useChatSession(opts: ChatSessionOptions) {
 
   function sendComposer(): void {
     const text = composerText.value
-    if (!text.trim()) return
+    if (!text.trim() && composerReferences.value.length === 0) return
     composerText.value = ''
-    void sendText(text)
+    const references = composerReferences.value
+    composerReferences.value = []
+    void sendText(text, references)
   }
 
   async function confirmProposal(proposal: Proposal): Promise<void> {
@@ -116,7 +125,6 @@ export function useChatSession(opts: ChatSessionOptions) {
       const r = await turnRef.value.confirm(proposal.proposalId)
       if (r.taskId) {
         toast.push({ variant: 'success', message: `已创建任务：${r.taskId.slice(0, 8)}` })
-        appendTaskRef(taskRefs, r.taskId, activeConversationId.value)
       }
     } catch (e: unknown) {
       const err = ApiError.fromUnknown(e, { status: 0, errorCode: 'NETWORK_ERROR', message: '确认失败', traceId: '' })
@@ -128,7 +136,6 @@ export function useChatSession(opts: ChatSessionOptions) {
     if (!turnRef.value) return
     try {
       await turnRef.value.reject(proposal.proposalId)
-      userMessages.value.push({ id: `r-${Date.now()}`, text: `[已拒绝方案 ${proposal.proposalId.slice(0, 8)}]` })
     } catch (e: unknown) {
       const err = ApiError.fromUnknown(e, { status: 0, errorCode: 'NETWORK_ERROR', message: '拒绝失败', traceId: '' })
       toast.push({ variant: 'danger', message: err.message })
@@ -143,41 +150,27 @@ export function useChatSession(opts: ChatSessionOptions) {
   return {
     activeConversationId,
     composerText,
+    composerReferences,
     sending,
     streamTimeline,
     currentPhase,
     queuedCount,
+    queuedMessages,
+    queuePaused,
     turnError,
     visibleProposals,
     activeProposal,
     userMessages,
-    taskRefs,
     ensureConversationAndMaybeSend,
     sendText,
     sendComposer,
     confirmProposal,
     rejectProposal,
-    stop
-  }
-}
-
-function attachTaskIfPresent(
-  turnRef: Readonly<Ref<AgentTurn | null>>,
-  taskRefs: Ref<Array<{ taskId: string; conversationId: string }>>,
-  conversationId: string
-): void {
-  const taskId = turnRef.value?.state.value.taskId
-  if (taskId) {
-    appendTaskRef(taskRefs, taskId, conversationId)
-  }
-}
-
-function appendTaskRef(
-  taskRefs: Ref<Array<{ taskId: string; conversationId: string }>>,
-  taskId: string,
-  conversationId: string
-): void {
-  if (!taskRefs.value.find((t) => t.taskId === taskId)) {
-    taskRefs.value.push({ taskId, conversationId })
+    stop,
+    beginQueuedEdit: (id: string) => turnRef.value?.beginQueuedEdit(id),
+    saveQueuedEdit: (id: string, prompt: string, references: MessageReference[]) => turnRef.value?.saveQueuedEdit(id, prompt, references),
+    cancelQueuedEdit: (id: string) => turnRef.value?.cancelQueuedEdit(id),
+    cancelQueued: (id: string) => turnRef.value?.cancelQueued(id),
+    continueQueue: () => turnRef.value?.continueQueue()
   }
 }

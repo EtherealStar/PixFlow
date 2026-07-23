@@ -1,4 +1,5 @@
 import { createApp } from 'vue'
+import { watch } from 'vue'
 import { createPinia } from 'pinia'
 import App from './App.vue'
 import { router } from './router'
@@ -6,6 +7,8 @@ import { useAuthStore } from './stores/auth'
 import { AUTH_SESSION_INVALIDATED_EVENT } from './runtime/authSession'
 import { installDevConsoleGuard } from './utils/devConsoleGuard'
 import './styles/global.css'
+import { ActivityRuntime } from '@/runtime/activityRuntime'
+import { useAgentTurnsStore } from '@/stores/agentTurns'
 
 /**
  * 应用入口
@@ -26,7 +29,19 @@ window.addEventListener(AUTH_SESSION_INVALIDATED_EVENT, () => {
   window.location.replace('/login')
 })
 
-void useAuthStore(pinia).bootstrap()
+const auth = useAuthStore(pinia)
+const agentTurns = useAgentTurnsStore(pinia)
+const activityRuntime = new ActivityRuntime(pinia)
+
+watch(() => auth.isAuthenticated, (authenticated) => {
+  if (authenticated) void activityRuntime.start()
+  else {
+    activityRuntime.stop()
+    agentTurns.clearAll()
+  }
+}, { immediate: true })
+
+void auth.bootstrap()
 
 if (__DEV__) {
   installDevConsoleGuard()

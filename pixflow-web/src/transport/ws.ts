@@ -5,11 +5,11 @@ import { newTraceId } from '@/utils/id'
 
 /**
  * STOMP 通用连接 + 重连 + 重订阅。
- * 见 web.md §5.3。
+ * 见 frontend/transport-api.md 的 Activity STOMP 约束。
  *
  *  - 重连退避 1 → 2 → 4 → 8 → 30s（封顶），自定义表
  *  - 重连成功后重放所有订阅
- *  - 不持久化 WS 订阅：刷新页面后从 Pinia 重建订阅集合
+ *  - 不持久化 WS 订阅：刷新页面后由应用级 Activity runtime 重建唯一订阅
  */
 export interface StompClientOptions {
   url: string

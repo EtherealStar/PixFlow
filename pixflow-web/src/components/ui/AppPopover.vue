@@ -15,6 +15,7 @@ import {
  */
 withDefaults(
   defineProps<{
+    open?: boolean
     /** 默认 open 状态 */
     defaultOpen?: boolean
     side?: 'top' | 'bottom' | 'left' | 'right'
@@ -24,10 +25,16 @@ withDefaults(
     side: 'bottom',
   }
 )
+
+defineEmits<{ 'update:open': [value: boolean] }>()
 </script>
 
 <template>
-  <PopoverRoot :default-open="defaultOpen">
+  <PopoverRoot
+    :open="open"
+    :default-open="defaultOpen"
+    @update:open="(value: boolean) => $emit('update:open', value)"
+  >
     <PopoverTrigger as-child>
       <slot name="trigger" />
     </PopoverTrigger>

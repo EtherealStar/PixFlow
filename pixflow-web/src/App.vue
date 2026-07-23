@@ -5,21 +5,17 @@ import AppShell from '@/components/layout/AppShell.vue'
 import LeftPanel from '@/components/layout/LeftPanel.vue'
 import RightPanel from '@/components/layout/RightPanel.vue'
 import NetworkBanner from '@/components/layout/NetworkBanner.vue'
-import TraceIdFloat from '@/components/ui/TraceIdFloat.vue'
 import AppToastProvider from '@/components/ui/AppToastProvider.vue'
 import { useUiStore } from '@/stores/ui'
 
 /**
  * 应用根。
  *
- * R6 装配（web.md §十一）：
+ * 装配（frontend/shell-routing-auth.md）：
  * - standalone 路由（/login）：全屏渲染，不套三栏
- * - 业务路由：Header + AppShell（三栏）+ 默认 RouterView + TraceIdFloat + ToastProvider
+ * - 业务路由：AppShell 三栏（左导航 / 主内容 / 右栏全局 Activity）+ ToastProvider
  *
- * 左栏 3 段插槽接入文件树：
- * - upload  → FileTreePanel section="upload"
- * - results → FileTreePanel section="results"
- * - history → HistoryTree
+ * trace ID 只作为失败操作的可复制错误编号出现，无全局 trace 组件。
  */
 const route = useRoute()
 const ui = useUiStore()
@@ -47,7 +43,6 @@ const isLogin = computed(() => route.name === 'login')
   <template v-if="isStandalone || isLogin">
     <NetworkBanner v-if="!isOnline" />
     <RouterView :key="route.path" />
-    <TraceIdFloat />
     <AppToastProvider />
   </template>
   <template v-else>
@@ -63,7 +58,6 @@ const isLogin = computed(() => route.name === 'login')
         </template>
       </AppShell>
     </div>
-    <TraceIdFloat />
     <AppToastProvider />
   </template>
 </template>

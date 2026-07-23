@@ -9,7 +9,7 @@ function authResponse(): Response {
       data: {
         accessToken: 'new-token',
         accessTokenExpiresAt: '2026-07-06T12:00:00Z',
-        user: { username: 'alice' }
+        user: { userId: 1, username: 'alice', displayName: null }
       }
     }),
     { status: 200, headers: { 'content-type': 'application/json' } }

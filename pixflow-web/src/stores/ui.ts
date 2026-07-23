@@ -1,16 +1,14 @@
 import { defineStore } from 'pinia'
 import { ref, watch } from 'vue'
-import { useAgentTurnsStore } from './agentTurns'
 
 /**
- * UI 状态机（web.md §六 / §九 / §十）
+ * UI 状态机（frontend/shell-routing-auth.md / frontend/product.md）
  *
- * - leftPanelPinned: 左栏钉住状态（持久化到 localStorage）
- * - rightPanelPinned: 右栏钉住状态（持久化到 localStorage）
- * - rightPanelExpanded: 右栏展开态（新任务出现时自动展开 6s 后收回；用户手动展开或钉住转常驻）
- * - sidebarOpen: 旧版兼容字段（AppLayout 还在用，新布局用 leftPanelPinned）
- * - floatingTraceId: 右下角浮窗 traceId
+ * - leftPanelPinned / rightPanelPinned: 面板钉住状态（非敏感 UI 偏好，持久化 localStorage）
+ * - rightPanelExpanded: 右栏展开态（仅用户显式展开；新活动永不自动展开）
  * - networkOnline: 网络在线状态（影响顶部 NetworkBanner 显隐）
+ *
+ * 注：trace ID 只作为失败操作的可复制错误编号出现，没有全局 trace 组件。
  */
 
 const PINNED_LS_KEY = 'pixflow.ui.panelPinned'
@@ -35,11 +33,8 @@ function writePinnedToLs(p: { left: boolean; right: boolean }): void {
 }
 
 export const useUiStore = defineStore('ui', () => {
-  const sidebarOpen = ref(true) // 旧字段保留（AppLayout R1 过渡用）
-  const floatingTraceId = ref<string | null>(null)
   const networkOnline = ref(true)
 
-  // 新版布局状态
   const initial = readPinnedFromLs()
   const leftPanelPinned = ref(initial.left)
   const rightPanelPinned = ref(initial.right)
@@ -50,25 +45,6 @@ export const useUiStore = defineStore('ui', () => {
     writePinnedToLs({ left: l, right: r })
   })
 
-  // 自动收回定时器
-  let expandTimer: ReturnType<typeof setTimeout> | null = null
-  function autoExpandRightPanel(ms = 6000): void {
-    if (rightPanelPinned.value) return // 钉住态不自动收回
-    rightPanelExpanded.value = true
-    if (expandTimer) clearTimeout(expandTimer)
-    expandTimer = setTimeout(() => {
-      rightPanelExpanded.value = false
-      expandTimer = null
-    }, ms)
-  }
-
-  // agentTurns 联动 traceId
-  const agentTurns = useAgentTurnsStore()
-  watch(() => agentTurns.lastTraceId, (v) => {
-    if (v) floatingTraceId.value = v
-  })
-
-  function toggleSidebar(): void { sidebarOpen.value = !sidebarOpen.value }
   function toggleLeftPanelPin(): void { leftPanelPinned.value = !leftPanelPinned.value }
   function toggleRightPanelPin(): void {
     rightPanelPinned.value = !rightPanelPinned.value
@@ -77,20 +53,15 @@ export const useUiStore = defineStore('ui', () => {
   function setRightPanelExpanded(v: boolean): void {
     if (rightPanelPinned.value) return // 钉住态不允许折叠
     rightPanelExpanded.value = v
-    if (expandTimer) { clearTimeout(expandTimer); expandTimer = null }
   }
 
   return {
-    sidebarOpen,
-    floatingTraceId,
     networkOnline,
     leftPanelPinned,
     rightPanelPinned,
     rightPanelExpanded,
-    toggleSidebar,
     toggleLeftPanelPin,
     toggleRightPanelPin,
     setRightPanelExpanded,
-    autoExpandRightPanel,
   }
 })
