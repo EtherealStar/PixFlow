@@ -31,7 +31,6 @@ import org.mybatis.spring.annotation.MapperScan;
 import org.redisson.api.RedissonClient;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -73,7 +72,6 @@ public class ConversationAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    @ConditionalOnBean({PermissionPolicy.class, AssetReferenceResolver.class})
     public MessageReferenceValidator messageReferenceValidator(
             PermissionPolicy permissionPolicy,
             AssetReferenceResolver assetReferenceResolver) {
@@ -101,11 +99,6 @@ public class ConversationAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    @ConditionalOnBean({
-            ConversationLock.class,
-            AgentTurnRunnerRegistry.class,
-            MessageReferenceValidator.class
-    })
     public TurnPreparationService turnPreparationService(
             ConversationService conversationService,
             ConversationLock conversationLock,
@@ -126,7 +119,6 @@ public class ConversationAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    @ConditionalOnBean(ProposalService.class)
     public ConversationPermissionProofs conversationPermissionProofs(
             ConversationService conversationService,
             ProposalService proposalService) {
@@ -135,7 +127,6 @@ public class ConversationAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    @ConditionalOnBean({ProposalService.class, PermissionPolicy.class, TaskCommandService.class})
     public ConfirmationService conversationConfirmationService(
             ConversationService conversationService,
             ProposalService proposalService,
@@ -153,7 +144,6 @@ public class ConversationAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    @ConditionalOnBean(TaskCommandService.class)
     public CancellationService conversationCancellationService(
             ConversationService conversationService,
             TaskCommandService taskCommandService) {
