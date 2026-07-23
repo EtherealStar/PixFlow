@@ -24,7 +24,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
         classes = CommerceDataMapperIntegrationTest.TestApp.class,
         properties = {
                 "spring.sql.init.mode=always",
-                "spring.sql.init.schema-locations=classpath:schema.sql",
+                "spring.sql.init.schema-locations=classpath:db/commerce/V1__create_commerce_tables.sql",
                 "spring.autoconfigure.exclude=com.pixflow.module.commerce.config.CommerceAutoConfiguration"
         })
 class CommerceDataMapperIntegrationTest {
